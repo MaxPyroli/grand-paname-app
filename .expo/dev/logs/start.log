@@ -1,0 +1,50 @@
+{"_e":"root:init","_t":1781778044131,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1781778044131,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1781778044134,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1781778044308,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1781778044534,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1781778044750,"level":"warn","data":["The latest version of React Native DevTools is not supported on this platform. Using a fallback version instead."]}
+{"_e":"metro:instantiate","_t":1781778047875,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:client_log","_t":1781778157899,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThis project requires a newer version of Expo Go.\n\nHow to fix this error:\nDownload the latest version of Expo Go from the Play Store."]}
+{"_e":"root:init","_t":1781779007502,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1781779007503,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1781779007504,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1781779007689,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1781779007991,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1781779008235,"level":"warn","data":["The latest version of React Native DevTools is not supported on this platform. Using a fallback version instead."]}
+{"_e":"metro:instantiate","_t":1781779011309,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:client_log","_t":1781779015678,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThis project requires a newer version of Expo Go.\n\nHow to fix this error:\nDownload the latest version of Expo Go from the Play Store."]}
+{"_e":"metro:client_log","_t":1781779020635,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThis project requires a newer version of Expo Go.\n\nHow to fix this error:\nDownload the latest version of Expo Go from the Play Store."]}
+{"_e":"root:init","_t":1781779902793,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1781779902793,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1781779902795,"mode":"development","files":[],"env":{}}
+{"_e":"devserver:start","_t":1781779902933,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1781779903149,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1781779903309,"level":"warn","data":["The latest version of React Native DevTools is not supported on this platform. Using a fallback version instead."]}
+{"_e":"metro:instantiate","_t":1781779906278,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:client_log","_t":1781779912869,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThis project requires a newer version of Expo Go.\n\nHow to fix this error:\nDownload the latest version of Expo Go from the Play Store."]}
+{"_e":"root:init","_t":1782079097858,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782079097861,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782079097865,"mode":"development","files":["../..\\..\\.env"],"env":{"IDFM_API_KEY":"d91efea0e226a55a14d71310d586bbb63c3bffa6568cb8a209649f73"}}
+{"_e":"devserver:start","_t":1782079098329,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782079099069,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782079099863,"level":"warn","data":["The latest version of React Native DevTools is not supported on this platform. Using a fallback version instead."]}
+{"_e":"metro:instantiate","_t":1782079107024,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"env:mode","_t":1782079113534,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"metro:client_log","_t":1782079123565,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThis project requires a newer version of Expo Go.\n\nHow to fix this error:\nDownload the latest version of Expo Go from the Play Store."]}
+{"_e":"root:init","_t":1782079202731,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782079202731,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782079202737,"mode":"development","files":["../..\\..\\.env"],"env":{"IDFM_API_KEY":"d91efea0e226a55a14d71310d586bbb63c3bffa6568cb8a209649f73"}}
+{"_e":"devserver:start","_t":1782079202953,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782079203276,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782079203517,"level":"warn","data":["The latest version of React Native DevTools is not supported on this platform. Using a fallback version instead."]}
+{"_e":"metro:instantiate","_t":1782079210669,"atlas":false,"workers":8,"host":"::","port":8081}
+{"_e":"metro:client_log","_t":1782079218428,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThis project requires a newer version of Expo Go.\n\nHow to fix this error:\nDownload the latest version of Expo Go from the Play Store."]}
+{"_e":"root:init","_t":1782080317888,"format":"v0-jsonl","version":"56.1.16"}
+{"_e":"env:mode","_t":1782080317889,"nodeEnv":"development","babelEnv":"development","mode":"development"}
+{"_e":"env:load","_t":1782080317897,"mode":"development","files":["../..\\..\\.env"],"env":{"IDFM_API_KEY":"d91efea0e226a55a14d71310d586bbb63c3bffa6568cb8a209649f73"}}
+{"_e":"devserver:start","_t":1782080323638,"mode":"development","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../..\\..\\app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":false}
+{"_e":"metro:config","_t":1782080324531,"serverRoot":"../..\\..","projectRoot":"../..\\..","exporting":false,"flags":{"autolinkingModuleResolution":false,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:server_log","_t":1782080325604,"level":"warn","data":["The latest version of React Native DevTools is not supported on this platform. Using a fallback version instead."]}
+{"_e":"metro:instantiate","_t":1782080334818,"atlas":false,"workers":8,"host":"::","port":8082}
+{"_e":"metro:client_log","_t":1782080338026,"level":"error","data":["Project is incompatible with this version of Expo Go\n\nThis project requires a newer version of Expo Go.\n\nHow to fix this error:\nDownload the latest version of Expo Go from the Play Store."]}
