@@ -158,17 +158,16 @@ function RechercheScreen() {
             <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
             <Text style={styles.titreGrandPaname}>Grand Paname</Text>
           </View>
-          <View style={styles.headerBoutonsDroite}>
-            <TouchableOpacity style={styles.boutonFavoris} onPress={() => { Keyboard.dismiss(); setSearchResults([]); setAfficherFavoris(!afficherFavoris); }}>
-              <Text style={{fontSize: 22, marginRight: 10}}>⭐</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.boutonActualiser} onPress={forcerActualisation}>
-              <Text style={{fontSize: 18, marginRight: 10}}>🔄</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.boutonMenu} onPress={basculerSidebar}>
-              <Text style={{fontSize: 22}}>⚙️</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Ligne 1 : Boutons d'action épurés */}
+            <View style={styles.headerBoutonsDroite}>
+              <TouchableOpacity style={styles.boutonActualiser} onPress={forcerActualisation}>
+                <Text style={{fontSize: 18, marginRight: 10}}>🔄</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.boutonMenu} onPress={basculerSidebar}>
+                <Text style={{fontSize: 22}}>⚙️</Text>
+              </TouchableOpacity>
+            </View>
         </View>
 
         <View style={styles.headerDeuxiemeLigne}>
@@ -186,31 +185,9 @@ function RechercheScreen() {
       </View>
 
       <View style={styles.coque}>
-        {afficherFavoris && (
-          <View style={styles.searchResultsContainer}>
-            {favoris.length === 0 ? (
-              <Text style={{padding: 15, color: '#7f8c8d', textAlign: 'center', fontFamily: 'GrandParis-Light'}}>
-                Aucun favori. Cherchez une gare et cliquez sur l'étoile vide pour l'ajouter !
-              </Text>
-            ) : (
-              <FlatList
-                data={favoris} keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <View style={styles.searchResultRow}>
-                    <TouchableOpacity style={{flex: 1, paddingVertical: 15}} onPress={() => selectionnerGareEtChargerPage(item.id, item.label)}>
-                      <Text style={styles.searchResultText}>{item.label}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.etoileAction} onPress={() => basculerFavori(item)}>
-                      <Text style={{fontSize: 20}}>⭐</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              />
-            )}
-          </View>
-        )}
 
-        {searchResults.length > 0 && !afficherFavoris && (
+        {/* 🔍 LES RÉSULTATS DE RECHERCHE (On a retiré !afficherFavoris car ça n'existe plus) */}
+        {searchResults.length > 0 && (
           <View style={styles.searchResultsContainer}>
             <FlatList
               data={searchResults} keyExtractor={(item) => item.id} keyboardShouldPersistTaps="handled"
@@ -233,17 +210,52 @@ function RechercheScreen() {
           </View>
         )}
 
+        {/* 🗺️ LA CARTE STREAMLIT AU FOND */}
         <WebView 
           ref={webViewRef} source={{ uri: APP_URL }} javaScriptEnabled={true}
           domStorageEnabled={true} startInLoadingState={true} injectedJavaScript={injecterEcouteurClic} onMessage={gererMessageWeb}
         />
 
+        {/* 🪄 LE NOUVEAU PANNEAU FAVORIS TRANSPARENT (Utilise bien item.label et item.id) */}
+        {afficherFavoris && (
+          <BlurView intensity={90} tint="light" style={styles.panneauOverlay}>
+            <Text style={styles.titrePanneau}>⭐ Mes Favoris</Text>
+            {favoris.length === 0 ? (
+              <Text style={styles.texteTutoPanneau}>
+                Aucun favori enregistré. Cherchez une gare dans l'accueil et cliquez sur l'étoile pour l'ajouter !
+              </Text>
+            ) : (
+              <FlatList
+                data={favoris}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={styles.itemFavoriNatif}
+                    onPress={() => {
+                      setAfficherFavoris(false); // 1. On ferme le volet
+                      selectionnerGareEtChargerPage(item.id, item.label); // 2. On charge ta gare !
+                    }}
+                  >
+                    <View style={styles.alignementFavori}>
+                      <Text style={{ fontSize: 18, marginRight: 10 }}>📍</Text>
+                      <Text style={styles.texteNomGareFavori}>{item.label}</Text>
+                    </View>
+                    <Text style={{ color: '#3498db', fontSize: 16 }}>➔</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </BlurView>
+        )}
+
+        {/* ⏳ LE CHARGEMENT DU GPS */}
         {loadingGps && (
           <View style={styles.chargementFlottant}>
             <ActivityIndicator size="large" color="#3498db" />
           </View>
         )}
       </View>
+
     </View>
   );
 }
@@ -402,6 +414,33 @@ const styles = StyleSheet.create({
     position: 'relative', 
     // Le paddingBottom a été supprimé ici pour que la carte prenne tout l'écran !
   },
+  panneauOverlay: {
+    position: 'absolute',
+    top: 80,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+    borderRadius: 22,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 18,
+    zIndex: 50,
+  },
+  titrePanneau: {
+    fontSize: 20,
+    fontFamily: 'GrandParis-Bold',
+    color: '#25303b',
+    marginBottom: 12,
+  },
+  texteTutoPanneau: {
+    fontSize: 15,
+    fontFamily: 'GrandParis-Light',
+    color: '#4f5b6a',
+    lineHeight: 22,
+  },
   chargementFlottant: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.7)', zIndex: 10 },
 
   // --- STYLES ONE UI (Modal / Card / Blur) ---
@@ -517,5 +556,22 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     paddingHorizontal: 20,
     paddingBottom: 110, // Pousse le texte vers le haut pour ne pas être caché par la barre
+  },
+  itemFavoriNatif: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(225, 232, 237, 0.5)',
+  },
+  alignementFavori: { flexDirection: 'row', alignItems: 'center' },
+  texteNomGareFavori: {
+    fontSize: 16,
+    fontFamily: 'GrandParis-Medium',
+    color: '#2c3e50',
   },
 });
