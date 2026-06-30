@@ -1,16 +1,18 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, FlatList, TextInput, Keyboard, Image, Animated, Dimensions, LayoutChangeEvent } from 'react-native';
-import { useFonts } from 'expo-font'; 
+import { useFonts } from 'expo-font';
 import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
+import BottomSheet, { BottomSheetView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // ─── CONSTANTES DE LAYOUT ────────────────────────────────────────────────────
 const NAV_BAR_BOTTOM = 16;
-const NAV_BAR_HEIGHT = 58; // plus compact
+const NAV_BAR_HEIGHT = 58;
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 type Gare = { id: string; label: string };
@@ -19,65 +21,33 @@ type FavorisProps = {
   onSupprimerFavori: (gare: Gare) => void;
   onSelectionnerGare: (id: string, label: string) => void;
 };
-type RechercheProps = {
+type AccueilProps = {
   favoris: Gare[];
   onBasculerFavori: (gare: Gare) => void;
   estFavori: (id: string) => boolean;
   onHeaderLayout: (height: number) => void;
-  naviguerVersGareRef: React.MutableRefObject<((id: string, label: string) => void) | null>;
+  onGareChoisie: (id: string, label: string) => void;
 };
 
-// ─── ÉCRAN RECHERCHE ─────────────────────────────────────────────────────────
-function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout, naviguerVersGareRef }: RechercheProps) {
-  const webViewRef = useRef<WebView>(null);
-  const [hauteurHeader, setHauteurHeader] = useState(0); // LIGNE À AJOUTER
-  const APP_URL = process.env.EXPO_PUBLIC_APP_URL || ''; 
+// ─── ÉCRAN D'ACCUEIL : CARTE NATIVE + RECHERCHE ───────────────────────────────
+// La WebView ne vit plus ici : cet écran ne s'occupe que de trouver une gare
+// (recherche, GPS, ou plus tard un tap sur la carte) et de prévenir le parent.
+function AccueilScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie }: AccueilProps) {
   const [loadingGps, setLoadingGps] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Gare[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [gareCourante, setGareCourante] = useState<string | null>(null); // NOUVELLE LIGNE
+  const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
 
   useEffect(() => {
     (async () => { await Location.requestForegroundPermissionsAsync(); })();
   }, []);
 
-  const selectionnerGareEtChargerPage = useCallback((gareId: string, gareLabel: string) => {
-    Keyboard.dismiss(); 
-    setSearchQuery(""); 
-    setSearchResults([]);
-
-    // ✂️ LIGNE AJOUTÉE : On coupe le texte avant la parenthèse et on enlève les espaces
-    const nomPropre = gareLabel.split('(')[0].trim();
-    setGareCourante(nomPropre); 
-
-    const nomEncode = encodeURIComponent(gareLabel);
-    const urlTarget = `${APP_URL}?selectionned_stop_id=${gareId}&selectionned_stop_name=${nomEncode}&t=${Date.now()}`;
-    webViewRef.current?.injectJavaScript(`window.location.href = "${urlTarget}"; true;`);
-  }, [APP_URL]);
-
-  const retourAccueil = () => {
-    setGareCourante(null);
-    webViewRef.current?.injectJavaScript(`window.location.href = "${APP_URL}"; true;`);
-  };
-
-  // On expose selectionnerGareEtChargerPage via le ref pour que App puisse l'appeler depuis FavorisScreen
-  useEffect(() => {
-    naviguerVersGareRef.current = selectionnerGareEtChargerPage;
-  }, [selectionnerGareEtChargerPage]);
-
-  const forcerActualisation = () => {
-    webViewRef.current?.injectJavaScript(`location.reload(); true;`);
-  };
-
-  const basculerSidebar = () => {
+  const choisirGare = (gareId: string, gareLabel: string) => {
     Keyboard.dismiss();
-    webViewRef.current?.injectJavaScript(`
-      var btnOpen = document.querySelector('[data-testid="collapsedControl"]');
-      if (btnOpen) { btnOpen.click(); } 
-      else { var btnClose = document.querySelector('section[data-testid="stSidebar"] button'); if (btnClose) btnClose.click(); }
-      true;
-    `);
+    setSearchQuery("");
+    setSearchResults([]);
+    onGareChoisie(gareId, gareLabel);
   };
 
   const rechercherGare = async (texte: string) => {
@@ -111,63 +81,28 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
     } finally { setLoadingGps(false); setIsSearching(false); }
   };
 
-  const injecterEcouteurClic = `
-    // 🛡️ ASSASSINAT DU TITRE WEB : Coche la case "display: none" de force
-    const style = document.createElement('style');
-    style.innerHTML = '.sticky-station-title, .station-title { display: none !important; }';
-    document.head.appendChild(style);
-    document.body.style.paddingTop = "${hauteurHeader}px"; // LIGNE À AJOUTER
-    document.addEventListener('click', function(event) {
-      let target = event.target;
-      while (target && target !== document) {
-        if (target.tagName === 'BUTTON' && target.innerText && target.innerText.includes('Me localiser')) {
-          event.preventDefault(); event.stopPropagation();
-          window.ReactNativeWebView.postMessage("CLIC_LOCALISER");
-          return;
-        }
-        target = target.parentNode;
-      }
-    }, true);
-    true;
-  `;
-
-  const gererMessageWeb = async (event: any) => {
-    if (event.nativeEvent.data === "CLIC_LOCALISER") {
-      try {
-        setLoadingGps(true);
-        let location = await Location.getLastKnownPositionAsync();
-        if (!location) location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
-        const lat = location!.coords.latitude;
-        const lon = location!.coords.longitude;
-        webViewRef.current?.injectJavaScript(`window.location.href = "${APP_URL}?lat=${lat}&lon=${lon}&t=${Date.now()}"; true;`);
-      } catch {} finally { setLoadingGps(false); }
-    }
-  };
-
   return (
     <View style={styles.container}>
+      {/* ── Réservation future : carte native react-native-maps ── */}
+      {/* Pour l'instant un simple placeholder. À remplacer par :
+          <MapView style={StyleSheet.absoluteFill} ... /> avec les marqueurs de gares. */}
+      <View style={styles.cartePlaceholder}>
+        <Text style={styles.cartePlaceholderEmoji}>🗺️</Text>
+        <Text style={styles.cartePlaceholderTexte}>Carte interactive — bientôt disponible</Text>
+      </View>
+
       {/* onLayout mesure la hauteur réelle du header (height + y = position absolue du bas du header) */}
       <View
         style={styles.headerNatif}
         onLayout={(e: LayoutChangeEvent) => {
           const { y, height } = e.nativeEvent.layout;
           onHeaderLayout(y + height);
-          setHauteurHeader(y + height); // LIGNE À AJOUTER
         }}
       >
-        {/* --- HEADER PRINCIPAL FIXE --- */}
         <View style={styles.headerPremiereLigne}>
           <View style={styles.titleContainer}>
             <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
             <Text style={styles.titreGrandPaname}>Grand Paname</Text>
-          </View>
-          <View style={styles.headerBoutonsDroite}>
-            <TouchableOpacity style={styles.boutonActualiser} onPress={forcerActualisation}>
-              <Text style={{fontSize: 18, marginRight: 10}}>🔄</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.boutonMenu} onPress={basculerSidebar}>
-              <Text style={{fontSize: 22}}>⚙️</Text>
-            </TouchableOpacity>
           </View>
         </View>
         <View style={styles.headerDeuxiemeLigne}>
@@ -184,52 +119,34 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
         </View>
       </View>
 
-      {/* ✨ NOUVEAU : LE BADGE FLOTTANT DE LA STATION ✨ */}
-      {gareCourante && (
-        <View style={styles.badgeStationFlottant}>
-          <TouchableOpacity onPress={retourAccueil} style={{ paddingRight: 10 }}>
-            <Text style={{ fontSize: 20 }}>⬅️</Text>
-          </TouchableOpacity>
-          <Text style={styles.texteBadgeStation} numberOfLines={1}>
-            {gareCourante}
-          </Text>
+      {searchResults.length > 0 && (
+        <View style={styles.searchResultsContainer}>
+          <FlatList
+            data={searchResults} keyExtractor={(item) => item.id} keyboardShouldPersistTaps="handled"
+            renderItem={({ item }) => (
+              <View style={styles.searchResultRow}>
+                <TouchableOpacity
+                  style={{flex: 1, paddingVertical: 15}}
+                  onPress={() => { if (item.id !== "erreur" && item.id !== "vide") choisirGare(item.id, item.label); }}
+                >
+                  <Text style={styles.searchResultText}>{item.label}</Text>
+                </TouchableOpacity>
+                {item.id !== "erreur" && item.id !== "vide" && (
+                  <TouchableOpacity style={styles.etoileAction} onPress={() => onBasculerFavori(item)}>
+                    <Text style={{fontSize: 22}}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          />
         </View>
       )}
 
-      <View style={styles.coque}>
-        {searchResults.length > 0 && (
-          <View style={styles.searchResultsContainer}>
-            <FlatList
-              data={searchResults} keyExtractor={(item) => item.id} keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <View style={styles.searchResultRow}>
-                  <TouchableOpacity
-                    style={{flex: 1, paddingVertical: 15}}
-                    onPress={() => { if (item.id !== "erreur" && item.id !== "vide") selectionnerGareEtChargerPage(item.id, item.label); }}
-                  >
-                    <Text style={styles.searchResultText}>{item.label}</Text>
-                  </TouchableOpacity>
-                  {item.id !== "erreur" && item.id !== "vide" && (
-                    <TouchableOpacity style={styles.etoileAction} onPress={() => onBasculerFavori(item)}>
-                      <Text style={{fontSize: 22}}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-            />
-          </View>
-        )}
-        <WebView
-          ref={webViewRef} source={{ uri: APP_URL }} javaScriptEnabled={true}
-          domStorageEnabled={true} startInLoadingState={true}
-          injectedJavaScript={injecterEcouteurClic} onMessage={gererMessageWeb}
-        />
-        {loadingGps && (
-          <View style={styles.chargementFlottant}>
-            <ActivityIndicator size="large" color="#3498db" />
-          </View>
-        )}
-      </View>
+      {loadingGps && (
+        <View style={styles.chargementFlottant}>
+          <ActivityIndicator size="large" color="#3498db" />
+        </View>
+      )}
     </View>
   );
 }
@@ -289,9 +206,16 @@ function AssistantScreen() {
 export default function App() {
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'assistant'>('accueil');
   const [favoris, setFavoris] = useState<Gare[]>([]);
-  // Hauteur du header mesurée dynamiquement via onLayout
   const [headerHeight, setHeaderHeight] = useState(0);
-  const webViewNavRef = useRef<((id: string, label: string) => void) | null>(null);
+
+  // ── Gestion de la gare actuellement affichée dans le bottom sheet
+  const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string } | null>(null);
+  const webViewRef = useRef<WebView>(null);
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
+
+  // Points d'ancrage du bottom sheet : fermé (caché), mi-hauteur, plein écran
+  const snapPoints = useMemo(() => ['1%', '50%', '92%'], []);
 
   const [fontsLoaded] = useFonts({
     'GrandParis-Light': require('./assets/GrandParis-Light.otf'),
@@ -329,11 +253,50 @@ export default function App() {
 
   const estFavori = useCallback((id: string) => favoris.some(f => f.id === id), [favoris]);
 
+  // ── Choix d'une gare : depuis recherche, GPS, ou favoris → ouvre/met à jour le bottom sheet
+  const ouvrirGareDansBottomSheet = useCallback((id: string, label: string) => {
+    const dejaOuverte = gareActuelle?.id === id;
+    setGareActuelle({ id, label });
+
+    const nomEncode = encodeURIComponent(label);
+    const urlTarget = `${APP_URL}?selectionned_stop_id=${id}&selectionned_stop_name=${nomEncode}&t=${Date.now()}`;
+
+    if (dejaOuverte) {
+      // Même gare déjà affichée : on remonte juste le sheet si besoin
+      webViewRef.current?.injectJavaScript(`window.location.href = "${urlTarget}"; true;`);
+    } else {
+      // Nouvelle gare : la WebView va se recharger via sa prop source (voir plus bas)
+    }
+    bottomSheetRef.current?.snapToIndex(2); // ouverture en plein écran
+  }, [gareActuelle, APP_URL]);
+
   const selectionnerDepuisFavoris = useCallback((id: string, label: string) => {
     setActiveTab('accueil');
-    // Léger délai pour laisser l'animation de fermeture démarrer avant d'injecter l'URL
-    setTimeout(() => { if (webViewNavRef.current) webViewNavRef.current(id, label); }, 50);
+    setTimeout(() => ouvrirGareDansBottomSheet(id, label), 50);
+  }, [ouvrirGareDansBottomSheet]);
+
+  const fermerBottomSheet = useCallback(() => {
+    bottomSheetRef.current?.close();
   }, []);
+
+  const rechargerWebView = () => {
+    webViewRef.current?.injectJavaScript(`location.reload(); true;`);
+  };
+
+  const basculerSidebar = () => {
+    Keyboard.dismiss();
+    webViewRef.current?.injectJavaScript(`
+      var btnOpen = document.querySelector('[data-testid="collapsedControl"]');
+      if (btnOpen) { btnOpen.click(); } 
+      else { var btnClose = document.querySelector('section[data-testid="stSidebar"] button'); if (btnClose) btnClose.click(); }
+      true;
+    `);
+  };
+
+  // URL ciblée que la WebView du bottom sheet doit charger
+  const urlGareActuelle = gareActuelle
+    ? `${APP_URL}?selectionned_stop_id=${gareActuelle.id}&selectionned_stop_name=${encodeURIComponent(gareActuelle.label)}&t=${Date.now()}`
+    : APP_URL;
 
   useEffect(() => {
     if (activeTab !== 'accueil') {
@@ -352,121 +315,172 @@ export default function App() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color="#3498db" /></View>;
   }
 
-  // Le tiroir commence juste sous le header mesuré, et finit juste au-dessus de la nav bar
   const tiroirTop = headerHeight + 8;
   const tiroirBottom = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 8;
 
   return (
-    <SafeAreaProvider>
-      <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['top', 'left', 'right']}>
-        <StatusBar style="dark" />
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['top', 'left', 'right']}>
+          <StatusBar style="dark" />
 
-        <RechercheScreen
-          favoris={favoris}
-          onBasculerFavori={basculerFavori}
-          estFavori={estFavori}
-          onHeaderLayout={setHeaderHeight}
-          naviguerVersGareRef={webViewNavRef}
-        />
+          <AccueilScreen
+            favoris={favoris}
+            onBasculerFavori={basculerFavori}
+            estFavori={estFavori}
+            onHeaderLayout={setHeaderHeight}
+            onGareChoisie={ouvrirGareDansBottomSheet}
+          />
 
-        {/* Fond sombre quand un tiroir est ouvert */}
-        {activeTab !== 'accueil' && (
-          <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]}>
-            <BlurView intensity={15} tint="dark" style={StyleSheet.absoluteFill}>
-              <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setActiveTab('accueil')} />
-            </BlurView>
+          {/* Fond sombre quand un tiroir latéral est ouvert */}
+          {activeTab !== 'accueil' && (
+            <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]}>
+              <BlurView intensity={15} tint="dark" style={StyleSheet.absoluteFill}>
+                <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setActiveTab('accueil')} />
+              </BlurView>
+            </View>
+          )}
+
+          {/* ── Tiroir latéral — flotte entre header mesuré et nav bar ── */}
+          {headerHeight > 0 && (
+            <Animated.View style={[
+              styles.sideCard,
+              lastTab === 'favoris' ? styles.sideCardLeft : styles.sideCardRight,
+              { top: tiroirTop, bottom: tiroirBottom, transform: [{ translateX: slideAnim }] }
+            ]}>
+              <View style={[
+                StyleSheet.absoluteFill,
+                styles.glassFond,
+                lastTab === 'favoris' ? styles.glassBordureDroite : styles.glassBordureGauche
+              ]} />
+              <View style={styles.cardContentWrapper}>
+                {lastTab === 'favoris' && (
+                  <FavorisScreen favoris={favoris} onSupprimerFavori={basculerFavori} onSelectionnerGare={selectionnerDepuisFavoris} />
+                )}
+                {lastTab === 'assistant' && <AssistantScreen />}
+              </View>
+            </Animated.View>
+          )}
+
+          {/* ── Barre de navigation One UI claire ── */}
+          <View style={styles.floatingTabBar}>
+            <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('favoris')}>
+              <View style={[styles.tabPill, activeTab === 'favoris' && styles.tabPillActive]}>
+                <Text style={styles.tabIcon}>{activeTab === 'favoris' ? '⭐' : '☆'}</Text>
+              </View>
+              <Text style={[styles.tabLabel, activeTab === 'favoris' && styles.tabLabelActive]}>Favoris</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('accueil')}>
+              <View style={[styles.tabPill, styles.tabPillCenter, activeTab === 'accueil' && styles.tabPillCenterActive]}>
+                <Text style={[styles.tabIcon, { fontSize: 22 }]}>🚇</Text>
+              </View>
+              <Text style={[styles.tabLabel, activeTab === 'accueil' && styles.tabLabelActive]}>Accueil</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('assistant')}>
+              <View style={[styles.tabPill, activeTab === 'assistant' && styles.tabPillActive]}>
+                <Text style={styles.tabIcon}>{activeTab === 'assistant' ? '🤖' : '💬'}</Text>
+              </View>
+              <Text style={[styles.tabLabel, activeTab === 'assistant' && styles.tabLabelActive]}>Pana</Text>
+            </TouchableOpacity>
           </View>
-        )}
 
-        {/* ── Tiroir latéral — flotte entre header mesuré et nav bar ── */}
-        {headerHeight > 0 && (
-          <Animated.View style={[
-            styles.sideCard,
-            lastTab === 'favoris' ? styles.sideCardLeft : styles.sideCardRight,
-            { top: tiroirTop, bottom: tiroirBottom, transform: [{ translateX: slideAnim }] }
-          ]}>
-            <View style={[
-              StyleSheet.absoluteFill,
-              styles.glassFond,
-              lastTab === 'favoris' ? styles.glassBordureDroite : styles.glassBordureGauche
-            ]} />
-            <View style={styles.cardContentWrapper}>
-              {lastTab === 'favoris' && (
-                <FavorisScreen favoris={favoris} onSupprimerFavori={basculerFavori} onSelectionnerGare={selectionnerDepuisFavoris} />
-              )}
-              {lastTab === 'assistant' && <AssistantScreen />}
-            </View>
-          </Animated.View>
-        )}
+          {/* ── Bottom Sheet : remonte depuis le bas quand une gare est choisie ── */}
+          <BottomSheet
+            ref={bottomSheetRef}
+            index={-1}
+            snapPoints={snapPoints}
+            enablePanDownToClose={true}
+            backdropComponent={(props) => (
+              <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={1} opacity={0.35} pressBehavior="close" />
+            )}
+            handleIndicatorStyle={styles.bottomSheetHandle}
+            backgroundStyle={styles.bottomSheetFond}
+            onClose={() => setGareActuelle(null)}
+          >
+            <BottomSheetView style={{ flex: 1 }}>
+              {/* En-tête du sheet : nom de la gare + actions rapides */}
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitreGare} numberOfLines={1}>
+                  {gareActuelle?.label.split('(')[0].trim() || ''}
+                </Text>
+                <View style={styles.sheetActions}>
+                  <TouchableOpacity style={styles.sheetBoutonAction} onPress={rechargerWebView}>
+                    <Text style={{ fontSize: 16 }}>🔄</Text>
+                  </TouchableOpacity>
+                  {gareActuelle && (
+                    <TouchableOpacity
+                      style={styles.sheetBoutonAction}
+                      onPress={() => basculerFavori({ id: gareActuelle.id, label: gareActuelle.label })}
+                    >
+                      <Text style={{ fontSize: 16 }}>{estFavori(gareActuelle.id) ? '⭐' : '☆'}</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity style={styles.sheetBoutonAction} onPress={basculerSidebar}>
+                    <Text style={{ fontSize: 16 }}>⚙️</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.sheetBoutonFermer} onPress={fermerBottomSheet}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#7f8c8d' }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
 
-        {/* ── Barre de navigation One UI claire ── */}
-        <View style={styles.floatingTabBar}>
+              {/* La WebView Streamlit : carte + départs de la gare choisie */}
+              <View style={{ flex: 1 }}>
+                {gareActuelle ? (
+                  <WebView
+                    ref={webViewRef}
+                    source={{ uri: urlGareActuelle }}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                    startInLoadingState={true}
+                  />
+                ) : (
+                  <View style={{ flex: 1 }} />
+                )}
+              </View>
+            </BottomSheetView>
+          </BottomSheet>
 
-          {/* Favoris */}
-          <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('favoris')}>
-            <View style={[styles.tabPill, activeTab === 'favoris' && styles.tabPillActive]}>
-              <Text style={styles.tabIcon}>{activeTab === 'favoris' ? '⭐' : '☆'}</Text>
-            </View>
-            <Text style={[styles.tabLabel, activeTab === 'favoris' && styles.tabLabelActive]}>Favoris</Text>
-          </TouchableOpacity>
-
-          {/* Accueil */}
-          <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('accueil')}>
-            <View style={[styles.tabPill, styles.tabPillCenter, activeTab === 'accueil' && styles.tabPillCenterActive]}>
-              <Text style={[styles.tabIcon, { fontSize: 22 }]}>🚇</Text>
-            </View>
-            <Text style={[styles.tabLabel, activeTab === 'accueil' && styles.tabLabelActive]}>Accueil</Text>
-          </TouchableOpacity>
-
-          {/* Pana */}
-          <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('assistant')}>
-            <View style={[styles.tabPill, activeTab === 'assistant' && styles.tabPillActive]}>
-              <Text style={styles.tabIcon}>{activeTab === 'assistant' ? '🤖' : '💬'}</Text>
-            </View>
-            <Text style={[styles.tabLabel, activeTab === 'assistant' && styles.tabLabelActive]}>Pana</Text>
-          </TouchableOpacity>
-
-        </View>
-
-      </SafeAreaView>
-    </SafeAreaProvider>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'transparent' },
+
+  // ─ Placeholder carte (réservé pour react-native-maps)
+  cartePlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#E8ECF1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartePlaceholderEmoji: { fontSize: 42, marginBottom: 10, opacity: 0.5 },
+  cartePlaceholderTexte: { fontFamily: 'GrandParis-Medium', fontSize: 14, color: '#9aa5b1' },
+
   headerNatif: {
-    position: 'absolute', // LIGNE AJOUTÉE
-    top: 0,               // LIGNE AJOUTÉE
-    left: 0,              // LIGNE AJOUTÉE
-    right: 0,             // LIGNE AJOUTÉE
     paddingHorizontal: 15, paddingVertical: 12,
-    backgroundColor: 'rgba(255,255,255,0.75)',
+    backgroundColor: 'rgba(255,255,255,0.82)',
     elevation: 3, zIndex: 10,
   },
   headerPremiereLigne: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   headerDeuxiemeLigne: { flexDirection: 'row', alignItems: 'center', width: '100%' },
-  headerBoutonsDroite: { flexDirection: 'row', alignItems: 'center' },
   titleContainer: { flexDirection: 'row', alignItems: 'center' },
   logoApp: { width: 35, height: 35, marginRight: 8, resizeMode: 'contain' },
   titreGrandPaname: { fontSize: 25, fontFamily: 'GrandParis-Medium', color: '#25303b' },
   boutonGpsBarre: { padding: 8, backgroundColor: '#f1f2f6', borderRadius: 20, marginRight: 8, width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
   searchContainer: { flex: 1, position: 'relative', justifyContent: 'center' },
   searchInput: { backgroundColor: '#f1f2f6', height: 40, borderRadius: 20, paddingHorizontal: 15, fontSize: 16, color: '#2c3e50', fontFamily: 'GrandParis-Light' },
-  boutonActualiser: { padding: 5 },
-  boutonFavoris: { padding: 5 },
-  boutonMenu: { padding: 5 },
-searchResultsContainer: { 
-    position: 'absolute', 
-    top: 90, // MODIFIÉ : 90 au lieu de 5 pour s'afficher sous le header
-    left: 15, right: 15, backgroundColor: 'white', borderRadius: 10, maxHeight: 300, zIndex: 999, elevation: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 
-  },
+  searchResultsContainer: { position: 'absolute', top: 110, left: 15, right: 15, backgroundColor: 'white', borderRadius: 10, maxHeight: 300, zIndex: 999, elevation: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
   searchResultRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f1f2f6', paddingHorizontal: 15 },
   searchResultText: { fontSize: 16, color: '#25303b', fontFamily: 'GrandParis-Medium' },
   etoileAction: { padding: 10 },
-  coque: { flex: 1, position: 'relative' },
-  chargementFlottant: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.7)', zIndex: 10 },
+  chargementFlottant: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.4)', zIndex: 10 },
 
   // ─ Tiroir textes
   titreTiroir: { fontSize: 20, fontFamily: 'GrandParis-Bold', color: '#25303b', marginBottom: 4 },
@@ -498,85 +512,32 @@ searchResultsContainer: {
 
   // ─── BARRE DE NAVIGATION ONE UI CLAIRE ───────────────────────────────────
   floatingTabBar: {
-    position: 'absolute',
-    bottom: NAV_BAR_BOTTOM,
-    alignSelf: 'center',
-    width: '88%',
-    height: NAV_BAR_HEIGHT,
-    backgroundColor: 'rgba(255,255,255,0.75)',
-    borderRadius: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 16,
-    zIndex: 9999,
-    paddingHorizontal: 6,
+    position: 'absolute', bottom: NAV_BAR_BOTTOM, alignSelf: 'center',
+    width: '88%', height: NAV_BAR_HEIGHT,
+    backgroundColor: 'rgba(255,255,255,0.82)', borderRadius: 30,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12,
+    elevation: 16, zIndex: 9999, paddingHorizontal: 6,
   },
-
-  // Chaque onglet (colonne icône + label)
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-  },
-
-  // Pilule latérale (Favoris / Pana) — dimensions fixes pour que borderRadius marche sur Android
+  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
   tabPill: {
-    width: 56,
-    height: 28,
-    borderRadius: 14,          // = height/2 → cercle parfait garanti
-    overflow: 'hidden',        // clip Android
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
+    width: 56, height: 28, borderRadius: 14, overflow: 'hidden',
+    alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent',
   },
-  tabPillActive: {
-    backgroundColor: '#EBEBEB',
-  },
-
-  // Pilule centrale Accueil — même logique, légèrement plus large, SANS fond au repos
+  tabPillActive: { backgroundColor: '#EBEBEB' },
   tabPillCenter: {
-    width: 64,
-    height: 32,
-    borderRadius: 16,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent', // invisible au repos
+    width: 64, height: 32, borderRadius: 16, overflow: 'hidden',
+    alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent',
   },
-  tabPillCenterActive: {
-    backgroundColor: '#DDEEFF',     // bleu doux seulement quand actif
-  },
-
-  tabIcon: {
-    fontSize: 20,
-    lineHeight: 26,
-  },
-  tabLabel: {
-    fontFamily: 'GrandParis-Medium',
-    fontSize: 10,
-    color: '#8E8E93',
-  },
-  tabLabelActive: {
-    color: '#25303b',
-  },
+  tabPillCenterActive: { backgroundColor: '#DDEEFF' },
+  tabIcon: { fontSize: 20, lineHeight: 26 },
+  tabLabel: { fontFamily: 'GrandParis-Medium', fontSize: 10, color: '#8E8E93' },
+  tabLabelActive: { color: '#25303b' },
 
   // ─── TIROIRS LATÉRAUX ─────────────────────────────────────────────────────
-  sideCard: {
-    position: 'absolute',
-    width: '80%',
-    zIndex: 101,
-    overflow: 'hidden',
-    borderRadius: 24,
-  },
+  sideCard: { position: 'absolute', width: '80%', zIndex: 101, overflow: 'hidden', borderRadius: 24 },
   sideCardLeft: { left: 12 },
   sideCardRight: { right: 12 },
-
   glassFond: { backgroundColor: '#F0F3F8', borderRadius: 24 },
   glassBordureDroite: {
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)',
@@ -587,29 +548,44 @@ searchResultsContainer: {
     shadowColor: '#0d1b2e', shadowOffset: { width: -10, height: 0 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 20,
   },
   cardContentWrapper: { flex: 1, paddingTop: 24, paddingHorizontal: 18, paddingBottom: 16 },
-  badgeStationFlottant: {
-    position: 'absolute',
-    top: 95, // Ajuste ce chiffre selon la hauteur exacte de ton header
-    alignSelf: 'center',
+
+  // ─── BOTTOM SHEET (gare sélectionnée) ─────────────────────────────────────
+  bottomSheetFond: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  bottomSheetHandle: {
+    backgroundColor: '#d0d5dc',
+    width: 40,
+    height: 4,
+  },
+  sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.90)', // Effet semi-transparent
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 25,
-    zIndex: 99,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f2f5',
   },
-  texteBadgeStation: {
+  sheetTitreGare: {
+    flex: 1,
     fontSize: 18,
-    fontWeight: '900',
-    color: '#041b3b',
-    textTransform: 'uppercase',
+    fontFamily: 'GrandParis-Bold',
+    color: '#25303b',
+    marginRight: 10,
+  },
+  sheetActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sheetBoutonAction: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#f1f2f6',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sheetBoutonFermer: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#f1f2f6',
+    alignItems: 'center', justifyContent: 'center',
+    marginLeft: 4,
   },
 });
