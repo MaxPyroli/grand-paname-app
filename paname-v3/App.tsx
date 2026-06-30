@@ -30,11 +30,13 @@ type RechercheProps = {
 // ─── ÉCRAN RECHERCHE ─────────────────────────────────────────────────────────
 function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout, naviguerVersGareRef }: RechercheProps) {
   const webViewRef = useRef<WebView>(null);
+  const [hauteurHeader, setHauteurHeader] = useState(0); // LIGNE À AJOUTER
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || ''; 
   const [loadingGps, setLoadingGps] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Gare[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [gareCourante, setGareCourante] = useState<string | null>(null); // NOUVELLE LIGNE
 
   useEffect(() => {
     (async () => { await Location.requestForegroundPermissionsAsync(); })();
@@ -42,10 +44,16 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
 
   const selectionnerGareEtChargerPage = useCallback((gareId: string, gareLabel: string) => {
     Keyboard.dismiss(); setSearchQuery(""); setSearchResults([]);
+    setGareCourante(gareLabel); // LIGNE AJOUTÉE
     const nomEncode = encodeURIComponent(gareLabel);
     const urlTarget = `${APP_URL}?selectionned_stop_id=${gareId}&selectionned_stop_name=${nomEncode}&t=${Date.now()}`;
     webViewRef.current?.injectJavaScript(`window.location.href = "${urlTarget}"; true;`);
   }, [APP_URL]);
+
+  const retourAccueil = () => {
+    setGareCourante(null);
+    webViewRef.current?.injectJavaScript(`window.location.href = "${APP_URL}"; true;`);
+  };
 
   // On expose selectionnerGareEtChargerPage via le ref pour que App puisse l'appeler depuis FavorisScreen
   useEffect(() => {
@@ -98,6 +106,7 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
   };
 
   const injecterEcouteurClic = `
+    document.body.style.paddingTop = "${hauteurHeader}px"; // LIGNE À AJOUTER
     document.addEventListener('click', function(event) {
       let target = event.target;
       while (target && target !== document) {
@@ -133,13 +142,26 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
         onLayout={(e: LayoutChangeEvent) => {
           const { y, height } = e.nativeEvent.layout;
           onHeaderLayout(y + height);
+          setHauteurHeader(y + height); // LIGNE À AJOUTER
         }}
       >
         <View style={styles.headerPremiereLigne}>
-          <View style={styles.titleContainer}>
-            <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
-            <Text style={styles.titreGrandPaname}>Grand Paname</Text>
-          </View>
+          {gareCourante ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <TouchableOpacity onPress={retourAccueil} style={{ padding: 5, marginRight: 10 }}>
+                <Text style={{ fontSize: 22 }}>⬅️</Text>
+              </TouchableOpacity>
+              <Text style={[styles.titreGrandPaname, { flex: 1 }]} numberOfLines={1}>
+                {gareCourante}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.titleContainer}>
+              <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
+              <Text style={styles.titreGrandPaname}>Grand Paname</Text>
+            </View>
+          )}
+
           <View style={styles.headerBoutonsDroite}>
             <TouchableOpacity style={styles.boutonActualiser} onPress={forcerActualisation}>
               <Text style={{fontSize: 18, marginRight: 10}}>🔄</Text>
@@ -404,6 +426,10 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'transparent' },
   headerNatif: {
+    position: 'absolute', // LIGNE AJOUTÉE
+    top: 0,               // LIGNE AJOUTÉE
+    left: 0,              // LIGNE AJOUTÉE
+    right: 0,             // LIGNE AJOUTÉE
     paddingHorizontal: 15, paddingVertical: 12,
     backgroundColor: 'rgba(255,255,255,0.75)',
     elevation: 3, zIndex: 10,
@@ -420,7 +446,11 @@ const styles = StyleSheet.create({
   boutonActualiser: { padding: 5 },
   boutonFavoris: { padding: 5 },
   boutonMenu: { padding: 5 },
-  searchResultsContainer: { position: 'absolute', top: 5, left: 15, right: 15, backgroundColor: 'white', borderRadius: 10, maxHeight: 300, zIndex: 999, elevation: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
+searchResultsContainer: { 
+    position: 'absolute', 
+    top: 90, // MODIFIÉ : 90 au lieu de 5 pour s'afficher sous le header
+    left: 15, right: 15, backgroundColor: 'white', borderRadius: 10, maxHeight: 300, zIndex: 999, elevation: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 
+  },
   searchResultRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f1f2f6', paddingHorizontal: 15 },
   searchResultText: { fontSize: 16, color: '#25303b', fontFamily: 'GrandParis-Medium' },
   etoileAction: { padding: 10 },

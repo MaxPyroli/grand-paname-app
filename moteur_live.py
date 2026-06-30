@@ -675,21 +675,21 @@ def afficher_tableau_live(stop_id, stop_name):
     clean_name = stop_name.split('(')[0].strip()
     
     # On retire le style="background-color: transparent" qui écrasait tout
-    st.markdown(f"""
-    <style>
-        div[data-testid="stElementContainer"]:has(.sticky-station-title) {{
-            position: sticky !important; 
-            top: 3.8rem !important; 
-            z-index: 200 !important;
-        }}
-    </style>
+    # st.markdown(f"""
+    # <style>
+    #     div[data-testid="stElementContainer"]:has(.sticky-station-title) {{
+    #         position: sticky !important; 
+    #         top: 3.8rem !important; 
+    #         z-index: 200 !important;
+    #     }}
+    # </style>
     
-    <div class='station-title sticky-station-title'>
-        {clean_name}
-    </div>
+    # <div class='station-title sticky-station-title'>
+    #     {clean_name}
+    # </div>
 
-    <img src="x" style="display:none;" onerror="setInterval(()=>{{const el=document.querySelector('.sticky-station-title');if(el){{document.documentElement.style.setProperty('--title-height',el.offsetHeight+'px');}}}}, 200);">
-    """, unsafe_allow_html=True)
+    # <img src="x" style="display:none;" onerror="setInterval(()=>{{const el=document.querySelector('.sticky-station-title');if(el){{document.documentElement.style.setProperty('--title-height',el.offsetHeight+'px');}}}}, 200);">
+    # """, unsafe_allow_html=True)
             
     coords_df = demander_coordonnees_arret(stop_id)
     if coords_df is not None:
