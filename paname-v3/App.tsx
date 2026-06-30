@@ -1,3 +1,4 @@
+import 'react-native-reanimated'; // 👈 À mettre TOUT en haut, ligne 1 !
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, FlatList, TextInput, Keyboard, Image, Animated, Dimensions, LayoutChangeEvent } from 'react-native';
 import { useFonts } from 'expo-font';
