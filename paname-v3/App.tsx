@@ -1,19 +1,82 @@
-import 'react-native-reanimated'; // 👈 À mettre TOUT en haut, ligne 1 !
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ActivityIndicator, FlatList, TextInput, Keyboard, Image, Animated, Dimensions, LayoutChangeEvent } from 'react-native';
+import {
+  StyleSheet, View, Text, TouchableOpacity, ActivityIndicator,
+  FlatList, TextInput, Keyboard, Image, Animated, Dimensions,
+  LayoutChangeEvent, Platform, PanResponder,
+} from 'react-native';
+import MapWebView, { MapWebViewRef } from './MapWebView';
 import { useFonts } from 'expo-font';
 import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
-import BottomSheet, { BottomSheetView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // ─── CONSTANTES DE LAYOUT ────────────────────────────────────────────────────
 const NAV_BAR_BOTTOM = 16;
 const NAV_BAR_HEIGHT = 58;
+const SEARCH_BAR_HEIGHT = 52;
+const SEARCH_BAR_BOTTOM = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 10;
+const { height: SCREEN_H } = Dimensions.get('window');
+
+// ─── INJECTION WEBVIEW ───────────────────────────────────────────────────────
+const WEBVIEW_HIDE_JS = `
+(function() {
+  // Injection CSS préventive pour tous les éléments Streamlit flottants
+  var css = document.createElement('style');
+  css.textContent = [
+    'header[data-testid="stHeader"]{display:none!important}',
+    '[data-testid="stToolbar"]{display:none!important}',
+    '[data-testid="stDecoration"]{display:none!important}',
+    '[data-testid="stMainMenuButton"]{display:none!important}',
+    '[data-testid="stStatusWidget"]{display:none!important}',
+    '#MainMenu{display:none!important}',
+    'footer{display:none!important}',
+  ].join('');
+  (document.head || document.documentElement).appendChild(css);
+
+  var done = new WeakSet();
+  function hide(el) {
+    if (!el || done.has(el)) return;
+    done.add(el);
+    el.style.setProperty('display','none','important');
+  }
+  function climb(el, max) {
+    var cur = el;
+    for (var i = 0; i < max; i++) {
+      if (!cur.parentElement || cur.parentElement.tagName === 'BODY') return cur;
+      cur = cur.parentElement;
+      if (cur.classList.contains('element-container') ||
+          cur.getAttribute('data-testid') === 'stButton' ||
+          cur.classList.contains('stButton') ||
+          cur.classList.contains('stVerticalBlock')) return cur;
+    }
+    return el;
+  }
+  function run() {
+    ['[data-testid="stDeckGlJsonChart"]','[data-testid="stPydeckChart"]',
+     '[data-testid="stFoliumChart"]','[data-testid="stMap"]',
+     '[data-testid="stToolbar"]','[data-testid="stDecoration"]',
+     '[data-testid="stMainMenuButton"]','[data-testid="stStatusWidget"]',
+     'header[data-testid="stHeader"]','#MainMenu','footer'].forEach(function(s) {
+      document.querySelectorAll(s).forEach(function(el){ hide(el); });
+    });
+    var PAT = ['favori','favorite','⭐','★','☆','bookmark','sauvegarder','pana'];
+    document.querySelectorAll('button,[role="button"],[data-testid*="Button"] *,div[data-testid*="pana"]').forEach(function(btn) {
+      var txt = ((btn.textContent||'') + ' ' +
+                 (btn.getAttribute('aria-label')||'') + ' ' +
+                 (btn.getAttribute('title')||'')).toLowerCase();
+      for (var i=0;i<PAT.length;i++) {
+        if (txt.includes(PAT[i])) { hide(climb(btn,8)); break; }
+      }
+    });
+  }
+  run();
+  new MutationObserver(run).observe(document.body,{childList:true,subtree:true});
+})();
+true;
+`;
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 type Gare = { id: string; label: string };
@@ -30,25 +93,53 @@ type AccueilProps = {
   onGareChoisie: (id: string, label: string) => void;
 };
 
-// ─── ÉCRAN D'ACCUEIL : CARTE NATIVE + RECHERCHE ───────────────────────────────
-// La WebView ne vit plus ici : cet écran ne s'occupe que de trouver une gare
-// (recherche, GPS, ou plus tard un tap sur la carte) et de prévenir le parent.
+// ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
 function AccueilScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie }: AccueilProps) {
+  const mapRef = useRef<MapWebViewRef>(null);
   const [loadingGps, setLoadingGps] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Gare[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
+
+  // Valeur animée pour remonter la barre de recherche au-dessus du clavier
+  const searchBarBottom = useRef(new Animated.Value(SEARCH_BAR_BOTTOM)).current;
+  const resultsBottom   = useRef(Animated.add(searchBarBottom, SEARCH_BAR_HEIGHT + 8)).current;
 
   useEffect(() => {
     (async () => { await Location.requestForegroundPermissionsAsync(); })();
   }, []);
 
-  const choisirGare = (gareId: string, gareLabel: string) => {
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const s1 = Keyboard.addListener(showEvt, (e) => {
+      Animated.timing(searchBarBottom, {
+        toValue: e.endCoordinates.height + 8,
+        duration: Platform.OS === 'ios' ? (e.duration ?? 250) : 220,
+        useNativeDriver: false,
+      }).start();
+    });
+    const s2 = Keyboard.addListener(hideEvt, (e) => {
+      Animated.timing(searchBarBottom, {
+        toValue: SEARCH_BAR_BOTTOM,
+        duration: Platform.OS === 'ios' ? (e.duration ?? 200) : 180,
+        useNativeDriver: false,
+      }).start();
+    });
+    return () => { s1.remove(); s2.remove(); };
+  }, []);
+
+  const fermerRecherche = () => {
     Keyboard.dismiss();
-    setSearchQuery("");
+    setSearchQuery('');
     setSearchResults([]);
-    onGareChoisie(gareId, gareLabel);
+  };
+
+  const choisirGare = (id: string, label: string) => {
+    fermerRecherche();
+    onGareChoisie(id, label);
   };
 
   const rechercherGare = async (texte: string) => {
@@ -56,43 +147,41 @@ function AccueilScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout, o
     if (texte.length < 2) { setSearchResults([]); return; }
     setIsSearching(true);
     try {
-      const apiFastApiUrl = APP_URL.replace("8501", "8000");
-      const response = await fetch(`${apiFastApiUrl}/api/search?q=${texte}`);
-      const json = await response.json();
-      setSearchResults(json.results?.length > 0 ? json.results : [{ id: "vide", label: "Aucune gare trouvée 😕" }]);
+      const api = APP_URL.replace('8501', '8000');
+      const res = await fetch(`${api}/api/search?q=${texte}`);
+      const json = await res.json();
+      setSearchResults(json.results?.length > 0 ? json.results : [{ id: 'vide', label: 'Aucune gare trouvée 😕' }]);
     } catch {
-      setSearchResults([{ id: "erreur", label: "⚠️ Impossible de joindre le serveur" }]);
+      setSearchResults([{ id: 'erreur', label: '⚠️ Impossible de joindre le serveur' }]);
     } finally { setIsSearching(false); }
   };
 
   const declarerClicGpsNatif = async () => {
-    Keyboard.dismiss(); setSearchQuery(""); setIsSearching(true);
+    fermerRecherche();
+    setIsSearching(true);
     try {
       setLoadingGps(true);
-      let location = await Location.getLastKnownPositionAsync();
-      if (!location) location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
-      const lat = location!.coords.latitude;
-      const lon = location!.coords.longitude;
-      const apiFastApiUrl = APP_URL.replace("8501", "8000");
-      const response = await fetch(`${apiFastApiUrl}/api/nearby?lat=${lat}&lon=${lon}`);
-      const json = await response.json();
-      setSearchResults(json.results?.length > 0 ? json.results : [{ id: "vide", label: "Aucun arrêt dans un rayon de 1.5km 😕" }]);
+      let loc = await Location.getLastKnownPositionAsync();
+      if (!loc) loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
+      const lat = loc!.coords.latitude;
+      const lon = loc!.coords.longitude;
+      mapRef.current?.setUserLocation(lat, lon);
+      const api = APP_URL.replace('8501', '8000');
+      const res = await fetch(`${api}/api/nearby?lat=${lat}&lon=${lon}`);
+      const json = await res.json();
+      setSearchResults(json.results?.length > 0 ? json.results : [{ id: 'vide', label: 'Aucun arrêt dans un rayon de 1.5km 😕' }]);
     } catch {
-      setSearchResults([{ id: "erreur", label: "⚠️ Impossible de géolocaliser ou joindre le serveur" }]);
+      setSearchResults([{ id: 'erreur', label: '⚠️ Impossible de géolocaliser ou joindre le serveur' }]);
     } finally { setLoadingGps(false); setIsSearching(false); }
   };
 
+  const showResults = searchResults.length > 0;
+
   return (
     <View style={styles.container}>
-      {/* ── Réservation future : carte native react-native-maps ── */}
-      {/* Pour l'instant un simple placeholder. À remplacer par :
-          <MapView style={StyleSheet.absoluteFill} ... /> avec les marqueurs de gares. */}
-      <View style={styles.cartePlaceholder}>
-        <Text style={styles.cartePlaceholderEmoji}>🗺️</Text>
-        <Text style={styles.cartePlaceholderTexte}>Carte interactive — bientôt disponible</Text>
-      </View>
+      <MapWebView ref={mapRef} onStationSelected={onGareChoisie} />
 
-      {/* onLayout mesure la hauteur réelle du header (height + y = position absolue du bas du header) */}
+      {/* Header pill flottant */}
       <View
         style={styles.headerNatif}
         onLayout={(e: LayoutChangeEvent) => {
@@ -100,54 +189,72 @@ function AccueilScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout, o
           onHeaderLayout(y + height);
         }}
       >
-        <View style={styles.headerPremiereLigne}>
-          <View style={styles.titleContainer}>
-            <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
-            <Text style={styles.titreGrandPaname}>Grand Paname</Text>
-          </View>
-        </View>
-        <View style={styles.headerDeuxiemeLigne}>
-          <TouchableOpacity style={styles.boutonGpsBarre} onPress={declarerClicGpsNatif}>
-            <Text style={{fontSize: 18}}>📍</Text>
-          </TouchableOpacity>
-          <View style={styles.searchContainer}>
-            <TextInput
-              style={styles.searchInput} placeholder="Rechercher une gare..."
-              value={searchQuery} onChangeText={rechercherGare} placeholderTextColor="#7f8c8d" autoCorrect={false}
-            />
-            {isSearching && <ActivityIndicator style={{position: 'absolute', right: 10}} size="small" color="#3498db" />}
-          </View>
-        </View>
+        <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
+        <Text style={styles.titreGrandPaname}>Grand Paname</Text>
       </View>
 
-      {searchResults.length > 0 && (
-        <View style={styles.searchResultsContainer}>
+      {/* Overlay transparent : tap sur la carte ferme la liste */}
+      {showResults && (
+        <TouchableOpacity
+          style={[StyleSheet.absoluteFill, { zIndex: 998 }]}
+          activeOpacity={1}
+          onPress={fermerRecherche}
+        />
+      )}
+
+      {/* Résultats au-dessus de la barre de recherche */}
+      {showResults && (
+        <Animated.View style={[styles.searchResultsContainer, { bottom: resultsBottom }]}>
           <FlatList
-            data={searchResults} keyExtractor={(item) => item.id} keyboardShouldPersistTaps="handled"
+            data={searchResults}
+            keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
               <View style={styles.searchResultRow}>
                 <TouchableOpacity
-                  style={{flex: 1, paddingVertical: 15}}
-                  onPress={() => { if (item.id !== "erreur" && item.id !== "vide") choisirGare(item.id, item.label); }}
+                  style={{ flex: 1, paddingVertical: 15 }}
+                  onPress={() => { if (item.id !== 'erreur' && item.id !== 'vide') choisirGare(item.id, item.label); }}
                 >
                   <Text style={styles.searchResultText}>{item.label}</Text>
                 </TouchableOpacity>
-                {item.id !== "erreur" && item.id !== "vide" && (
+                {item.id !== 'erreur' && item.id !== 'vide' && (
                   <TouchableOpacity style={styles.etoileAction} onPress={() => onBasculerFavori(item)}>
-                    <Text style={{fontSize: 22}}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
+                    <Text style={{ fontSize: 22 }}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
             )}
           />
-        </View>
+        </Animated.View>
       )}
 
-      {loadingGps && (
-        <View style={styles.chargementFlottant}>
-          <ActivityIndicator size="large" color="#3498db" />
+      {/* Barre de recherche flottante — monte au-dessus du clavier */}
+      <Animated.View style={[styles.bottomSearchBar, { bottom: searchBarBottom }]}>
+        <TouchableOpacity style={styles.boutonGpsBarre} onPress={declarerClicGpsNatif} disabled={loadingGps}>
+          {loadingGps
+            ? <ActivityIndicator size="small" color="#3498db" />
+            : <Text style={{ fontSize: 18 }}>📍</Text>
+          }
+        </TouchableOpacity>
+        <View style={styles.searchContainer}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Rechercher une gare..."
+            value={searchQuery}
+            onChangeText={rechercherGare}
+            placeholderTextColor="#7f8c8d"
+            autoCorrect={false}
+          />
+          {isSearching && (
+            <ActivityIndicator style={{ position: 'absolute', right: 12 }} size="small" color="#3498db" />
+          )}
+          {searchQuery.length > 0 && !isSearching && (
+            <TouchableOpacity style={{ position: 'absolute', right: 12 }} onPress={fermerRecherche}>
+              <Text style={{ fontSize: 15, color: '#aaa', fontWeight: '600' }}>✕</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      )}
+      </Animated.View>
     </View>
   );
 }
@@ -170,7 +277,8 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare }: Favor
         </View>
       ) : (
         <FlatList
-          data={favoris} keyExtractor={(item) => item.id}
+          data={favoris}
+          keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
           renderItem={({ item }) => (
@@ -204,28 +312,96 @@ function AssistantScreen() {
 }
 
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
-export default function App() {
+function AppInner() {
+  const insets = useSafeAreaInsets();
+
+  const PANEL_H = SCREEN_H - insets.top;
+
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'assistant'>('accueil');
   const [favoris, setFavoris] = useState<Gare[]>([]);
   const [headerHeight, setHeaderHeight] = useState(0);
-
-  // ── Gestion de la gare actuellement affichée dans le bottom sheet
   const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string } | null>(null);
   const webViewRef = useRef<WebView>(null);
-  const bottomSheetRef = useRef<BottomSheet>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
 
-  // Points d'ancrage du bottom sheet : fermé (caché), mi-hauteur, plein écran
-  const snapPoints = useMemo(() => ['1%', '50%', '92%'], []);
+  // ── Panel animé ──────────────────────────────────────────────────────────
+  // snapRef mis à jour chaque render pour que les closures stales lisent toujours les bonnes valeurs
+  const snapRef = useRef({ hidden: PANEL_H, half: PANEL_H - SCREEN_H * 0.50, full: PANEL_H });
+  snapRef.current.hidden = PANEL_H;
+  snapRef.current.half   = PANEL_H - SCREEN_H * 0.50;
+  // SNAP_FULL = headerHeight + 8 : panel démarre juste sous le titre (même formule que tiroirTop)
+  snapRef.current.full   = headerHeight > 0 ? headerHeight + 8 : PANEL_H;
 
+  const panelY      = useRef(new Animated.Value(PANEL_H)).current;
+  const panelSnap   = useRef<'hidden' | 'half' | 'full'>('hidden');
+  const [panelSnapState, setPanelSnapState] = useState<'hidden' | 'half' | 'full'>('hidden');
+  const currentY    = useRef(PANEL_H);
+  const startY      = useRef(PANEL_H);
+
+  useEffect(() => {
+    const id = panelY.addListener(({ value }) => { currentY.current = value; });
+    return () => panelY.removeListener(id);
+  }, []);
+
+  const snapTo = useCallback((snap: 'hidden' | 'half' | 'full', onDone?: () => void) => {
+    const to = snap === 'hidden' ? snapRef.current.hidden
+             : snap === 'half'   ? snapRef.current.half
+                                 : snapRef.current.full;
+    panelSnap.current = snap;
+    setPanelSnapState(snap);
+    Animated.spring(panelY, {
+      toValue: to, useNativeDriver: true, tension: 68, friction: 13,
+    }).start(({ finished }) => { if (finished) onDone?.(); });
+  }, [panelY]);
+
+  const snapToRef = useRef(snapTo);
+  snapToRef.current = snapTo;
+
+  const fermerPanel = useCallback(() => {
+    snapTo('hidden', () => setGareActuelle(null));
+  }, [snapTo]);
+  const fermerPanelRef = useRef(fermerPanel);
+  fermerPanelRef.current = fermerPanel;
+
+  const togglePanel = useCallback(() => {
+    snapTo(panelSnap.current === 'full' ? 'half' : 'full');
+  }, [snapTo]);
+
+  // PanResponder sur le drag handle
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 5 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderGrant: () => {
+        panelY.stopAnimation();
+        startY.current = currentY.current;
+      },
+      onPanResponderMove: (_, g) => {
+        const next = Math.max(snapRef.current.full - 30, Math.min(snapRef.current.hidden, startY.current + g.dy));
+        panelY.setValue(next);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.vy < -0.5 || g.dy < -60) {
+          snapToRef.current('full');
+        } else if (g.vy > 0.5 || g.dy > 60) {
+          if (panelSnap.current === 'full') snapToRef.current('half');
+          else fermerPanelRef.current();
+        } else {
+          snapToRef.current(panelSnap.current);
+        }
+      },
+    })
+  ).current;
+
+  // ── Données ──────────────────────────────────────────────────────────────
   const [fontsLoaded] = useFonts({
-    'GrandParis-Light': require('./assets/GrandParis-Light.otf'),
-    'GrandParis': require('./assets/GrandParis.otf'),
+    'GrandParis-Light':  require('./assets/GrandParis-Light.otf'),
+    'GrandParis':        require('./assets/GrandParis.otf'),
     'GrandParis-Medium': require('./assets/GrandParis-Medium.otf'),
-    'GrandParis-Bold': require('./assets/GrandParis-Bold.otf'),
+    'GrandParis-Bold':   require('./assets/GrandParis-Bold.otf'),
   });
 
-  const screenWidth = Dimensions.get('window').width;
+  const { width: screenWidth } = Dimensions.get('window');
   const slideAnim = useRef(new Animated.Value(screenWidth)).current;
   const [lastTab, setLastTab] = useState<'favoris' | 'assistant'>('favoris');
 
@@ -234,51 +410,46 @@ export default function App() {
       try {
         const stored = await AsyncStorage.getItem('@grand_paname_favoris');
         if (stored) setFavoris(JSON.parse(stored));
-      } catch (e) { console.log("Erreur chargement favoris", e); }
+      } catch (e) { console.log('Erreur chargement favoris', e); }
     })();
   }, []);
 
-  const sauvegarderFavoris = async (nouveauxFavoris: Gare[]) => {
-    try { await AsyncStorage.setItem('@grand_paname_favoris', JSON.stringify(nouveauxFavoris)); }
-    catch (e) { console.log("Erreur sauvegarde", e); }
+  const sauvegarderFavoris = async (list: Gare[]) => {
+    try { await AsyncStorage.setItem('@grand_paname_favoris', JSON.stringify(list)); }
+    catch (e) { console.log('Erreur sauvegarde', e); }
   };
 
   const basculerFavori = useCallback((gare: Gare) => {
     setFavoris(prev => {
-      const index = prev.findIndex(f => f.id === gare.id);
-      const nouveaux = index > -1 ? prev.filter(f => f.id !== gare.id) : [...prev, { id: gare.id, label: gare.label }];
-      sauvegarderFavoris(nouveaux);
-      return nouveaux;
+      const idx = prev.findIndex(f => f.id === gare.id);
+      const next = idx > -1 ? prev.filter(f => f.id !== gare.id) : [...prev, gare];
+      sauvegarderFavoris(next);
+      return next;
     });
   }, []);
 
   const estFavori = useCallback((id: string) => favoris.some(f => f.id === id), [favoris]);
 
-  // ── Choix d'une gare : depuis recherche, GPS, ou favoris → ouvre/met à jour le bottom sheet
-  const ouvrirGareDansBottomSheet = useCallback((id: string, label: string) => {
+  const urlGareActuelle = useMemo(() => {
+    if (!gareActuelle) return '';
+    return `${APP_URL}?selectionned_stop_id=${gareActuelle.id}&selectionned_stop_name=${encodeURIComponent(gareActuelle.label)}&t=${Date.now()}`;
+  }, [gareActuelle, APP_URL]);
+
+  const ouvrirGare = useCallback((id: string, label: string) => {
     const dejaOuverte = gareActuelle?.id === id;
     setGareActuelle({ id, label });
-
-    const nomEncode = encodeURIComponent(label);
-    const urlTarget = `${APP_URL}?selectionned_stop_id=${id}&selectionned_stop_name=${nomEncode}&t=${Date.now()}`;
-
+    setActiveTab('accueil');
     if (dejaOuverte) {
-      // Même gare déjà affichée : on remonte juste le sheet si besoin
-      webViewRef.current?.injectJavaScript(`window.location.href = "${urlTarget}"; true;`);
-    } else {
-      // Nouvelle gare : la WebView va se recharger via sa prop source (voir plus bas)
+      const url = `${APP_URL}?selectionned_stop_id=${id}&selectionned_stop_name=${encodeURIComponent(label)}&t=${Date.now()}`;
+      webViewRef.current?.injectJavaScript(`window.location.href = "${url}"; true;`);
     }
-    bottomSheetRef.current?.snapToIndex(2); // ouverture en plein écran
-  }, [gareActuelle, APP_URL]);
+    if (panelSnap.current === 'hidden') snapTo('half');
+  }, [gareActuelle, APP_URL, snapTo]);
 
   const selectionnerDepuisFavoris = useCallback((id: string, label: string) => {
     setActiveTab('accueil');
-    setTimeout(() => ouvrirGareDansBottomSheet(id, label), 50);
-  }, [ouvrirGareDansBottomSheet]);
-
-  const fermerBottomSheet = useCallback(() => {
-    bottomSheetRef.current?.close();
-  }, []);
+    setTimeout(() => ouvrirGare(id, label), 50);
+  }, [ouvrirGare]);
 
   const rechargerWebView = () => {
     webViewRef.current?.injectJavaScript(`location.reload(); true;`);
@@ -287,17 +458,12 @@ export default function App() {
   const basculerSidebar = () => {
     Keyboard.dismiss();
     webViewRef.current?.injectJavaScript(`
-      var btnOpen = document.querySelector('[data-testid="collapsedControl"]');
-      if (btnOpen) { btnOpen.click(); } 
-      else { var btnClose = document.querySelector('section[data-testid="stSidebar"] button'); if (btnClose) btnClose.click(); }
+      var o = document.querySelector('[data-testid="collapsedControl"]');
+      if (o) { o.click(); }
+      else { var c = document.querySelector('section[data-testid="stSidebar"] button'); if (c) c.click(); }
       true;
     `);
   };
-
-  // URL ciblée que la WebView du bottom sheet doit charger
-  const urlGareActuelle = gareActuelle
-    ? `${APP_URL}?selectionned_stop_id=${gareActuelle.id}&selectionned_stop_name=${encodeURIComponent(gareActuelle.label)}&t=${Date.now()}`
-    : APP_URL;
 
   useEffect(() => {
     if (activeTab !== 'accueil') {
@@ -316,13 +482,11 @@ export default function App() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color="#3498db" /></View>;
   }
 
-  const tiroirTop = headerHeight + 8;
-  const tiroirBottom = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 8;
+  const tiroirTop    = insets.top + headerHeight + 8;
+  const tiroirBottom = SEARCH_BAR_BOTTOM + SEARCH_BAR_HEIGHT + 8;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['top', 'left', 'right']}>
           <StatusBar style="dark" />
 
           <AccueilScreen
@@ -330,10 +494,10 @@ export default function App() {
             onBasculerFavori={basculerFavori}
             estFavori={estFavori}
             onHeaderLayout={setHeaderHeight}
-            onGareChoisie={ouvrirGareDansBottomSheet}
+            onGareChoisie={ouvrirGare}
           />
 
-          {/* Fond sombre quand un tiroir latéral est ouvert */}
+          {/* Overlay tiroirs latéraux */}
           {activeTab !== 'accueil' && (
             <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]}>
               <BlurView intensity={15} tint="dark" style={StyleSheet.absoluteFill}>
@@ -342,18 +506,15 @@ export default function App() {
             </View>
           )}
 
-          {/* ── Tiroir latéral — flotte entre header mesuré et nav bar ── */}
+          {/* Tiroirs latéraux */}
           {headerHeight > 0 && (
             <Animated.View style={[
               styles.sideCard,
               lastTab === 'favoris' ? styles.sideCardLeft : styles.sideCardRight,
               { top: tiroirTop, bottom: tiroirBottom, transform: [{ translateX: slideAnim }] }
             ]}>
-              <View style={[
-                StyleSheet.absoluteFill,
-                styles.glassFond,
-                lastTab === 'favoris' ? styles.glassBordureDroite : styles.glassBordureGauche
-              ]} />
+              <View style={[StyleSheet.absoluteFill, styles.glassFond,
+                lastTab === 'favoris' ? styles.glassBordureDroite : styles.glassBordureGauche]} />
               <View style={styles.cardContentWrapper}>
                 {lastTab === 'favoris' && (
                   <FavorisScreen favoris={favoris} onSupprimerFavori={basculerFavori} onSelectionnerGare={selectionnerDepuisFavoris} />
@@ -363,7 +524,7 @@ export default function App() {
             </Animated.View>
           )}
 
-          {/* ── Barre de navigation One UI claire ── */}
+          {/* Barre de navigation */}
           <View style={styles.floatingTabBar}>
             <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('favoris')}>
               <View style={[styles.tabPill, activeTab === 'favoris' && styles.tabPillActive]}>
@@ -371,14 +532,12 @@ export default function App() {
               </View>
               <Text style={[styles.tabLabel, activeTab === 'favoris' && styles.tabLabelActive]}>Favoris</Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('accueil')}>
               <View style={[styles.tabPill, styles.tabPillCenter, activeTab === 'accueil' && styles.tabPillCenterActive]}>
                 <Text style={[styles.tabIcon, { fontSize: 22 }]}>🚇</Text>
               </View>
               <Text style={[styles.tabLabel, activeTab === 'accueil' && styles.tabLabelActive]}>Accueil</Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('assistant')}>
               <View style={[styles.tabPill, activeTab === 'assistant' && styles.tabPillActive]}>
                 <Text style={styles.tabIcon}>{activeTab === 'assistant' ? '🤖' : '💬'}</Text>
@@ -387,66 +546,74 @@ export default function App() {
             </TouchableOpacity>
           </View>
 
-          {/* ── Bottom Sheet : remonte depuis le bas quand une gare est choisie ── */}
-          <BottomSheet
-            ref={bottomSheetRef}
-            index={-1}
-            snapPoints={snapPoints}
-            enablePanDownToClose={true}
-            backdropComponent={(props) => (
-              <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={1} opacity={0.35} pressBehavior="close" />
-            )}
-            handleIndicatorStyle={styles.bottomSheetHandle}
-            backgroundStyle={styles.bottomSheetFond}
-            onClose={() => setGareActuelle(null)}
-          >
-            <BottomSheetView style={{ flex: 1 }}>
-              {/* En-tête du sheet : nom de la gare + actions rapides */}
+          {/* ── Panel gare : bottom sheet animé ─────────────────────────── */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            <Animated.View style={[styles.garePanel, { height: PANEL_H, transform: [{ translateY: panelY }] }]}>
+
+              {/* Zone de drag */}
+              <View {...panResponder.panHandlers} style={styles.dragZone}>
+                <View style={styles.dragBar} />
+              </View>
+
+              {/* Header station */}
               <View style={styles.sheetHeader}>
                 <Text style={styles.sheetTitreGare} numberOfLines={1}>
                   {gareActuelle?.label.split('(')[0].trim() || ''}
                 </Text>
                 <View style={styles.sheetActions}>
                   <TouchableOpacity style={styles.sheetBoutonAction} onPress={rechargerWebView}>
-                    <Text style={{ fontSize: 16 }}>🔄</Text>
+                    <Text style={{ fontSize: 15 }}>🔄</Text>
                   </TouchableOpacity>
                   {gareActuelle && (
                     <TouchableOpacity
                       style={styles.sheetBoutonAction}
                       onPress={() => basculerFavori({ id: gareActuelle.id, label: gareActuelle.label })}
                     >
-                      <Text style={{ fontSize: 16 }}>{estFavori(gareActuelle.id) ? '⭐' : '☆'}</Text>
+                      <Text style={{ fontSize: 15 }}>{estFavori(gareActuelle.id) ? '⭐' : '☆'}</Text>
                     </TouchableOpacity>
                   )}
-                  <TouchableOpacity style={styles.sheetBoutonAction} onPress={basculerSidebar}>
-                    <Text style={{ fontSize: 16 }}>⚙️</Text>
+                  <TouchableOpacity style={styles.sheetBoutonAction} onPress={togglePanel}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#555' }}>
+                      {panelSnapState === 'full' ? '↓' : '↑'}
+                    </Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.sheetBoutonFermer} onPress={fermerBottomSheet}>
+                  <TouchableOpacity style={styles.sheetBoutonAction} onPress={basculerSidebar}>
+                    <Text style={{ fontSize: 15 }}>⚙️</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.sheetBoutonFermer} onPress={fermerPanel}>
                     <Text style={{ fontSize: 14, fontWeight: '700', color: '#7f8c8d' }}>✕</Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
-              {/* La WebView Streamlit : carte + départs de la gare choisie */}
+              {/* WebView station */}
               <View style={{ flex: 1 }}>
-                {gareActuelle ? (
+                {gareActuelle && (
                   <WebView
                     ref={webViewRef}
                     source={{ uri: urlGareActuelle }}
                     javaScriptEnabled={true}
                     domStorageEnabled={true}
                     startInLoadingState={true}
+                    injectedJavaScript={WEBVIEW_HIDE_JS}
                   />
-                ) : (
-                  <View style={{ flex: 1 }} />
                 )}
               </View>
-            </BottomSheetView>
-          </BottomSheet>
+
+            </Animated.View>
+          </View>
 
         </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <View style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AppInner />
       </SafeAreaProvider>
-    </GestureHandlerRootView>
+    </View>
   );
 }
 
@@ -454,46 +621,62 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'transparent' },
 
-  // ─ Placeholder carte (réservé pour react-native-maps)
-  cartePlaceholder: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#E8ECF1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cartePlaceholderEmoji: { fontSize: 42, marginBottom: 10, opacity: 0.5 },
-  cartePlaceholderTexte: { fontFamily: 'GrandParis-Medium', fontSize: 14, color: '#9aa5b1' },
-
+  // Header flottant
   headerNatif: {
-    paddingHorizontal: 15, paddingVertical: 12,
-    backgroundColor: 'rgba(255,255,255,0.82)',
-    elevation: 3, zIndex: 10,
+    position: 'absolute', top: 12, left: 15,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.90)', borderRadius: 20,
+    paddingVertical: 8, paddingHorizontal: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10, shadowRadius: 8, elevation: 8, zIndex: 10,
   },
-  headerPremiereLigne: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  headerDeuxiemeLigne: { flexDirection: 'row', alignItems: 'center', width: '100%' },
-  titleContainer: { flexDirection: 'row', alignItems: 'center' },
-  logoApp: { width: 35, height: 35, marginRight: 8, resizeMode: 'contain' },
-  titreGrandPaname: { fontSize: 25, fontFamily: 'GrandParis-Medium', color: '#25303b' },
-  boutonGpsBarre: { padding: 8, backgroundColor: '#f1f2f6', borderRadius: 20, marginRight: 8, width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  searchContainer: { flex: 1, position: 'relative', justifyContent: 'center' },
-  searchInput: { backgroundColor: '#f1f2f6', height: 40, borderRadius: 20, paddingHorizontal: 15, fontSize: 16, color: '#2c3e50', fontFamily: 'GrandParis-Light' },
-  searchResultsContainer: { position: 'absolute', top: 110, left: 15, right: 15, backgroundColor: 'white', borderRadius: 10, maxHeight: 300, zIndex: 999, elevation: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
-  searchResultRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f1f2f6', paddingHorizontal: 15 },
-  searchResultText: { fontSize: 16, color: '#25303b', fontFamily: 'GrandParis-Medium' },
-  etoileAction: { padding: 10 },
-  chargementFlottant: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.4)', zIndex: 10 },
+  logoApp: { width: 28, height: 28, marginRight: 8, resizeMode: 'contain' },
+  titreGrandPaname: { fontSize: 18, fontFamily: 'GrandParis-Medium', color: '#25303b' },
 
-  // ─ Tiroir textes
+  // Barre de recherche (bottom, dynamique)
+  bottomSearchBar: {
+    position: 'absolute',
+    left: '6%', right: '6%',
+    height: SEARCH_BAR_HEIGHT,
+    backgroundColor: 'rgba(255,255,255,0.90)',
+    borderRadius: 30,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 6, gap: 4,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12, shadowRadius: 12, elevation: 16, zIndex: 9998,
+  },
+  boutonGpsBarre: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#f1f2f6', alignItems: 'center', justifyContent: 'center',
+  },
+  searchContainer: { flex: 1, position: 'relative', justifyContent: 'center' },
+  searchInput: {
+    backgroundColor: '#f1f2f6', height: 40, borderRadius: 20,
+    paddingHorizontal: 15, paddingRight: 36,
+    fontSize: 15, color: '#2c3e50', fontFamily: 'GrandParis-Light',
+  },
+
+  // Résultats (bottom, dynamique)
+  searchResultsContainer: {
+    position: 'absolute', left: '6%', right: '6%',
+    backgroundColor: 'white', borderRadius: 16, maxHeight: 280,
+    zIndex: 999, elevation: 10,
+    shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, overflow: 'hidden',
+  },
+  searchResultRow: {
+    flexDirection: 'row', alignItems: 'center',
+    borderBottomWidth: 1, borderBottomColor: '#f1f2f6', paddingHorizontal: 15,
+  },
+  searchResultText: { fontSize: 15, color: '#25303b', fontFamily: 'GrandParis-Medium' },
+  etoileAction: { padding: 10 },
+
+  // Tiroir
   titreTiroir: { fontSize: 20, fontFamily: 'GrandParis-Bold', color: '#25303b', marginBottom: 4 },
   sousTitreTiroir: { fontSize: 13, fontFamily: 'GrandParis-Light', color: '#7f8c8d', marginBottom: 20 },
-
-  // ─ État vide
   etatVide: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, paddingBottom: 40 },
   etatVideEmoji: { fontSize: 44, marginBottom: 14 },
   etatVideTitre: { fontSize: 17, fontFamily: 'GrandParis-Bold', color: '#25303b', marginBottom: 8, textAlign: 'center' },
   etatVideDesc: { fontSize: 14, fontFamily: 'GrandParis-Light', color: '#7f8c8d', textAlign: 'center', lineHeight: 22 },
-
-  // ─ Items favoris
   itemFavoriNatif: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     backgroundColor: '#FFFFFF', padding: 14, borderRadius: 14, marginBottom: 10,
@@ -505,37 +688,29 @@ const styles = StyleSheet.create({
   texteNomGareFavori: { fontSize: 15, fontFamily: 'GrandParis-Medium', color: '#2c3e50', flex: 1 },
   actionsItemFavori: { flexDirection: 'row', alignItems: 'center' },
   boutonSupprimerFavori: { padding: 4 },
-
-  // ─ Placeholder assistant
   cardContent: { flex: 1, alignItems: 'center', paddingTop: 20 },
   cardTitle: { fontSize: 26, fontFamily: 'GrandParis-Bold', color: '#2c3e50', marginBottom: 10 },
   cardSubtitle: { fontSize: 16, fontFamily: 'GrandParis-Light', color: '#7f8c8d' },
 
-  // ─── BARRE DE NAVIGATION ONE UI CLAIRE ───────────────────────────────────
+  // Nav bar
   floatingTabBar: {
     position: 'absolute', bottom: NAV_BAR_BOTTOM, alignSelf: 'center',
     width: '88%', height: NAV_BAR_HEIGHT,
-    backgroundColor: 'rgba(255,255,255,0.82)', borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.90)', borderRadius: 30,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12,
-    elevation: 16, zIndex: 9999, paddingHorizontal: 6,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12, shadowRadius: 12, elevation: 16, zIndex: 9999, paddingHorizontal: 6,
   },
   tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
-  tabPill: {
-    width: 56, height: 28, borderRadius: 14, overflow: 'hidden',
-    alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent',
-  },
+  tabPill: { width: 56, height: 28, borderRadius: 999, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
   tabPillActive: { backgroundColor: '#EBEBEB' },
-  tabPillCenter: {
-    width: 64, height: 32, borderRadius: 16, overflow: 'hidden',
-    alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent',
-  },
+  tabPillCenter: { width: 64, height: 32, borderRadius: 999, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' },
   tabPillCenterActive: { backgroundColor: '#DDEEFF' },
   tabIcon: { fontSize: 20, lineHeight: 26 },
   tabLabel: { fontFamily: 'GrandParis-Medium', fontSize: 10, color: '#8E8E93' },
   tabLabelActive: { color: '#25303b' },
 
-  // ─── TIROIRS LATÉRAUX ─────────────────────────────────────────────────────
+  // Tiroirs latéraux
   sideCard: { position: 'absolute', width: '80%', zIndex: 101, overflow: 'hidden', borderRadius: 24 },
   sideCardLeft: { left: 12 },
   sideCardRight: { right: 12 },
@@ -550,43 +725,35 @@ const styles = StyleSheet.create({
   },
   cardContentWrapper: { flex: 1, paddingTop: 24, paddingHorizontal: 18, paddingBottom: 16 },
 
-  // ─── BOTTOM SHEET (gare sélectionnée) ─────────────────────────────────────
-  bottomSheetFond: {
+  // Panel gare (bottom sheet natif) — height appliquée en inline (dépend de insets.top)
+  garePanel: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15, shadowRadius: 16, elevation: 24,
   },
-  bottomSheetHandle: {
-    backgroundColor: '#d0d5dc',
-    width: 40,
-    height: 4,
+  dragZone: {
+    height: 30, alignItems: 'center', justifyContent: 'center',
+  },
+  dragBar: {
+    width: 40, height: 4, borderRadius: 2, backgroundColor: '#d0d5dc',
   },
   sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f2f5',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingBottom: 10,
+    borderBottomWidth: 1, borderBottomColor: '#f0f2f5',
   },
   sheetTitreGare: {
-    flex: 1,
-    fontSize: 18,
-    fontFamily: 'GrandParis-Bold',
-    color: '#25303b',
-    marginRight: 10,
+    flex: 1, fontSize: 17, fontFamily: 'GrandParis-Bold', color: '#25303b', marginRight: 8,
   },
   sheetActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   sheetBoutonAction: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: '#f1f2f6',
-    alignItems: 'center', justifyContent: 'center',
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#f1f2f6', alignItems: 'center', justifyContent: 'center',
   },
   sheetBoutonFermer: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: '#f1f2f6',
-    alignItems: 'center', justifyContent: 'center',
-    marginLeft: 4,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#f1f2f6', alignItems: 'center', justifyContent: 'center', marginLeft: 4,
   },
 });
