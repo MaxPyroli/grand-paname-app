@@ -43,8 +43,14 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
   }, []);
 
   const selectionnerGareEtChargerPage = useCallback((gareId: string, gareLabel: string) => {
-    Keyboard.dismiss(); setSearchQuery(""); setSearchResults([]);
-    setGareCourante(gareLabel); // LIGNE AJOUTÉE
+    Keyboard.dismiss(); 
+    setSearchQuery(""); 
+    setSearchResults([]);
+
+    // ✂️ LIGNE AJOUTÉE : On coupe le texte avant la parenthèse et on enlève les espaces
+    const nomPropre = gareLabel.split('(')[0].trim();
+    setGareCourante(nomPropre); 
+
     const nomEncode = encodeURIComponent(gareLabel);
     const urlTarget = `${APP_URL}?selectionned_stop_id=${gareId}&selectionned_stop_name=${nomEncode}&t=${Date.now()}`;
     webViewRef.current?.injectJavaScript(`window.location.href = "${urlTarget}"; true;`);
@@ -106,6 +112,10 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
   };
 
   const injecterEcouteurClic = `
+    // 🛡️ ASSASSINAT DU TITRE WEB : Coche la case "display: none" de force
+    const style = document.createElement('style');
+    style.innerHTML = '.sticky-station-title, .station-title { display: none !important; }';
+    document.head.appendChild(style);
     document.body.style.paddingTop = "${hauteurHeader}px"; // LIGNE À AJOUTER
     document.addEventListener('click', function(event) {
       let target = event.target;
@@ -145,23 +155,12 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
           setHauteurHeader(y + height); // LIGNE À AJOUTER
         }}
       >
+        {/* --- HEADER PRINCIPAL FIXE --- */}
         <View style={styles.headerPremiereLigne}>
-          {gareCourante ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-              <TouchableOpacity onPress={retourAccueil} style={{ padding: 5, marginRight: 10 }}>
-                <Text style={{ fontSize: 22 }}>⬅️</Text>
-              </TouchableOpacity>
-              <Text style={[styles.titreGrandPaname, { flex: 1 }]} numberOfLines={1}>
-                {gareCourante}
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.titleContainer}>
-              <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
-              <Text style={styles.titreGrandPaname}>Grand Paname</Text>
-            </View>
-          )}
-
+          <View style={styles.titleContainer}>
+            <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
+            <Text style={styles.titreGrandPaname}>Grand Paname</Text>
+          </View>
           <View style={styles.headerBoutonsDroite}>
             <TouchableOpacity style={styles.boutonActualiser} onPress={forcerActualisation}>
               <Text style={{fontSize: 18, marginRight: 10}}>🔄</Text>
@@ -184,6 +183,18 @@ function RechercheScreen({ favoris, onBasculerFavori, estFavori, onHeaderLayout,
           </View>
         </View>
       </View>
+
+      {/* ✨ NOUVEAU : LE BADGE FLOTTANT DE LA STATION ✨ */}
+      {gareCourante && (
+        <View style={styles.badgeStationFlottant}>
+          <TouchableOpacity onPress={retourAccueil} style={{ paddingRight: 10 }}>
+            <Text style={{ fontSize: 20 }}>⬅️</Text>
+          </TouchableOpacity>
+          <Text style={styles.texteBadgeStation} numberOfLines={1}>
+            {gareCourante}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.coque}>
         {searchResults.length > 0 && (
@@ -576,4 +587,29 @@ searchResultsContainer: {
     shadowColor: '#0d1b2e', shadowOffset: { width: -10, height: 0 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 20,
   },
   cardContentWrapper: { flex: 1, paddingTop: 24, paddingHorizontal: 18, paddingBottom: 16 },
+  badgeStationFlottant: {
+    position: 'absolute',
+    top: 95, // Ajuste ce chiffre selon la hauteur exacte de ton header
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.90)', // Effet semi-transparent
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    zIndex: 99,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  texteBadgeStation: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#041b3b',
+    textTransform: 'uppercase',
+  },
 });
