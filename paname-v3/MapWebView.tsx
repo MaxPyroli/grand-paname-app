@@ -105,11 +105,33 @@ const MAP_HTML = `<!DOCTYPE html>
 
   function clearActiveStation(){
     activeMarkerId=null;
-    stationMarkers.forEach(function(m){m.setIcon(stationIcon(false));});
+    stationMarkers.forEach(function(m){map.removeLayer(m);});
+    stationMarkers=[];
+  }
+
+  function pinIcon(){
+    return L.divIcon({
+      className:'',
+      html:'<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;background:#FF6B35;border:3px solid #fff;transform:rotate(-45deg);box-shadow:0 3px 10px rgba(255,107,53,0.6)"></div>',
+      iconSize:[26,26],iconAnchor:[10,22]
+    });
+  }
+
+  function showStation(id,lat,lon){
+    stationMarkers.forEach(function(m){map.removeLayer(m);});
+    stationMarkers=[];
+    activeMarkerId=id;
+    var m=L.marker([lat,lon],{icon:pinIcon(),zIndexOffset:3000}).addTo(map);
+    stationMarkers.push(m);
   }
 
   function flyToStation(lat,lon){
-    map.flyTo([lat,lon],15,{animate:true,duration:0.9});
+    var zoom=15;
+    // Décale le centre vers le bas pour que la gare apparaisse dans le tiers supérieur,
+    // visible au-dessus du panneau des horaires qui couvre le bas de l'écran.
+    var offset=map.getSize().y*0.22;
+    var shifted=map.unproject(map.project([lat,lon],zoom).add([0,offset]),zoom);
+    map.flyTo(shifted,zoom,{animate:true,duration:0.9});
   }
 
   function setTransportData(data){
@@ -117,11 +139,17 @@ const MAP_HTML = `<!DOCTYPE html>
     transportStops.forEach(function(m){map.removeLayer(m);});
     transportLines=[];transportStops=[];
     var modeColors={RER:'#0064B0',METRO:'#6E6E6E',TRAM:'#6EC4E8',TRAIN:'#87CEEB',CABLE:'#82C341'};
-    (data.lines||[]).forEach(function(l){
+    var modePrio={TRAM:1,CABLE:2,METRO:3,TRAIN:4,RER:5};
+    var sortedLines=(data.lines||[]).slice().sort(function(a,b){return (modePrio[a.mode]||0)-(modePrio[b.mode]||0);});
+    sortedLines.forEach(function(l){
       if(!l.coords||!l.coords.length)return;
       var color='#'+(l.color||'888888');
-      var weight=(l.mode==='RER'||l.mode==='TRAIN')?4:3;
-      transportLines.push(L.polyline(l.coords,{color:color,weight:weight,opacity:0.75}).addTo(map));
+      var weight=(l.mode==='RER'||l.mode==='TRAIN')?2.5:2;
+      l.coords.forEach(function(seg){
+        if(seg&&seg.length>=2){
+          transportLines.push(L.polyline(seg,{color:color,weight:weight,opacity:0.8}).addTo(map));
+        }
+      });
     });
     (data.stops||[]).forEach(function(s){
       if(s.lat==null||s.lon==null)return;
@@ -155,6 +183,7 @@ const MAP_HTML = `<!DOCTYPE html>
       if(msg.type==='clearActive') clearActiveStation();
       if(msg.type==='setTheme') setTheme(msg.isDark);
       if(msg.type==='flyTo') flyToStation(msg.lat,msg.lon);
+      if(msg.type==='showStation') showStation(msg.id,msg.lat,msg.lon);
       if(msg.type==='setTransportData') setTransportData(msg.data);
     }catch(err){}
   }
@@ -170,6 +199,7 @@ export type MapWebViewRef = {
   clearActiveStation: () => void;
   setTheme: (isDark: boolean) => void;
   flyTo: (lat: number, lon: number) => void;
+  showStation: (id: string, lat: number, lon: number) => void;
   setTransportData: (data: { stops: any[]; lines: any[] }) => void;
 };
 
@@ -196,6 +226,9 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onRead
     },
     flyTo: (lat, lon) => {
       wvRef.current?.injectJavaScript(`flyToStation(${lat},${lon});true;`);
+    },
+    showStation: (id, lat, lon) => {
+      wvRef.current?.injectJavaScript(`showStation(${JSON.stringify(id)},${lat},${lon});true;`);
     },
     setTransportData: (data) => {
       wvRef.current?.injectJavaScript(`setTransportData(${JSON.stringify(data)});true;`);

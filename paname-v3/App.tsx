@@ -13,6 +13,12 @@ import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import transportData from './assets/transport-data.json';
+import { APP_VERSION } from './constants';
+import { searchGares, nearbyGares, coordGare, isNetworkError } from './api';
+import { logger, LogEntry } from './logger';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useAudioPlayer } from 'expo-audio';
 
 // ─── THÈME ───────────────────────────────────────────────────────────────────
 const C = {
@@ -200,6 +206,7 @@ type AccueilProps = {
   onOpenSettings: () => void;
   onClosePanel: () => void;
   activeTab: string;
+  mapRef: React.RefObject<MapWebViewRef | null>;
 };
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
@@ -207,6 +214,38 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
   const c = useColors();
   const { pref, setPref } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
+  const [showLogs, setShowLogs] = useState(false);
+  const [logs, setLogs] = useState<LogEntry[]>(() => logger.get());
+  useEffect(() => { const unsub = logger.subscribe(() => setLogs(logger.get())); return () => { unsub(); }; }, []);
+  const [devMode, setDevMode] = useState(false);
+  const [logoTaps, setLogoTaps] = useState(0);
+  useEffect(() => { AsyncStorage.getItem('@gp_dev_mode').then(v => { if (v === '1') setDevMode(true); }); }, []);
+  const [versionTaps, setVersionTaps] = useState(0);
+  const [trainVisible, setTrainVisible] = useState(false);
+  const trainAnim = useRef(new Animated.Value(0)).current;
+  const klaxon = useAudioPlayer(require('./others/klaxon.mp3'));
+
+  const TRAINS = [
+    require('./others/rerng.png'),
+    require('./others/z2n.png'),
+    require('./others/regio2n.png'),
+    require('./others/francilien.png'),
+  ];
+  const [trainImg, setTrainImg] = useState(TRAINS[0]);
+
+  function lancerTrain() {
+    setTrainImg(TRAINS[Math.floor(Math.random() * TRAINS.length)]);
+    klaxon.seekTo(0);
+    klaxon.play();
+    const screenW = Dimensions.get('window').width;
+    trainAnim.setValue(-1200);
+    setTrainVisible(true);
+    Animated.timing(trainAnim, {
+      toValue: screenW,
+      duration: 1400,
+      useNativeDriver: true,
+    }).start(() => setTrainVisible(false));
+  }
 
   const THEME_OPTIONS: { key: ThemePref; icon: string; label: string }[] = [
     { key: 'auto',  icon: '🌐', label: 'Auto'   },
@@ -267,10 +306,27 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
             <Text style={[styles.settingsSection, { color: c.textSub }]}>À PROPOS</Text>
             <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
               <View style={styles.aProposHeader}>
-                <Image source={require('./assets/app_icon.png')} style={styles.aProposLogo} />
+                <TouchableOpacity onPress={() => {
+                    const next = logoTaps + 1;
+                    setLogoTaps(next);
+                    if (next >= 5) {
+                      setLogoTaps(0);
+                      const newVal = !devMode;
+                      setDevMode(newVal);
+                      AsyncStorage.setItem('@gp_dev_mode', newVal ? '1' : '0').catch(() => {});
+                    }
+                  }}>
+                  <Image source={require('./assets/app_icon.png')} style={styles.aProposLogo} />
+                </TouchableOpacity>
                 <View>
                   <Text style={[styles.aProposNom, { color: c.text }]}>Grand Paname</Text>
-                  <Text style={[styles.aProposVersion, { color: c.textSub }]}>Version 1.0.0</Text>
+                  <TouchableOpacity onPress={() => {
+                    const next = versionTaps + 1;
+                    setVersionTaps(next);
+                    if (next >= 7) { setVersionTaps(0); lancerTrain(); }
+                  }}>
+                    <Text style={[styles.aProposVersion, { color: c.textSub }]}>Version {APP_VERSION}</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
               <View style={[styles.settingsDivider, { backgroundColor: c.border }]} />
@@ -298,6 +354,53 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
               ))}
             </View>
 
+            {/* ── Débogage (mode dev, caché) ── */}
+            {devMode && (
+              <>
+                <Text style={[styles.settingsSection, { color: c.textSub }]}>DÉBOGAGE</Text>
+                <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                    onPress={() => setShowLogs(v => !v)}
+                  >
+                    <Text style={[styles.settingsRowLabel, { color: c.text }]}>
+                      Logs ({logs.length})
+                    </Text>
+                    <Text style={{ color: c.textSub, fontSize: 20 }}>{showLogs ? '˅' : '›'}</Text>
+                  </TouchableOpacity>
+                  {showLogs && (
+                    <>
+                      <View style={[styles.settingsDivider, { backgroundColor: c.border, marginTop: 8 }]} />
+                      <TouchableOpacity
+                        onPress={() => logger.clear()}
+                        style={{ alignSelf: 'flex-end', paddingVertical: 4, paddingHorizontal: 8,
+                                 backgroundColor: c.bgSubtle, borderRadius: 6, marginBottom: 8 }}
+                      >
+                        <Text style={{ fontSize: 12, color: c.textSub, fontFamily: 'GrandParis-Light' }}>Effacer</Text>
+                      </TouchableOpacity>
+                      <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled>
+                        {logs.length === 0
+                          ? <Text style={{ color: c.textSub, fontSize: 12, fontFamily: 'GrandParis-Light' }}>Aucun log.</Text>
+                          : logs.map((entry, i) => {
+                              const d = new Date(entry.ts);
+                              const hms = d.toTimeString().slice(0, 8);
+                              const color = entry.level === 'ERROR' ? '#e74c3c'
+                                          : entry.level === 'WARN'  ? '#e67e22'
+                                          : c.textSub;
+                              return (
+                                <Text key={i} style={{ fontSize: 11, fontFamily: 'GrandParis-Light', color, marginBottom: 2 }}>
+                                  {hms} <Text style={{ fontFamily: 'GrandParis-Bold' }}>[{entry.level}]</Text> {entry.msg}
+                                </Text>
+                              );
+                            })
+                        }
+                      </ScrollView>
+                    </>
+                  )}
+                </View>
+              </>
+            )}
+
             {/* Footer */}
             <Text style={[styles.settingsFooter, { color: c.textSub }]}>
               © 2026 Grand Paname. Données : API IDFM, OpenStreetMap.
@@ -307,20 +410,46 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
         </View>
 
       </View>
+      {trainVisible && (
+        <Animated.Image
+          source={trainImg}
+          style={[styles.trainEasterEgg, { transform: [{ translateX: trainAnim }] }]}
+          resizeMode="contain"
+        />
+      )}
+    </Modal>
+  );
+}
+
+// ─── EASTER EGG : FEUR ───────────────────────────────────────────────────────
+function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const player = useVideoPlayer(require('./others/feur.mp4'), p => { p.loop = false; });
+  useEffect(() => {
+    if (visible) { player.currentTime = 0; player.play(); }
+    else player.pause();
+  }, [visible]);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.feurOverlay} onPress={onClose} activeOpacity={1}>
+        <View style={styles.feurBox}>
+          <Text style={styles.feurTitre}>FEUR ! 💇‍♂️</Text>
+          <VideoView player={player} style={styles.feurVideo} contentFit="contain" />
+          <Text style={styles.feurHint}>Tape pour fermer</Text>
+        </View>
+      </TouchableOpacity>
     </Modal>
   );
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, activeTab }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, activeTab, mapRef }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
-  const mapRef = useRef<MapWebViewRef>(null);
   const [loadingGps, setLoadingGps] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Gare[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
+  const [feurVisible, setFeurVisible] = useState(false);
 
   const searchBarBottom = useRef(new Animated.Value(SEARCH_BAR_BOTTOM)).current;
   const resultsBottom   = useRef(Animated.add(searchBarBottom, SEARCH_BAR_HEIGHT + 8)).current;
@@ -373,27 +502,11 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   const choisirGare = (id: string, label: string) => {
     fermerRecherche();
     onGareChoisie(id, label);
-    const api = APP_URL.replace('8501', '8000');
-    fetch(`${api}/api/coord?stop_id=${encodeURIComponent(id)}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.lat && data.lon) {
-          mapRef.current?.flyTo(data.lat, data.lon);
-          fetchTransportData(data.lat, data.lon);
-        }
-      })
-      .catch(() => {});
-  };
-
-  const fetchTransportData = (lat: number, lon: number) => {
-    const api = APP_URL.replace('8501', '8000');
-    fetch(`${api}/api/map-data?lat=${lat}&lon=${lon}`)
-      .then(r => r.json())
-      .then(data => mapRef.current?.setTransportData(data))
-      .catch(() => {});
   };
 
   const rechercherGare = (texte: string) => {
+    const motNettoy = texte.toLowerCase().replace(/[^\w]/g, '').trim();
+    if (motNettoy === 'quoi') { setFeurVisible(true); setSearchQuery(texte); return; }
     setSearchQuery(texte);
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (texte.length < 2) {
@@ -409,13 +522,13 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       const controller = new AbortController();
       searchAbortRef.current = controller;
       try {
-        const api = APP_URL.replace('8501', '8000');
-        const res = await fetch(`${api}/api/search?q=${texte}`, { signal: controller.signal });
-        const json = await res.json();
-        setSearchResults(json.results?.length > 0 ? json.results : [{ id: 'vide', label: 'Aucune gare trouvée 😕' }]);
+        const results = await searchGares(texte, controller.signal);
+        setSearchResults(results.length > 0 ? results : [{ id: 'vide', label: 'Aucune gare trouvée 😕' }]);
       } catch (e: any) {
         if (e?.name === 'AbortError') return;
-        setSearchResults([{ id: 'erreur', label: '⚠️ Impossible de joindre le serveur' }]);
+        logger.error(`search: ${e?.message}`);
+        const msg = isNetworkError(e) ? '📵 Pas de connexion internet' : '⚠️ Impossible de joindre le serveur';
+        setSearchResults([{ id: 'erreur', label: msg }]);
       }
       setIsSearching(false);
     }, 300);
@@ -431,13 +544,12 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       const lat = loc!.coords.latitude;
       const lon = loc!.coords.longitude;
       mapRef.current?.setUserLocation(lat, lon);
-      fetchTransportData(lat, lon);
-      const api = APP_URL.replace('8501', '8000');
-      const res = await fetch(`${api}/api/nearby?lat=${lat}&lon=${lon}`);
-      const json = await res.json();
-      setSearchResults(json.results?.length > 0 ? json.results : [{ id: 'vide', label: 'Aucun arrêt dans un rayon de 1.5km 😕' }]);
-    } catch {
-      setSearchResults([{ id: 'erreur', label: '⚠️ Impossible de géolocaliser ou joindre le serveur' }]);
+      const results = await nearbyGares(lat, lon);
+      setSearchResults(results.length > 0 ? results : [{ id: 'vide', label: 'Aucun arrêt dans un rayon de 1.5km 😕' }]);
+    } catch (e: any) {
+      logger.error(`nearby: ${e?.message}`);
+      const msg = isNetworkError(e) ? '📵 Pas de connexion internet' : '⚠️ Impossible de géolocaliser ou joindre le serveur';
+      setSearchResults([{ id: 'erreur', label: msg }]);
     } finally { setLoadingGps(false); setIsSearching(false); }
   };
 
@@ -448,7 +560,10 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       <MapWebView
         ref={mapRef}
         onStationSelected={onGareChoisie}
-        onReady={() => mapRef.current?.setTheme(isDark)}
+        onReady={() => {
+          mapRef.current?.setTheme(isDark);
+          mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
+        }}
       />
 
       {/* Header pill flottant */}
@@ -536,6 +651,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
           )}
         </View>
       </Animated.View>
+      <FeurModal visible={feurVisible} onClose={() => setFeurVisible(false)} />
     </View>
   );
 }
@@ -655,6 +771,7 @@ function AppInner() {
   const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const webViewRef = useRef<WebView>(null);
+  const mapRef = useRef<MapWebViewRef | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
 
   // ── Panel animé ──────────────────────────────────────────────────────────
@@ -740,13 +857,13 @@ function AppInner() {
       try {
         const stored = await AsyncStorage.getItem('@grand_paname_favoris');
         if (stored) setFavoris(JSON.parse(stored));
-      } catch (e) { console.log('Erreur chargement favoris', e); }
+      } catch (e: any) { logger.error(`Chargement favoris: ${e?.message}`); }
     })();
   }, []);
 
   const sauvegarderFavoris = async (list: Gare[]) => {
     try { await AsyncStorage.setItem('@grand_paname_favoris', JSON.stringify(list)); }
-    catch (e) { console.log('Erreur sauvegarde', e); }
+    catch (e: any) { logger.error(`Sauvegarde favoris: ${e?.message}`); }
   };
 
   const reordonnerFavoris = useCallback((from: number, to: number) => {
@@ -760,9 +877,11 @@ function AppInner() {
   }, []);
 
   const basculerFavori = useCallback((gare: Gare) => {
+    const labelPropre = gare.label.replace(/\s*-\s*à\s*\d+m\s*$/i, '').trim();
+    const garePropre = { ...gare, label: labelPropre };
     setFavoris(prev => {
-      const idx = prev.findIndex(f => f.id === gare.id);
-      const next = idx > -1 ? prev.filter(f => f.id !== gare.id) : [...prev, gare];
+      const idx = prev.findIndex(f => f.id === garePropre.id);
+      const next = idx > -1 ? prev.filter(f => f.id !== garePropre.id) : [...prev, garePropre];
       sauvegarderFavoris(next);
       return next;
     });
@@ -790,6 +909,14 @@ function AppInner() {
       webViewRef.current?.injectJavaScript(`window.location.href = "${url}"; true;`);
     }
     if (panelSnap.current === 'hidden') snapTo('half');
+    coordGare(id)
+      .then(coord => {
+        if (coord) {
+          mapRef.current?.flyTo(coord.lat, coord.lon);
+          mapRef.current?.showStation(id, coord.lat, coord.lon);
+        }
+      })
+      .catch(e => logger.warn(`coord ${id}: ${e?.message}`));
   }, [gareActuelle, APP_URL, snapTo]);
 
   const selectionnerDepuisFavoris = useCallback((id: string, label: string) => {
@@ -843,6 +970,7 @@ function AppInner() {
         onOpenSettings={() => setShowSettings(true)}
         onClosePanel={() => setActiveTab('accueil')}
         activeTab={activeTab}
+        mapRef={mapRef}
       />
 
       {/* Zone de fermeture des tiroirs (sans voile) */}
@@ -1128,4 +1256,14 @@ const styles = StyleSheet.create({
     fontSize: 11, fontFamily: 'GrandParis-Light', textAlign: 'center',
     marginTop: 20, marginHorizontal: 16,
   },
+  feurOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', alignItems: 'center', justifyContent: 'center',
+  },
+  feurBox: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 24, alignItems: 'center', width: '85%',
+  },
+  feurTitre: { fontSize: 52, fontFamily: 'GrandParis-Bold', marginBottom: 16, textAlign: 'center' },
+  feurVideo: { width: 280, height: 200, borderRadius: 12 },
+  feurHint: { marginTop: 12, color: '#888', fontSize: 13, fontFamily: 'GrandParis-Light' },
+  trainEasterEgg: { position: 'absolute', bottom: '22%', left: 0, height: 500, width: 1200, zIndex: 999 },
 });
