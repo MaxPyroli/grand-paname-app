@@ -42,11 +42,10 @@ const MAP_HTML = `<!DOCTYPE html>
 <script>
   var map = L.map('map',{zoomControl:false,attributionControl:false}).setView([48.8566,2.3522],13);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+  window._tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
     maxZoom:19, subdomains:'abcd'
   }).addTo(map);
 
-  // Attribution discrète en bas à droite
   L.control.attribution({position:'bottomright',prefix:''})
     .addAttribution('<span style="opacity:.4;font-size:9px">© CartoDB · OpenStreetMap</span>')
     .addTo(map);
@@ -54,6 +53,8 @@ const MAP_HTML = `<!DOCTYPE html>
   var userMarker = null;
   var stationMarkers = [];
   var activeMarkerId = null;
+  var transportLines = [];
+  var transportStops = [];
 
   function userIcon(){
     return L.divIcon({
@@ -107,12 +108,54 @@ const MAP_HTML = `<!DOCTYPE html>
     stationMarkers.forEach(function(m){m.setIcon(stationIcon(false));});
   }
 
+  function flyToStation(lat,lon){
+    map.flyTo([lat,lon],15,{animate:true,duration:0.9});
+  }
+
+  function setTransportData(data){
+    transportLines.forEach(function(l){map.removeLayer(l);});
+    transportStops.forEach(function(m){map.removeLayer(m);});
+    transportLines=[];transportStops=[];
+    var modeColors={RER:'#0064B0',METRO:'#6E6E6E',TRAM:'#6EC4E8',TRAIN:'#87CEEB',CABLE:'#82C341'};
+    (data.lines||[]).forEach(function(l){
+      if(!l.coords||!l.coords.length)return;
+      var color='#'+(l.color||'888888');
+      var weight=(l.mode==='RER'||l.mode==='TRAIN')?4:3;
+      transportLines.push(L.polyline(l.coords,{color:color,weight:weight,opacity:0.75}).addTo(map));
+    });
+    (data.stops||[]).forEach(function(s){
+      if(s.lat==null||s.lon==null)return;
+      var color=modeColors[s.mode]||'#888888';
+      var icon=L.divIcon({className:'',html:'<div style="width:8px;height:8px;border-radius:50%;background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>',iconSize:[8,8],iconAnchor:[4,4]});
+      transportStops.push(L.marker([s.lat,s.lon],{icon:icon,zIndexOffset:500}).addTo(map));
+    });
+  }
+
+  function setTheme(isDark){
+    var url = isDark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    if(window._tileLayer){ map.removeLayer(window._tileLayer); }
+    window._tileLayer = L.tileLayer(url,{maxZoom:19,subdomains:'abcd'}).addTo(map);
+    document.body.style.background = isDark ? '#031a3a' : '#eef2f7';
+    var s = document.getElementById('_gp_dots');
+    if(!s){ s=document.createElement('style'); s.id='_gp_dots'; document.head.appendChild(s); }
+    s.textContent = isDark
+      ? 'img.leaflet-tile{filter:sepia(0.9) hue-rotate(180deg) saturate(2.5) brightness(2.2)!important}'
+        + '.s-dot{background:#5ab3f5!important;border-color:rgba(1,14,38,0.8)!important;box-shadow:0 1px 6px rgba(90,179,245,0.4)!important}'
+        + '.s-dot.active{background:#fff!important}'
+      : '';
+  }
+
   function handleMsg(e){
     try{
       var msg=JSON.parse(e.data);
       if(msg.type==='setLocation') setUserLocation(msg.lat,msg.lon);
       if(msg.type==='setStations') setStations(msg.stations);
       if(msg.type==='clearActive') clearActiveStation();
+      if(msg.type==='setTheme') setTheme(msg.isDark);
+      if(msg.type==='flyTo') flyToStation(msg.lat,msg.lon);
+      if(msg.type==='setTransportData') setTransportData(msg.data);
     }catch(err){}
   }
   document.addEventListener('message',handleMsg);
@@ -125,13 +168,17 @@ export type MapWebViewRef = {
   setUserLocation: (lat: number, lon: number) => void;
   setStations: (stations: Array<{ id: string; label: string; lat?: number; lon?: number }>) => void;
   clearActiveStation: () => void;
+  setTheme: (isDark: boolean) => void;
+  flyTo: (lat: number, lon: number) => void;
+  setTransportData: (data: { stops: any[]; lines: any[] }) => void;
 };
 
 type Props = {
   onStationSelected?: (id: string, label: string) => void;
+  onReady?: () => void;
 };
 
-const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected }, ref) => {
+const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onReady }, ref) => {
   const wvRef = useRef<WebView>(null);
 
   useImperativeHandle(ref, () => ({
@@ -143,6 +190,15 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected }, ref)
     },
     clearActiveStation: () => {
       wvRef.current?.injectJavaScript(`clearActiveStation();true;`);
+    },
+    setTheme: (isDark) => {
+      wvRef.current?.injectJavaScript(`setTheme(${isDark});true;`);
+    },
+    flyTo: (lat, lon) => {
+      wvRef.current?.injectJavaScript(`flyToStation(${lat},${lon});true;`);
+    },
+    setTransportData: (data) => {
+      wvRef.current?.injectJavaScript(`setTransportData(${JSON.stringify(data)});true;`);
     },
   }));
 
@@ -157,6 +213,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected }, ref)
         originWhitelist={['*']}
         javaScriptEnabled={true}
         startInLoadingState={true}
+        onLoadEnd={onReady}
         renderLoading={() => (
           <View style={styles.loader}>
             <ActivityIndicator size="large" color="#3498db" />

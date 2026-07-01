@@ -102,23 +102,32 @@ if False: # 👈 Mis de côté au cas où (remplacer par True pour réactiver)
 # 🪄 CSS POUR TUER L'ESPACE DES 3 POINTS ET DE LA FLÈCHE
 st.markdown("""
     <style>
-    /* Cache l'en-tête transparent de Streamlit */
-    header[data-testid="stHeader"] {
-        display: none !important;
-    }
-    
-    /* Force le conteneur principal à remonter tout en haut */
-    .stApp > div:first-child {
-        padding-top: 0px !important;
-    }
-    
-    /* Écrase le padding interne */
-    .block-container {
-        padding-top: 1rem !important; /* Laisse juste 1rem pour aérer sous la barre de recherche */
-        margin-top: 0px !important;
-    }
+    header[data-testid="stHeader"] { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    footer { display: none !important; }
+    section[data-testid="stMain"] { padding-top: 0 !important; }
+    section.main { padding-top: 0 !important; }
+    .stApp > div:first-child { padding-top: 0 !important; }
+    .block-container { padding-top: 0 !important; margin-top: 0 !important; }
+    [data-testid="stMainBlockContainer"] { padding-top: 0 !important; }
     </style>
 """, unsafe_allow_html=True)
+
+import streamlit.components.v1 as components
+components.html("""<script>
+(function(){
+  var d=window.parent.document;
+  function fix(){
+    var s=d.querySelector('section[data-testid="stMain"]')||d.querySelector('section.main');
+    if(s)s.style.setProperty('padding-top','0','important');
+    var b=d.querySelector('[data-testid="stMainBlockContainer"]')||d.querySelector('.block-container');
+    if(b)b.style.setProperty('padding-top','0','important');
+  }
+  fix();
+  new window.parent.MutationObserver(fix).observe(d.body,{childList:true,subtree:true,attributes:true});
+})();
+</script>""", height=0, width=0)
 
 initialiser_favoris()
 afficher_sidebar()
@@ -194,12 +203,14 @@ parametres = st.query_params
 
 if "selectionned_stop_id" in parametres and "selectionned_stop_name" in parametres:
     # On injecte les données directement dans tes vraies variables
-    st.session_state.selected_stop = parametres["selectionned_stop_id"]
+    stop_id = parametres["selectionned_stop_id"]
+    st.session_state.selected_stop = stop_id
     st.session_state.selected_name = parametres["selectionned_stop_name"]
-    
+
     # On nettoie l'adresse URL pour éviter les boucles de rechargement
     st.query_params.clear()
-    
+    st.query_params["gare"] = stop_id  # persiste pour les rechargements
+
     # On relance le moteur pour que le bloc ci-dessous capte la sélection
     st.rerun()
 
@@ -333,6 +344,8 @@ if st.session_state.search_results:
 
 # 1. Si une gare est sélectionnée -> On affiche le tableau de bord
 if st.session_state.selected_stop:
+    if st.query_params.get("gare") != st.session_state.selected_stop:
+        st.query_params["gare"] = st.session_state.selected_stop
     afficher_tableau_live(st.session_state.selected_stop, st.session_state.selected_name)
 
 # 2. Sinon -> Tuto de Bienvenue (Construction sécurisée & Couleurs dynamiques)

@@ -99,3 +99,12 @@ def demander_info_trafic(line_id, nom_ligne=""):
             alertes.append({'text': texte_complet, 'severity': score, 'header': header})
                 
     return alertes
+
+@lru_cache(maxsize=128)
+def demander_forme_ligne(line_id):
+    """Retourne la géométrie GeoJSON d'une ligne (MultiLineString), ou None."""
+    data = demander_api(f"lines/{line_id}")
+    if not data or 'lines' not in data or not data['lines']:
+        return None
+    line = data['lines'][0]
+    return line.get('geojson') or line.get('shape')

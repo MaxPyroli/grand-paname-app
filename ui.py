@@ -113,7 +113,7 @@ def afficher_titre_app(app_name, app_version, app_subtitle, icone_html):
 def afficher_tuto_bienvenue():
     """Affiche les 3 cartes de tutoriel sur la page d'accueil."""
     html_content = "".join([
-        '<div style="text-align: center; margin-top: 40px; margin-bottom: 40px; animation: float 3s ease-in-out infinite;">',
+        '<div style="text-align: center; margin-top: 8px; margin-bottom: 20px; animation: float 3s ease-in-out infinite;">',
             '<span style="font-size: 50px;">👋</span>',
         '</div>',
         '<div style="text-align: center; margin-bottom: 30px;">',

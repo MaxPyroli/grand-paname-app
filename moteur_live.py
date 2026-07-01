@@ -51,21 +51,8 @@ def afficher_live_content(stop_id, clean_name):
     est_nouvelle_gare = (st.session_state.last_rendered_stop != stop_id)
     st.session_state.last_rendered_stop = stop_id
 
-    # 1. CRÉATION DE LA BARRE D'ACTIONS
-    col_header, col_fav = st.columns([0.8, 0.2], gap="small", vertical_alignment="center")
-    header_placeholder = col_header.empty()
-    
-    is_fav = any(f['id'] == stop_id for f in st.session_state.favorites)
-    with col_fav:
-        # 🪄 Le marqueur invisible complet
-        st.markdown("<div class='marker-suivre-btn'></div>", unsafe_allow_html=True)
-        
-        label_btn = "⭐ Suivi" if is_fav else "☆ Suivre"
-        if st.button(label_btn, key=f"fav_btn_{stop_id}", use_container_width=True):
-            toggle_favorite(stop_id, clean_name)
-            st.rerun()
-        
-    # ⚠️ SURTOUT RIEN APRÈS ! (On a supprimé le st.markdown('</div>') qui traînait)
+    # 1. HEADER "DERNIÈRE MISE À JOUR"
+    header_placeholder = st.empty()
 
     def update_header(is_loading=False, new_time=None, inject_animation=False):
         if new_time:
@@ -88,7 +75,8 @@ def afficher_live_content(stop_id, clean_name):
         </style>
         """ if inject_animation else ""
 
-        html_content = f"{anim_css}<div style='display: flex; align-items: center; color: #888; font-size: 0.85rem; height: 45px; line-height: 45px; overflow: hidden; font-weight: 500; margin-bottom: -10px;'>Dernière mise à jour : {st.session_state.last_update_time} • LIVE <span class='live-icon'>🟢</span><div style='margin-left: 15px; display: flex; align-items: center; opacity: {'1' if is_loading else '0'}; transition: opacity 0.3s;'>{loader_html}{loading_text}</div></div>"
+        live_html = "" if is_loading else " • LIVE <span class='live-icon'>🟢</span>"
+        html_content = f"{anim_css}<div style='display: flex; align-items: center; color: #888; font-size: 0.85rem; height: 45px; line-height: 45px; overflow: hidden; font-weight: 500; margin-bottom: -10px;'>Dernière mise à jour : {st.session_state.last_update_time}{live_html}<div style='margin-left: 15px; display: flex; align-items: center; opacity: {'1' if is_loading else '0'}; transition: opacity 0.3s;'>{loader_html}{loading_text}</div></div>"
         
         header_placeholder.markdown(html_content, unsafe_allow_html=True)
 
@@ -388,14 +376,14 @@ def afficher_live_content(stop_id, clean_name):
             st.markdown(f"""
             <style>
                 div[data-testid="stElementContainer"]:has(.sticky-glass-{mode_actuel}),
-                .element-container:has(.sticky-glass-{mode_actuel}) {{ 
-                    position: sticky !important; 
-                    top: calc(3.8rem + var(--title-height, 60px) + 75px) !important; 
-                    z-index: 100 !important; 
+                .element-container:has(.sticky-glass-{mode_actuel}) {{
+                    position: sticky !important;
+                    top: 0px !important;
+                    z-index: 100 !important;
                 }}
-                
-                div.sticky-glass-{mode_actuel} {{ 
-                    margin-top: -62px !important; height: 54px !important; width: 100% !important; box-sizing: border-box !important; 
+
+                div.sticky-glass-{mode_actuel} {{
+                    margin-top: -54px !important; height: 54px !important; width: 100% !important; box-sizing: border-box !important; 
                     
                     /* 🔒 On verrouille la position au-dessus de tout le reste */
                     position: relative !important;
@@ -673,26 +661,4 @@ def afficher_live_content(stop_id, clean_name):
 # ========================================================
 def afficher_tableau_live(stop_id, stop_name):
     clean_name = stop_name.split('(')[0].strip()
-    
-    # On retire le style="background-color: transparent" qui écrasait tout
-    # st.markdown(f"""
-    # <style>
-    #     div[data-testid="stElementContainer"]:has(.sticky-station-title) {{
-    #         position: sticky !important; 
-    #         top: 3.8rem !important; 
-    #         z-index: 200 !important;
-    #     }}
-    # </style>
-    
-    # <div class='station-title sticky-station-title'>
-    #     {clean_name}
-    # </div>
-
-    # <img src="x" style="display:none;" onerror="setInterval(()=>{{const el=document.querySelector('.sticky-station-title');if(el){{document.documentElement.style.setProperty('--title-height',el.offsetHeight+'px');}}}}, 200);">
-    # """, unsafe_allow_html=True)
-            
-    coords_df = demander_coordonnees_arret(stop_id)
-    if coords_df is not None:
-        st.map(coords_df, height=150, zoom=14, use_container_width=True)
-    
     afficher_live_content(stop_id, clean_name)
