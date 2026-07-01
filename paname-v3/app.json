@@ -30,7 +30,9 @@
       "package": "fun.grandpaname.app",
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -46,6 +48,11 @@
           "locationAlwaysAndWhenInUsePermission": "Grand Paname utilise votre position pour afficher les gares et arrêts proches."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "5cdd5f6c-cf74-4b17-8c74-c347c0b6e301"
+      }
+    }
   }
 }

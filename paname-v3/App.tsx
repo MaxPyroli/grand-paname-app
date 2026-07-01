@@ -14,7 +14,7 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import transportData from './assets/transport-data.json';
-import { APP_VERSION } from './constants';
+import { APP_VERSION, APP_CODENAME } from './constants';
 import { searchGares, nearbyGares, coordGare, isNetworkError } from './api';
 import { logger, LogEntry } from './logger';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -325,7 +325,12 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
                     setVersionTaps(next);
                     if (next >= 7) { setVersionTaps(0); lancerTrain(); }
                   }}>
-                    <Text style={[styles.aProposVersion, { color: c.textSub }]}>Version {APP_VERSION}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                      <Text style={[styles.aProposVersion, { color: c.textSub }]}>Version {APP_VERSION}</Text>
+                      <View style={styles.codenameBadge}>
+                        <Text style={styles.codenameBadgeText}>{APP_CODENAME}</Text>
+                      </View>
+                    </View>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1266,4 +1271,8 @@ const styles = StyleSheet.create({
   feurVideo: { width: 280, height: 200, borderRadius: 12 },
   feurHint: { marginTop: 12, color: '#888', fontSize: 13, fontFamily: 'GrandParis-Light' },
   trainEasterEgg: { position: 'absolute', bottom: '22%', left: 0, height: 500, width: 1200, zIndex: 999 },
+  codenameBadge: {
+    backgroundColor: '#5e4bb6', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2,
+  },
+  codenameBadgeText: { color: '#fff', fontSize: 11, fontFamily: 'GrandParis-Medium' },
 });
