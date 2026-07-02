@@ -1,0 +1,28 @@
+ICÔNES DE L'APPLICATION — 25 icônes, 2 versions
+================================================
+
+Structure :
+  couleur/      → versions couleur (palette du logo), point "station" blanc
+                  → à utiliser sur fond sombre (bleu nuit)
+  monochrome/   → tout en "currentColor"
+                  → l'icône prend la couleur CSS du texte parent,
+                    idéal pour les états inactifs de la tab bar
+
+Palette du logo :
+  Bleu   #2E9BD6
+  Rouge  #E5493E
+  Jaune  #F2B705
+  Vert   #27A65C
+  Point station : #FFFFFF (blanc)
+
+Construction commune :
+  - viewBox 0 0 100 100
+  - zone de dessin 76 px centrée (marge de 12 px)
+  - trait principal 9 px, bouts et jointures arrondis
+
+Usage monochrome (exemple CSS) :
+  .tab-inactive svg { color: #8fa0bd; }
+  .tab-active   svg { color: #2E9BD6; }
+
+Note : sur fond clair, remplacer le blanc du point station
+par #0F2544 (bleu nuit) dans les versions couleur.

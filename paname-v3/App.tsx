@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
+import { CHANGELOGS } from './changelogs';
 import { searchGares, nearbyGares, coordGare, isNetworkError } from './api';
 import { logger, LogEntry } from './logger';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -209,6 +210,49 @@ type AccueilProps = {
   mapRef: React.RefObject<MapWebViewRef | null>;
 };
 
+// ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
+function renderInline(text: string, baseColor: string, c: ThemeColors): React.ReactNode[] {
+  return text.split(/(\*\*.*?\*\*)/g).map((seg, i) => {
+    if (seg.startsWith('**') && seg.endsWith('**')) {
+      return (
+        <Text key={i} style={{ fontFamily: 'GrandParis-Bold', color: c.text }}>
+          {seg.slice(2, -2)}
+        </Text>
+      );
+    }
+    return <Text key={i} style={{ fontFamily: 'GrandParis-Light', color: baseColor }}>{seg}</Text>;
+  });
+}
+
+function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
+  const lines = content.split('\n').filter(l => l.trim() !== '');
+  return (
+    <View style={{ gap: 3 }}>
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+        const isBullet = /^[*\-•]/.test(trimmed);
+        const isSection = trimmed.startsWith('**') && trimmed.endsWith('**');
+
+        if (isSection) {
+          return (
+            <Text key={i} style={{ fontFamily: 'GrandParis-Bold', color: c.text, fontSize: 13, lineHeight: 20, marginTop: i === 0 ? 0 : 6 }}>
+              {trimmed.slice(2, -2)}
+            </Text>
+          );
+        }
+
+        const rawText = isBullet ? trimmed.replace(/^[*\-•]\s*/, '') : trimmed;
+        return (
+          <Text key={i} style={{ fontSize: 13, lineHeight: 20, paddingLeft: isBullet ? 4 : 0 }}>
+            {isBullet && <Text style={{ fontFamily: 'GrandParis-Light', color: c.textSub }}>{'• '}</Text>}
+            {renderInline(rawText, c.textSub, c)}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
 function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const c = useColors();
@@ -220,6 +264,28 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
   const [devMode, setDevMode] = useState(false);
   const [logoTaps, setLogoTaps] = useState(0);
   useEffect(() => { AsyncStorage.getItem('@gp_dev_mode').then(v => { if (v === '1') setDevMode(true); }); }, []);
+  const [showChangelog, setShowChangelog] = useState(false);
+  const changelogAnim = useRef(new Animated.Value(0)).current;
+  const [activeVersion, setActiveVersion] = useState<string | null>(null);
+  const contentAnim = useRef(new Animated.Value(0)).current;
+
+  const toggleVersion = (version: string) => {
+    if (activeVersion === version) {
+      Animated.timing(contentAnim, { toValue: 0, duration: 180, useNativeDriver: true })
+        .start(() => setActiveVersion(null));
+    } else if (activeVersion !== null) {
+      Animated.timing(contentAnim, { toValue: 0, duration: 140, useNativeDriver: true })
+        .start(() => {
+          setActiveVersion(version);
+          contentAnim.setValue(0);
+          Animated.timing(contentAnim, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+        });
+    } else {
+      setActiveVersion(version);
+      contentAnim.setValue(0);
+      Animated.timing(contentAnim, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+    }
+  };
   const [versionTaps, setVersionTaps] = useState(0);
   const [trainVisible, setTrainVisible] = useState(false);
   const trainAnim = useRef(new Animated.Value(0)).current;
@@ -359,6 +425,72 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
               ))}
             </View>
 
+            {/* ── Historique des versions ── */}
+            <TouchableOpacity
+              style={styles.changelogSectionHeader}
+              onPress={() => {
+                if (!showChangelog) {
+                  setShowChangelog(true);
+                  setActiveVersion(null);
+                  changelogAnim.setValue(0);
+                  Animated.timing(changelogAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+                } else {
+                  Animated.timing(changelogAnim, { toValue: 0, duration: 200, useNativeDriver: true })
+                    .start(() => setShowChangelog(false));
+                }
+              }}
+            >
+              <Text style={[styles.settingsSection, { color: c.textSub, marginTop: 0, marginBottom: 0, marginHorizontal: 0 }]}>
+                HISTORIQUE DES VERSIONS
+              </Text>
+              <Text style={{ color: c.textSub, fontSize: 18, marginRight: 4 }}>
+                {showChangelog ? '˅' : '›'}
+              </Text>
+            </TouchableOpacity>
+            {showChangelog && (
+              <Animated.View style={{
+                opacity: changelogAnim,
+                transform: [{ translateY: changelogAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
+              }}>
+                <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0 }]}>
+                  {CHANGELOGS.map((entry, i) => (
+                    <View key={entry.version}>
+                      {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.border }} />}
+                      <TouchableOpacity
+                        style={styles.changelogRow}
+                        onPress={() => toggleVersion(entry.version)}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[styles.changelogVersion, { color: c.text }]}>v{entry.version}</Text>
+                            {entry.codename && (
+                              <View style={styles.codenameBadge}>
+                                <Text style={styles.codenameBadgeText}>{entry.codename}</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={[styles.changelogDate, { color: c.textSub }]}>{entry.date}</Text>
+                        </View>
+                        <Text style={{ color: c.textSub, fontSize: 18 }}>
+                          {activeVersion === entry.version ? '˅' : '›'}
+                        </Text>
+                      </TouchableOpacity>
+                      {activeVersion === entry.version && (
+                        <Animated.View style={{
+                          opacity: contentAnim,
+                          transform: [{ translateY: contentAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
+                        }}>
+                          <View style={[styles.changelogContent, { borderTopColor: c.border }]}>
+                            <ChangelogContent content={entry.content} c={c} />
+                          </View>
+                        </Animated.View>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              </Animated.View>
+            )}
+
             {/* ── Débogage (mode dev, caché) ── */}
             {devMode && (
               <>
@@ -450,6 +582,7 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, activeTab, mapRef }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
+  const insets = useSafeAreaInsets();
   const [loadingGps, setLoadingGps] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Gare[]>([]);
@@ -573,7 +706,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Header pill flottant */}
       <View
-        style={[styles.headerNatif, { backgroundColor: c.bgFloat }]}
+        style={[styles.headerNatif, { backgroundColor: c.bgFloat, top: insets.top + 12 }]}
         onLayout={(e: LayoutChangeEvent) => {
           const { y, height } = e.nativeEvent.layout;
           onHeaderLayout(y + height);
@@ -585,7 +718,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Bulle paramètres */}
       <TouchableOpacity
-        style={[styles.settingsBubble, { backgroundColor: c.bgFloat }]}
+        style={[styles.settingsBubble, { backgroundColor: c.bgFloat, top: insets.top + 12 }]}
         onPress={onOpenSettings}
       >
         <Text style={{ fontSize: 18 }}>⚙️</Text>
@@ -662,9 +795,48 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 }
 
 // ─── ÉCRAN FAVORIS ────────────────────────────────────────────────────────────
+const FAV_ITEM_H = 72;
+const FAV_GAP    = 10;
+const FAV_SLOT_H = FAV_ITEM_H + FAV_GAP;
+
 function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReordonnerFavoris }: FavorisProps) {
   const c = useColors();
   const [editMode, setEditMode] = useState(false);
+  const yMap = useRef(new Map<string, Animated.Value>()).current;
+  const isAnimating = useRef(false);
+
+  const getY = (id: string): Animated.Value => {
+    if (!yMap.has(id)) {
+      const idx = favoris.findIndex(f => f.id === id);
+      yMap.set(id, new Animated.Value((idx >= 0 ? idx : favoris.length) * FAV_SLOT_H));
+    }
+    return yMap.get(id)!;
+  };
+
+  useEffect(() => {
+    if (isAnimating.current) return;
+    favoris.forEach((f, i) => {
+      const y = yMap.get(f.id);
+      if (y) y.setValue(i * FAV_SLOT_H);
+      else yMap.set(f.id, new Animated.Value(i * FAV_SLOT_H));
+    });
+    const ids = new Set(favoris.map(f => f.id));
+    yMap.forEach((_, id) => { if (!ids.has(id)) yMap.delete(id); });
+  }, [favoris]);
+
+  const handleReorder = (from: number, to: number) => {
+    if (isAnimating.current || from < 0 || to < 0 || from >= favoris.length || to >= favoris.length) return;
+    const yA = getY(favoris[from].id);
+    const yB = getY(favoris[to].id);
+    isAnimating.current = true;
+    Animated.parallel([
+      Animated.timing(yA, { toValue: to   * FAV_SLOT_H, duration: 260, useNativeDriver: true }),
+      Animated.timing(yB, { toValue: from * FAV_SLOT_H, duration: 260, useNativeDriver: true }),
+    ]).start(() => {
+      isAnimating.current = false;
+      onReordonnerFavoris(from, to);
+    });
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -694,57 +866,60 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
         </View>
       ) : (
         <View style={{ flex: 1 }}>
-        <FlatList
-          data={favoris}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 60, paddingTop: 28 }}
-          renderItem={({ item, index }) => (
-            <TouchableOpacity
-              style={[styles.itemFavoriNatif, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}
-              onPress={() => { if (!editMode) onSelectionnerGare(item.id, item.label); }}
-              activeOpacity={editMode ? 1 : 0.7}
-            >
-              {editMode && (
-                <TouchableOpacity
-                  onPress={() => onSupprimerFavori(item)}
-                  style={styles.boutonSupprimer}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 28, paddingBottom: 60 }}>
+            <View style={{ height: favoris.length * FAV_SLOT_H - FAV_GAP }}>
+              {favoris.map((item, index) => (
+                <Animated.View
+                  key={item.id}
+                  style={{ position: 'absolute', left: 0, right: 0, height: FAV_ITEM_H, transform: [{ translateY: getY(item.id) }] }}
                 >
-                  <Text style={styles.boutonSupprimerTexte}>✕</Text>
-                </TouchableOpacity>
-              )}
-              <View style={styles.alignementFavori}>
-                <View style={[styles.iconGare, { backgroundColor: c.iconGareBg }]}>
-                  <Text style={{ fontSize: 16 }}>🚉</Text>
-                </View>
-                <Text style={[styles.texteNomGareFavori, { color: c.text }]} numberOfLines={2}>{item.label}</Text>
-              </View>
-              {editMode ? (
-                <View style={styles.boutonsOrdre}>
                   <TouchableOpacity
-                    onPress={() => onReordonnerFavoris(index, index - 1)}
-                    disabled={index === 0}
-                    hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
+                    style={[styles.itemFavoriNatif, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}
+                    onPress={() => { if (!editMode) onSelectionnerGare(item.id, item.label); }}
+                    activeOpacity={editMode ? 1 : 0.7}
                   >
-                    <Text style={{ color: index === 0 ? c.border : c.accent, fontSize: 20 }}>↑</Text>
+                    {editMode && (
+                      <TouchableOpacity
+                        onPress={() => onSupprimerFavori(item)}
+                        style={styles.boutonSupprimer}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.boutonSupprimerTexte}>✕</Text>
+                      </TouchableOpacity>
+                    )}
+                    <View style={styles.alignementFavori}>
+                      <View style={[styles.iconGare, { backgroundColor: c.iconGareBg }]}>
+                        <Text style={{ fontSize: 16 }}>🚉</Text>
+                      </View>
+                      <Text style={[styles.texteNomGareFavori, { color: c.text }]} numberOfLines={1}>{item.label}</Text>
+                    </View>
+                    {editMode ? (
+                      <View style={styles.boutonsOrdre}>
+                        <TouchableOpacity
+                          onPress={() => handleReorder(index, index - 1)}
+                          disabled={index === 0}
+                          hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                        >
+                          <Text style={{ color: index === 0 ? c.border : c.accent, fontSize: 20 }}>↑</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => handleReorder(index, index + 1)}
+                          disabled={index === favoris.length - 1}
+                          hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                        >
+                          <Text style={{ color: index === favoris.length - 1 ? c.border : c.accent, fontSize: 20 }}>↓</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <Text style={{ color: c.accent, fontSize: 20, marginLeft: 8 }}>›</Text>
+                    )}
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => onReordonnerFavoris(index, index + 1)}
-                    disabled={index === favoris.length - 1}
-                    hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
-                  >
-                    <Text style={{ color: index === favoris.length - 1 ? c.border : c.accent, fontSize: 20 }}>↓</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <Text style={{ color: c.accent, fontSize: 20, marginLeft: 8 }}>›</Text>
-              )}
-            </TouchableOpacity>
-          )}
-        />
-        <FadeTop color={c.bg} height={28} />
-        <FadeBottom color={c.bg} />
+                </Animated.View>
+              ))}
+            </View>
+          </ScrollView>
+          <FadeTop color={c.bg} height={28} />
+          <FadeBottom color={c.bg} />
         </View>
       )}
     </View>
@@ -755,9 +930,18 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
 function AssistantScreen() {
   const c = useColors();
   return (
-    <View style={styles.cardContent}>
-      <Text style={[styles.cardTitle, { color: c.text }]}>En construction...🏗️</Text>
-      <Text style={[styles.cardSubtitle, { color: c.textSub }]}>De nouvelles fonctionnalités arrivent... 👀</Text>
+    <View style={{ flex: 1 }}>
+      <View style={styles.favorisTitreRow}>
+        <View>
+          <Text style={[styles.titreTiroir, { color: c.text }]}>💭 À venir</Text>
+          <Text style={[styles.sousTitreTiroir, { color: c.textSub, marginBottom: 0 }]}>Prochaines fonctionnalités</Text>
+        </View>
+      </View>
+      <View style={styles.etatVide}>
+        <Text style={styles.etatVideEmoji}>🏗️</Text>
+        <Text style={[styles.etatVideTitre, { color: c.text }]}>En construction</Text>
+        <Text style={[styles.etatVideDesc, { color: c.textSub }]}>De nouvelles fonctionnalités arrivent bientôt. Restez connectés ! 👀</Text>
+      </View>
     </View>
   );
 }
@@ -783,7 +967,7 @@ function AppInner() {
   const snapRef = useRef({ hidden: PANEL_H, half: PANEL_H - SCREEN_H * 0.50, full: PANEL_H });
   snapRef.current.hidden = PANEL_H;
   snapRef.current.half   = PANEL_H - SCREEN_H * 0.50;
-  snapRef.current.full   = headerHeight > 0 ? headerHeight + 8 : PANEL_H;
+  snapRef.current.full   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
 
   const panelY      = useRef(new Animated.Value(PANEL_H)).current;
   const panelSnap   = useRef<'hidden' | 'half' | 'full'>('hidden');
@@ -854,8 +1038,8 @@ function AppInner() {
   });
 
   const { width: screenWidth } = Dimensions.get('window');
-  const slideAnim = useRef(new Animated.Value(-screenWidth)).current;
-  const [lastTab, setLastTab] = useState<'favoris' | 'assistant'>('favoris');
+  const favSlideAnim  = useRef(new Animated.Value(-screenWidth)).current;
+  const asstSlideAnim = useRef(new Animated.Value(screenWidth)).current;
 
   useEffect(() => {
     (async () => {
@@ -944,15 +1128,22 @@ function AppInner() {
   };
 
   useEffect(() => {
-    if (activeTab !== 'accueil') {
-      setLastTab(activeTab);
-      slideAnim.setValue(activeTab === 'favoris' ? -screenWidth : screenWidth);
-      Animated.timing(slideAnim, { toValue: 0, duration: 320, useNativeDriver: true }).start();
+    const D = 300;
+    if (activeTab === 'favoris') {
+      Animated.parallel([
+        Animated.timing(favSlideAnim,  { toValue: 0,           duration: D, useNativeDriver: true }),
+        Animated.timing(asstSlideAnim, { toValue: screenWidth,  duration: D, useNativeDriver: true }),
+      ]).start();
+    } else if (activeTab === 'assistant') {
+      Animated.parallel([
+        Animated.timing(asstSlideAnim, { toValue: 0,            duration: D, useNativeDriver: true }),
+        Animated.timing(favSlideAnim,  { toValue: -screenWidth, duration: D, useNativeDriver: true }),
+      ]).start();
     } else {
-      Animated.timing(slideAnim, {
-        toValue: lastTab === 'favoris' ? -screenWidth : screenWidth,
-        duration: 320, useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.timing(favSlideAnim,  { toValue: -screenWidth, duration: D, useNativeDriver: true }),
+        Animated.timing(asstSlideAnim, { toValue: screenWidth,  duration: D, useNativeDriver: true }),
+      ]).start();
     }
   }, [activeTab]);
 
@@ -960,12 +1151,12 @@ function AppInner() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.bg }}><ActivityIndicator size="large" color={c.accent} /></View>;
   }
 
-  const tiroirTop    = insets.top + headerHeight + 8;
+  const tiroirTop    = headerHeight + 8;
   const tiroirBottom = SEARCH_BAR_BOTTOM + SEARCH_BAR_HEIGHT + 8;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['top', 'left', 'right']}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['left', 'right']}>
+      <StatusBar style={isDark ? 'light' : 'dark'} translucent backgroundColor="transparent" />
 
       <AccueilScreen
         onBasculerFavori={basculerFavori}
@@ -989,25 +1180,31 @@ function AppInner() {
 
       {/* Tiroirs latéraux */}
       {headerHeight > 0 && (
-        <Animated.View style={[
-          styles.sideCard,
-          lastTab === 'favoris' ? styles.sideCardLeft : styles.sideCardRight,
-          { top: tiroirTop, bottom: tiroirBottom, backgroundColor: c.bg, transform: [{ translateX: slideAnim }] }
-        ]}>
-          <View style={styles.cardContentWrapper}>
-            {lastTab === 'favoris' && (
+        <>
+          <Animated.View style={[
+            styles.sideCard, styles.sideCardLeft,
+            { top: tiroirTop, bottom: tiroirBottom, backgroundColor: c.bg, transform: [{ translateX: favSlideAnim }] }
+          ]}>
+            <View style={styles.cardContentWrapper}>
               <FavorisScreen favoris={favoris} onSupprimerFavori={basculerFavori} onSelectionnerGare={selectionnerDepuisFavoris} onReordonnerFavoris={reordonnerFavoris} />
-            )}
-            {lastTab === 'assistant' && <AssistantScreen />}
-          </View>
-        </Animated.View>
+            </View>
+          </Animated.View>
+          <Animated.View style={[
+            styles.sideCard, styles.sideCardRight,
+            { top: tiroirTop, bottom: tiroirBottom, backgroundColor: c.bg, transform: [{ translateX: asstSlideAnim }] }
+          ]}>
+            <View style={styles.cardContentWrapper}>
+              <AssistantScreen />
+            </View>
+          </Animated.View>
+        </>
       )}
 
       {/* Barre de navigation */}
       <View style={[styles.floatingTabBar, { backgroundColor: c.bgFloat }]}>
         <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('favoris')}>
           <View style={[styles.tabPill, activeTab === 'favoris' && { backgroundColor: c.pillActive }]}>
-            <Text style={styles.tabIcon}>{activeTab === 'favoris' ? '⭐' : '☆'}</Text>
+            <Text style={styles.tabIcon}>{activeTab === 'favoris' ? '❤️' : '🤍'}</Text>
           </View>
           <Text style={[styles.tabLabel, { color: activeTab === 'favoris' ? c.text : c.textTab }]}>Favoris</Text>
         </TouchableOpacity>
@@ -1165,7 +1362,7 @@ const styles = StyleSheet.create({
   etatVideDesc: { fontSize: 14, fontFamily: 'GrandParis-Light', textAlign: 'center', lineHeight: 22 },
   itemFavoriNatif: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: 14, borderRadius: 14, marginBottom: 10, borderWidth: 1,
+    paddingHorizontal: 14, height: FAV_ITEM_H, borderRadius: 14, borderWidth: 1,
     shadowColor: '#1a2a4a', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
   },
   alignementFavori: { flexDirection: 'row', alignItems: 'center', flex: 1 },
@@ -1176,7 +1373,7 @@ const styles = StyleSheet.create({
   favorisTitreRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 },
   boutonSupprimer: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#e74c3c', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   boutonSupprimerTexte: { color: '#fff', fontSize: 11, fontWeight: 'bold' as const },
-  boutonsOrdre: { flexDirection: 'column', alignItems: 'center', marginLeft: 8 },
+  boutonsOrdre: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 4 },
   cardContent: { flex: 1, alignItems: 'center', paddingTop: 20 },
   cardTitle: { fontSize: 26, fontFamily: 'GrandParis-Bold', marginBottom: 10 },
   cardSubtitle: { fontSize: 16, fontFamily: 'GrandParis-Light' },
@@ -1275,4 +1472,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#5e4bb6', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2,
   },
   codenameBadgeText: { color: '#fff', fontSize: 11, fontFamily: 'GrandParis-Medium' },
+  changelogSectionHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 24, marginBottom: 8, marginHorizontal: 20,
+  },
+  changelogRow: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16,
+  },
+  changelogVersion: { fontSize: 14, fontFamily: 'GrandParis-Bold' },
+  changelogDate: { fontSize: 12, fontFamily: 'GrandParis-Light', marginTop: 2 },
+  changelogContent: {
+    paddingHorizontal: 16, paddingBottom: 14, paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
 });
