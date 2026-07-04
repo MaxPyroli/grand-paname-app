@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Politique de confidentialité — Grand Paname</title>
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --card: #ffffff;
+      --text: #1a1a2e;
+      --muted: #6c757d;
+      --accent: #0d3b6e;
+      --border: #e9ecef;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #010e26;
+        --card: #0d1f3c;
+        --text: #e8eaf0;
+        --muted: #8892a4;
+        --accent: #5ab3f5;
+        --border: #1e3050;
+      }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+      padding: 2rem 1rem;
+    }
+    .container { max-width: 680px; margin: 0 auto; }
+    header { margin-bottom: 2.5rem; }
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--text);
+      text-decoration: none;
+      margin-bottom: 1rem;
+    }
+    h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .subtitle { color: var(--muted); font-size: 0.9rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    p { margin-bottom: 0.75rem; color: var(--text); }
+    p:last-child { margin-bottom: 0; }
+    ul { padding-left: 1.2rem; margin-bottom: 0.75rem; }
+    li { margin-bottom: 0.3rem; }
+    .highlight {
+      background: var(--bg);
+      border-left: 3px solid var(--accent);
+      padding: 0.75rem 1rem;
+      border-radius: 0 8px 8px 0;
+      margin: 0.75rem 0;
+      font-size: 0.95rem;
+    }
+    a { color: var(--accent); }
+    footer { margin-top: 2rem; text-align: center; color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo">🗺️ Grand Paname</div>
+    <h1>Politique de confidentialité</h1>
+    <p class="subtitle">Dernière mise à jour : juillet 2025</p>
+  </header>
+
+  <div class="card">
+    <h2>En résumé</h2>
+    <div class="highlight">
+      Grand Paname ne collecte aucune donnée personnelle. Votre position géographique est utilisée uniquement sur votre appareil et n'est jamais transmise à nos serveurs.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Données de localisation</h2>
+    <p>Lorsque vous l'autorisez, l'application accède à votre position GPS afin d'afficher les gares et arrêts de transport en commun proches de vous.</p>
+    <ul>
+      <li>La position est traitée localement sur votre appareil.</li>
+      <li>Elle n'est ni enregistrée, ni envoyée à un serveur tiers.</li>
+      <li>Elle n'est jamais partagée avec d'autres applications ou sociétés.</li>
+    </ul>
+    <p>Vous pouvez révoquer l'accès à la localisation à tout moment dans les réglages de votre téléphone.</p>
+  </div>
+
+  <div class="card">
+    <h2>Données de navigation et de carte</h2>
+    <p>La carte affichée utilise les tuiles CartoDB (service d'OpenStreetMap). Lorsque vous naviguez sur la carte, votre appareil télécharge des images de tuiles depuis leurs serveurs. Ce téléchargement peut impliquer votre adresse IP, conformément à la <a href="https://carto.com/privacy/" target="_blank">politique de confidentialité de CartoDB</a>.</p>
+    <p>Grand Paname n'a pas accès à ces données et ne les stocke pas.</p>
+  </div>
+
+  <div class="card">
+    <h2>Données audio</h2>
+    <p>L'application demande l'accès au microphone pour une fonctionnalité expérimentale de recherche vocale. Aucun enregistrement audio n'est transmis à un serveur : le traitement est entièrement local.</p>
+  </div>
+
+  <div class="card">
+    <h2>Ce que nous ne faisons pas</h2>
+    <ul>
+      <li>Nous ne créons pas de compte utilisateur.</li>
+      <li>Nous ne collectons pas d'identifiants publicitaires.</li>
+      <li>Nous n'utilisons pas de cookies ou de traceurs.</li>
+      <li>Nous ne vendons ni ne partageons vos données avec des tiers.</li>
+      <li>Nous n'affichons pas de publicité.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Contact</h2>
+    <p>Pour toute question relative à la confidentialité de vos données, vous pouvez nous contacter à l'adresse suivante :</p>
+    <p><a href="mailto:contact@grandpaname.fun">contact@grandpaname.fun</a></p>
+  </div>
+
+  <footer>
+    <p>© 2025 Grand Paname · <a href="mailto:contact@grandpaname.fun">contact@grandpaname.fun</a></p>
+  </footer>
+</div>
+</body>
+</html>
