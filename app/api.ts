@@ -65,6 +65,66 @@ export async function nearbyGares(lat: number, lon: number): Promise<SearchResul
   return results;
 }
 
+export type NearbyStop = SearchResult & { lat: number; lon: number; modes: string[] };
+
+function modesDepuisPhysicalModes(physModes: any[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const m of physModes || []) {
+    const id: string = m?.id || '';
+    let mode = 'BUS';
+    if (id.includes('Metro'))                                     mode = 'METRO';
+    else if (id.includes('RapidTransit'))                         mode = 'RER';
+    else if (id.includes('LocalTrain') || id.includes('LongDistance')) mode = 'TRAIN';
+    else if (id.includes('Tramway'))                              mode = 'TRAM';
+    else if (id.includes('Cable') || id.includes('Funicular'))    mode = 'CABLE';
+    else if (id.includes('Ferry') || id.includes('Boat'))         mode = 'FLUVIAL';
+    if (!seen.has(mode)) { seen.add(mode); result.push(mode); }
+  }
+  return result.length > 0 ? result : ['BUS'];
+}
+
+export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: AbortSignal, distance = 1000): Promise<NearbyStop[]> {
+  const count = Math.min(Math.ceil(distance / 15), 500);
+  const data = await navitia(
+    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=${distance}&count=${count}&depth=2`,
+    signal,
+  );
+  const results: NearbyStop[] = [];
+  let loggedOnce = false;
+  for (const p of data?.places_nearby || []) {
+    if (!p.stop_area) continue;
+    const sa = p.stop_area;
+    const coord = sa.coord;
+    if (!coord?.lat || !coord?.lon) continue;
+    if (!loggedOnce) {
+      logger.info(`physical_modes sample: ${JSON.stringify(sa.physical_modes)}`);
+      loggedOnce = true;
+    }
+    const ville = villeDepuisRegions(sa.administrative_regions || []);
+    results.push({
+      id: sa.id,
+      label: ville ? `${sa.name} (${ville})` : sa.name,
+      lat: parseFloat(coord.lat),
+      lon: parseFloat(coord.lon),
+      modes: modesDepuisPhysicalModes(sa.physical_modes),
+    });
+  }
+  logger.info(`nearbyStops (${lat.toFixed(4)}, ${lon.toFixed(4)}) → ${results.length}`);
+  return results;
+}
+
+export type LineChip = { id: string; code: string; color: string };
+
+export async function linesForArea(stopAreaId: string, signal?: AbortSignal): Promise<LineChip[]> {
+  const data = await navitia(`stop_areas/${stopAreaId}/lines`, signal);
+  return (data?.lines || []).map((l: any) => ({
+    id: l.id || '',
+    code: l.code || l.name || '?',
+    color: l.color || '888888',
+  }));
+}
+
 export async function coordGare(stopId: string): Promise<{ lat: number; lon: number } | null> {
   const data = await navitia(`stop_areas/${stopId}`);
   const coord = data?.stop_areas?.[0]?.coord;

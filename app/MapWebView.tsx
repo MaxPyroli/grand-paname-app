@@ -1,8 +1,15 @@
 import React, { useRef, useImperativeHandle, forwardRef } from 'react';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { MODE_ICONS } from './modeIcons';
 
-const MAP_HTML = `<!DOCTYPE html>
+function getMapHTML(isDark: boolean) {
+  const iconsJson = JSON.stringify(MODE_ICONS);
+  const bg = isDark ? '#031a3a' : '#eef2f7';
+  const tileUrl = isDark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -11,7 +18,7 @@ const MAP_HTML = `<!DOCTYPE html>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    html,body,#map{height:100%;width:100%;background:#eef2f7}
+    html,body,#map{height:100%;width:100%;background:${bg}}
     @keyframes pulse{
       0%{transform:scale(0.8);opacity:0.9}
       70%{transform:scale(2.8);opacity:0}
@@ -35,6 +42,12 @@ const MAP_HTML = `<!DOCTYPE html>
     }
     .s-dot:hover{transform:scale(1.4)}
     .s-dot.active{background:#3498db}
+    .n-icon{
+      width:24px;height:24px;border-radius:6px;
+      box-shadow:0 2px 6px rgba(0,0,0,0.45);
+      cursor:pointer;transition:transform .15s;
+    }
+    .n-icon:hover{transform:scale(1.2)}
   </style>
 </head>
 <body>
@@ -42,7 +55,7 @@ const MAP_HTML = `<!DOCTYPE html>
 <script>
   var map = L.map('map',{zoomControl:false,attributionControl:false}).setView([48.8566,2.3522],13);
 
-  window._tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+  window._tileLayer = L.tileLayer('${tileUrl}',{
     maxZoom:19, subdomains:'abcd'
   }).addTo(map);
 
@@ -55,6 +68,7 @@ const MAP_HTML = `<!DOCTYPE html>
   var activeMarkerId = null;
   var transportLines = [];
   var transportStops = [];
+  var nearbyStopMarkers = [];
 
   function userIcon(){
     return L.divIcon({
@@ -144,10 +158,10 @@ const MAP_HTML = `<!DOCTYPE html>
     sortedLines.forEach(function(l){
       if(!l.coords||!l.coords.length)return;
       var color='#'+(l.color||'888888');
-      var weight=(l.mode==='RER'||l.mode==='TRAIN')?2.5:2;
+      var weight=(l.mode==='RER'||l.mode==='TRAIN')?4:(l.mode==='METRO')?2.5:1.5;
       l.coords.forEach(function(seg){
         if(seg&&seg.length>=2){
-          transportLines.push(L.polyline(seg,{color:color,weight:weight,opacity:0.8}).addTo(map));
+          transportLines.push(L.polyline(seg,{color:color,weight:weight,opacity:1}).addTo(map));
         }
       });
     });
@@ -175,6 +189,65 @@ const MAP_HTML = `<!DOCTYPE html>
       : '';
   }
 
+  var NEARBY_ICONS=${iconsJson};
+  var MODE_MIN_ZOOM={RER:13,TRAIN:13,METRO:14,TRAM:14,CABLE:14,BUS:15,FLUVIAL:15,AUTRE:15};
+  var MODE_ICON_SIZE={RER:24,TRAIN:24,METRO:20,TRAM:18,CABLE:18,BUS:14,FLUVIAL:16,AUTRE:14};
+  var _allNearbyStops=[];
+
+  function _minZoomForStop(s){
+    var min=99;
+    (s.modes||[]).forEach(function(m){ var z=MODE_MIN_ZOOM[m]||15; if(z<min)min=z; });
+    return min;
+  }
+
+  function _renderNearbyStops(){
+    nearbyStopMarkers.forEach(function(m){map.removeLayer(m);});
+    nearbyStopMarkers=[];
+    var z=map.getZoom();
+    _allNearbyStops.forEach(function(s){
+      if(s.lat==null||s.lon==null)return;
+      if(_minZoomForStop(s)>z)return;
+      var visibleModes=(s.modes||[]).filter(function(m){ return (MODE_MIN_ZOOM[m]||15)<=z; });
+      if(!visibleModes.length)return;
+      var maxSz=0;
+      visibleModes.forEach(function(m){ var s2=MODE_ICON_SIZE[m]||14; if(s2>maxSz)maxSz=s2; });
+      var sz=visibleModes.length>1?Math.max(maxSz-2,12):maxSz;
+      var gap=3;
+      var totalW=visibleModes.length*sz+(visibleModes.length-1)*gap;
+      var imgs=visibleModes.map(function(m){
+        var src=NEARBY_ICONS[m]||NEARBY_ICONS['BUS'];
+        return '<img class="n-icon" src="'+src+'" style="width:'+sz+'px;height:'+sz+'px"/>';
+      }).join('');
+      var html='<div style="display:flex;gap:'+gap+'px;align-items:center">'+imgs+'</div>';
+      var icon=L.divIcon({className:'',html:html,iconSize:[totalW,sz],iconAnchor:[totalW/2,sz/2]});
+      var m=L.marker([s.lat,s.lon],{icon:icon,zIndexOffset:800})
+        .addTo(map)
+        .on('click',function(){
+          window.ReactNativeWebView.postMessage(JSON.stringify({type:'stationSelected',id:s.id,label:s.label}));
+        });
+      nearbyStopMarkers.push(m);
+    });
+  }
+
+  function setNearbyStops(stops){
+    _allNearbyStops=stops;
+    _renderNearbyStops();
+  }
+
+  map.on('zoomend',function(){ _renderNearbyStops(); });
+
+  var _vpTimer=null;
+  map.on('moveend zoomend',function(){
+    clearTimeout(_vpTimer);
+    _vpTimer=setTimeout(function(){
+      var c=map.getCenter();
+      var z2=map.getZoom();
+           var maxR=z2<=13?15000:z2<=14?8000:5000;
+           var radius=Math.min(Math.round(c.distanceTo(map.getBounds().getNorthEast())),maxR);
+      window.ReactNativeWebView.postMessage(JSON.stringify({type:'viewportChanged',lat:c.lat,lon:c.lng,zoom:map.getZoom(),radius:radius}));
+    },600);
+  });
+
   function handleMsg(e){
     try{
       var msg=JSON.parse(e.data);
@@ -185,13 +258,16 @@ const MAP_HTML = `<!DOCTYPE html>
       if(msg.type==='flyTo') flyToStation(msg.lat,msg.lon);
       if(msg.type==='showStation') showStation(msg.id,msg.lat,msg.lon);
       if(msg.type==='setTransportData') setTransportData(msg.data);
+      if(msg.type==='setNearbyStops') setNearbyStops(msg.stops);
     }catch(err){}
   }
   document.addEventListener('message',handleMsg);
   window.addEventListener('message',handleMsg);
 </script>
 </body>
-</html>`;
+</html>`;}
+
+export type NearbyStopMarker = { id: string; label: string; lat: number; lon: number; modes: string[] };
 
 export type MapWebViewRef = {
   setUserLocation: (lat: number, lon: number) => void;
@@ -201,14 +277,17 @@ export type MapWebViewRef = {
   flyTo: (lat: number, lon: number) => void;
   showStation: (id: string, lat: number, lon: number) => void;
   setTransportData: (data: { stops: any[]; lines: any[] }) => void;
+  setNearbyStops: (stops: NearbyStopMarker[]) => void;
 };
 
 type Props = {
   onStationSelected?: (id: string, label: string) => void;
+  onViewportChanged?: (lat: number, lon: number, zoom: number, radius: number) => void;
   onReady?: () => void;
+  isDark?: boolean;
 };
 
-const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onReady }, ref) => {
+const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onViewportChanged, onReady, isDark }, ref) => {
   const wvRef = useRef<WebView>(null);
 
   useImperativeHandle(ref, () => ({
@@ -233,13 +312,16 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onRead
     setTransportData: (data) => {
       wvRef.current?.injectJavaScript(`setTransportData(${JSON.stringify(data)});true;`);
     },
+    setNearbyStops: (stops) => {
+      wvRef.current?.injectJavaScript(`setNearbyStops(${JSON.stringify(stops)});true;`);
+    },
   }));
 
   return (
     <View style={StyleSheet.absoluteFill}>
       <WebView
         ref={wvRef}
-        source={{ html: MAP_HTML }}
+        source={{ html: getMapHTML(isDark ?? false) }}
         style={StyleSheet.absoluteFill}
         scrollEnabled={false}
         bounces={false}
@@ -248,7 +330,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onRead
         startInLoadingState={true}
         onLoadEnd={onReady}
         renderLoading={() => (
-          <View style={styles.loader}>
+          <View style={[styles.loader, { backgroundColor: isDark ? '#031a3a' : '#eef2f7' }]}>
             <ActivityIndicator size="large" color="#3498db" />
           </View>
         )}
@@ -256,6 +338,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onRead
           try {
             const d = JSON.parse(e.nativeEvent.data);
             if (d.type === 'stationSelected') onStationSelected?.(d.id, d.label);
+            if (d.type === 'viewportChanged') onViewportChanged?.(d.lat, d.lon, d.zoom, d.radius ?? 1000);
           } catch {}
         }}
       />
@@ -266,7 +349,6 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onRead
 const styles = StyleSheet.create({
   loader: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#eef2f7',
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -7,6 +7,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.0.1',
+    date: '5 juillet 2026',
+    content: `**🛠️ Corrections et Améliorations**
+* Divers ajustements visuels et techniques pour améliorer la fluidité et le confort de l'app.
+
+Bon voyage !`,
+  },
+  {
     version: '3.0.0',
     date: '1er juillet 2026',
     codename: 'Comté',

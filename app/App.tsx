@@ -16,7 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS } from './changelogs';
-import { searchGares, nearbyGares, coordGare, isNetworkError } from './api';
+import { searchGares, nearbyGares, coordGare, isNetworkError, linesForArea, LineChip } from './api';
 import { logger, LogEntry } from './logger';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useAudioPlayer } from 'expo-audio';
@@ -308,7 +308,7 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
     setTrainVisible(true);
     Animated.timing(trainAnim, {
       toValue: screenW,
-      duration: 1400,
+      duration: 3500,
       useNativeDriver: true,
     }).start(() => setTrainVisible(false));
   }
@@ -570,7 +570,7 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
       <TouchableOpacity style={styles.feurOverlay} onPress={onClose} activeOpacity={1}>
         <View style={styles.feurBox}>
           <Text style={styles.feurTitre}>FEUR ! 💇‍♂️</Text>
-          <VideoView player={player} style={styles.feurVideo} contentFit="contain" />
+          <VideoView player={player} style={styles.feurVideo} contentFit="contain" nativeControls={false} />
           <Text style={styles.feurHint}>Tape pour fermer</Text>
         </View>
       </TouchableOpacity>
@@ -591,6 +591,10 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
   const searchBarBottom = useRef(new Animated.Value(SEARCH_BAR_BOTTOM)).current;
   const resultsBottom   = useRef(Animated.add(searchBarBottom, SEARCH_BAR_HEIGHT + 8)).current;
+
+  const handleViewportChanged = useCallback((_lat: number, _lon: number, _zoom: number, _radius: number) => {
+    mapRef.current?.setNearbyStops([]);
+  }, [mapRef]);
 
   useEffect(() => {
     (async () => { await Location.requestForegroundPermissionsAsync(); })();
@@ -697,7 +701,9 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
     <View style={styles.container}>
       <MapWebView
         ref={mapRef}
+        isDark={isDark}
         onStationSelected={onGareChoisie}
+        onViewportChanged={handleViewportChanged}
         onReady={() => {
           mapRef.current?.setTheme(isDark);
           mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
@@ -763,12 +769,6 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Barre de recherche flottante */}
       <Animated.View style={[styles.bottomSearchBar, { bottom: searchBarBottom, backgroundColor: c.bgFloat }]}>
-        <TouchableOpacity style={[styles.boutonGpsBarre, { backgroundColor: c.bgSubtle }]} onPress={declarerClicGpsNatif} disabled={loadingGps}>
-          {loadingGps
-            ? <ActivityIndicator size="small" color={c.accent} />
-            : <Text style={{ fontSize: 18 }}>📍</Text>
-          }
-        </TouchableOpacity>
         <View style={styles.searchContainer}>
           <TextInput
             style={[styles.searchInput, { backgroundColor: c.bgSubtle, color: c.text }]}
@@ -788,6 +788,12 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
             </TouchableOpacity>
           )}
         </View>
+        <TouchableOpacity style={[styles.boutonGpsBarre, { backgroundColor: c.bgSubtle }]} onPress={declarerClicGpsNatif} disabled={loadingGps}>
+          {loadingGps
+            ? <ActivityIndicator size="small" color={c.accent} />
+            : <Text style={{ fontSize: 18 }}>📍</Text>
+          }
+        </TouchableOpacity>
       </Animated.View>
       <FeurModal visible={feurVisible} onClose={() => setFeurVisible(false)} />
     </View>
@@ -959,6 +965,8 @@ function AppInner() {
   const [headerHeight, setHeaderHeight] = useState(0);
   const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [panelLines, setPanelLines] = useState<LineChip[] | null>(null);
+  const linesAbortRef = useRef<AbortController | null>(null);
   const webViewRef = useRef<WebView>(null);
   const mapRef = useRef<MapWebViewRef | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
@@ -995,7 +1003,8 @@ function AppInner() {
   snapToRef.current = snapTo;
 
   const fermerPanel = useCallback(() => {
-    snapTo('hidden', () => setGareActuelle(null));
+    linesAbortRef.current?.abort();
+    snapTo('hidden', () => { setGareActuelle(null); setPanelLines(null); });
   }, [snapTo]);
   const fermerPanelRef = useRef(fermerPanel);
   fermerPanelRef.current = fermerPanel;
@@ -1098,6 +1107,15 @@ function AppInner() {
       webViewRef.current?.injectJavaScript(`window.location.href = "${url}"; true;`);
     }
     if (panelSnap.current === 'hidden') snapTo('half');
+    if (!dejaOuverte) {
+      setPanelLines(null);
+      linesAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      linesAbortRef.current = ctrl;
+      linesForArea(id, ctrl.signal)
+        .then(lines => { if (!ctrl.signal.aborted) setPanelLines(lines); })
+        .catch(() => setPanelLines([]));
+    }
     coordGare(id)
       .then(coord => {
         if (coord) {
@@ -1260,6 +1278,35 @@ function AppInner() {
             </View>
           </View>
 
+          {gareActuelle && (
+            <View style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }}>
+              {panelLines === null ? (
+                <View style={{ height: 38, justifyContent: 'center', paddingLeft: 16 }}>
+                  <ActivityIndicator size="small" color={c.accent} />
+                </View>
+              ) : panelLines.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8 }}
+                >
+                  {panelLines.map((l, i) => (
+                    <View
+                      key={l.id}
+                      style={{
+                        backgroundColor: '#' + l.color,
+                        borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3,
+                        borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)',
+                        marginRight: i < panelLines.length - 1 ? 6 : 0,
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'GrandParis-Bold' }}>{l.code}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : null}
+            </View>
+          )}
           <View style={{ flex: 1 }}>
             {gareActuelle && (
               <WebView
