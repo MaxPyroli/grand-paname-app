@@ -13,6 +13,11 @@
     "production": {}
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "../google-service-account.json",
+        "track": "internal"
+      }
+    }
   }
 }

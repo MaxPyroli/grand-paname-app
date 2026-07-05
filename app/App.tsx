@@ -16,7 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS } from './changelogs';
-import { searchGares, nearbyGares, coordGare, isNetworkError, linesForArea, LineChip } from './api';
+import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, linesForArea, LineChip } from './api';
 import { logger, LogEntry } from './logger';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useAudioPlayer } from 'expo-audio';
