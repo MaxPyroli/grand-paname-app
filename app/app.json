@@ -17,7 +17,8 @@
       "bundleIdentifier": "fun.grandpaname.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Grand Paname utilise votre position pour afficher les gares et arrêts proches.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Grand Paname utilise votre position pour afficher les gares et arrêts proches."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Grand Paname utilise votre position pour afficher les gares et arrêts proches.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
