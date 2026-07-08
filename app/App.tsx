@@ -1,10 +1,12 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo, createContext, useContext } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo, useContext } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, ActivityIndicator,
   FlatList, TextInput, Keyboard, Image, Animated, Dimensions,
-  LayoutChangeEvent, Platform, PanResponder, useColorScheme,
+  LayoutChangeEvent, Platform, PanResponder,
   Modal, Linking, ScrollView,
 } from 'react-native';
+import { ThemeContext, ThemeProvider, useColors } from './theme';
+import type { ThemeColors, ThemePref } from './theme';
 import MapWebView, { MapWebViewRef } from './MapWebView';
 import { useFonts } from 'expo-font';
 import { WebView } from 'react-native-webview';
@@ -16,85 +18,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS } from './changelogs';
+import { WHATSNEW } from './whatsnew';
 import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, linesForArea, LineChip } from './api';
+import { GHOST_STOP_ID, GHOST_STOP_LABEL, GHOST_STOP_NAME, GHOST_CHIPS, GHOST_STOP_COORD } from './ghostStop';
 import { logger, LogEntry } from './logger';
+import { Image as ExpoImage } from 'expo-image';
+import { MODE_ICONS } from './modeIcons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useAudioPlayer } from 'expo-audio';
-
-// ─── THÈME ───────────────────────────────────────────────────────────────────
-const C = {
-  light: {
-    bg:         '#ffffff',
-    bgFloat:    'rgba(255,255,255,0.92)',
-    bgSubtle:   '#f1f2f6',
-    bgCard:     '#ffffff',
-    text:       '#25303b',
-    textSub:    '#7f8c8d',
-    textTab:    '#8E8E93',
-    border:     '#f0f2f5',
-    borderCard: 'rgba(210,218,230,0.8)',
-    dragBar:    '#d0d5dc',
-    pillActive: '#EBEBEB',
-    pillCenter: '#DDEEFF',
-    accent:     '#3498db',
-    btnBg:      '#f1f2f6',
-    iconGareBg: '#e3f2fd',
-  },
-  dark: {
-    bg:         '#010e26',
-    bgFloat:    'rgba(1,14,38,0.97)',
-    bgSubtle:   '#07213f',
-    bgCard:     '#031a3a',
-    text:       '#ddeeff',
-    textSub:    '#6e99cc',
-    textTab:    '#4d7ab0',
-    border:     '#0d2e58',
-    borderCard: 'rgba(20,60,120,0.45)',
-    dragBar:    '#164070',
-    pillActive: '#07213f',
-    pillCenter: '#0a2d64',
-    accent:     '#5ab3f5',
-    btnBg:      '#07213f',
-    iconGareBg: '#0a2d64',
-  },
-};
-type ThemeColors = typeof C.light;
-type ThemePref = 'auto' | 'light' | 'dark';
-
-// ─── CONTEXTE THÈME ──────────────────────────────────────────────────────────
-const ThemeContext = createContext<{
-  pref: ThemePref;
-  setPref: (p: ThemePref) => void;
-  isDark: boolean;
-}>({ pref: 'auto', setPref: () => {}, isDark: false });
-
-function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [pref, setPrefState] = useState<ThemePref>('auto');
-  const system = useColorScheme();
-  const isDark = pref === 'dark' || (pref === 'auto' && system === 'dark');
-
-  useEffect(() => {
-    AsyncStorage.getItem('@gp_theme_pref').then(v => {
-      if (v === 'light' || v === 'dark' || v === 'auto') setPrefState(v);
-    }).catch(() => {});
-  }, []);
-
-  const setPref = useCallback((p: ThemePref) => {
-    setPrefState(p);
-    AsyncStorage.setItem('@gp_theme_pref', p).catch(() => {});
-  }, []);
-
-  return (
-    <ThemeContext.Provider value={{ pref, setPref, isDark }}>
-      {children}
-    </ThemeContext.Provider>
-  );
-}
-
-function useColors(): ThemeColors {
-  const { isDark } = useContext(ThemeContext);
-  return isDark ? C.dark : C.light;
-}
+import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
 
 // ─── CONSTANTES DE LAYOUT ────────────────────────────────────────────────────
 const NAV_BAR_BOTTOM = 16;
@@ -168,12 +100,23 @@ true;
 `;
 
 const getWebviewDarkJS = (dark: boolean): string => {
+  const scheme = dark ? 'dark' : 'light';
   const css = dark ? [
-    'html,:root{--background-color:#010e26;--secondary-background-color:#07213f;--text-color:#ddeeff;--primary-color:#5ab3f5}',
-    '.stApp,body,html{background-color:#010e26!important}',
-    'section[data-testid="stMain"],section.main,.block-container,[data-testid="stMainBlockContainer"]{background-color:#010e26!important}',
+    ':root,html{--background-color:#010e26!important;--secondary-background-color:#07213f!important;--text-color:#ddeeff!important;--primary-color:#5ab3f5!important}',
+    'body,.stApp,[data-testid="stAppViewContainer"]{background-color:#010e26!important;color:#ddeeff!important}',
+    'section[data-testid="stMain"],section.main,.block-container,[data-testid="stMainBlockContainer"],[data-testid="stVerticalBlock"],[data-testid="stHorizontalBlock"]{background-color:#010e26!important}',
+    '[data-testid="stVerticalBlockBorderWrapper"]{background-color:#07213f!important;border-color:rgba(90,179,245,0.25)!important}',
+    '[data-testid="stExpander"],[data-testid="stExpanderDetails"]{background-color:#07213f!important}',
+    '[data-testid="stMarkdownContainer"] p,[data-testid="stMarkdownContainer"] li{color:#ddeeff!important}',
+    'hr,[data-testid="stDivider"]{border-color:rgba(90,179,245,0.15)!important}',
   ].join('') : '';
-  return `(function(){var s=document.getElementById('_gp_dark_theme');if(!s){s=document.createElement('style');s.id='_gp_dark_theme';document.head.appendChild(s);}s.textContent=${JSON.stringify(css)};})();true;`;
+  return `(function(){` +
+    `document.documentElement.style.colorScheme='${scheme}';` +
+    `document.documentElement.setAttribute('data-paname-theme','${scheme}');` +
+    `var s=document.getElementById('_gp_dark_theme');` +
+    `if(!s){s=document.createElement('style');s.id='_gp_dark_theme';document.head.appendChild(s);}` +
+    `s.textContent=${JSON.stringify(css)};` +
+  `})();true;`;
 };
 
 function FadeBottom({ color, height = 56 }: { color: string; height?: number }) {
@@ -206,8 +149,10 @@ type AccueilProps = {
   onGareChoisie: (id: string, label: string) => void;
   onOpenSettings: () => void;
   onClosePanel: () => void;
+  onMapTapped: () => void;
   activeTab: string;
   mapRef: React.RefObject<MapWebViewRef | null>;
+  panelOpen: boolean;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -225,36 +170,70 @@ function renderInline(text: string, baseColor: string, c: ThemeColors): React.Re
 }
 
 function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
-  const lines = content.split('\n').filter(l => l.trim() !== '');
+  const renderLine = (line: string, i: number, insideCard = false) => {
+    const trimmed = line.trim();
+    const isBullet = /^[*\-•]/.test(trimmed);
+    const isSection = trimmed.startsWith('**') && trimmed.endsWith('**');
+
+    if (isSection) {
+      return (
+        <Text key={i} style={{ fontFamily: 'GrandParis-Bold', color: c.text, fontSize: 13, lineHeight: 20, marginTop: i === 0 ? 0 : 6 }}>
+          {trimmed.slice(2, -2)}
+        </Text>
+      );
+    }
+
+    const rawText = isBullet ? trimmed.replace(/^[*\-•]\s*/, '') : trimmed;
+    return (
+      <Text key={i} style={{ fontSize: 13, lineHeight: insideCard ? 22 : 20, paddingLeft: isBullet ? 4 : 0 }}>
+        {isBullet && <Text style={{ fontFamily: 'GrandParis-Light', color: c.textSub }}>{'• '}</Text>}
+        {renderInline(rawText, insideCard ? c.text : c.textSub, c)}
+      </Text>
+    );
+  };
+
+  type Block = { type: 'line'; text: string } | { type: 'card'; lines: string[] };
+  const blocks: Block[] = [];
+  let inCard = false;
+  let cardLines: string[] = [];
+
+  for (const line of content.split('\n')) {
+    if (line.trim() === '===') {
+      if (inCard) {
+        blocks.push({ type: 'card', lines: cardLines });
+        cardLines = [];
+        inCard = false;
+      } else {
+        inCard = true;
+      }
+    } else if (inCard) {
+      if (line.trim()) cardLines.push(line);
+    } else {
+      if (line.trim()) blocks.push({ type: 'line', text: line });
+    }
+  }
+
   return (
     <View style={{ gap: 3 }}>
-      {lines.map((line, i) => {
-        const trimmed = line.trim();
-        const isBullet = /^[*\-•]/.test(trimmed);
-        const isSection = trimmed.startsWith('**') && trimmed.endsWith('**');
-
-        if (isSection) {
+      {blocks.map((block, bi) => {
+        if (block.type === 'card') {
           return (
-            <Text key={i} style={{ fontFamily: 'GrandParis-Bold', color: c.text, fontSize: 13, lineHeight: 20, marginTop: i === 0 ? 0 : 6 }}>
-              {trimmed.slice(2, -2)}
-            </Text>
+            <View key={bi} style={{
+              borderRadius: 10, borderWidth: 1, borderColor: c.accent,
+              backgroundColor: c.bgCard, padding: 10, gap: 6, marginVertical: 4,
+            }}>
+              {block.lines.map((line, li) => renderLine(line, li, true))}
+            </View>
           );
         }
-
-        const rawText = isBullet ? trimmed.replace(/^[*\-•]\s*/, '') : trimmed;
-        return (
-          <Text key={i} style={{ fontSize: 13, lineHeight: 20, paddingLeft: isBullet ? 4 : 0 }}>
-            {isBullet && <Text style={{ fontFamily: 'GrandParis-Light', color: c.textSub }}>{'• '}</Text>}
-            {renderInline(rawText, c.textSub, c)}
-          </Text>
-        );
+        return renderLine(block.text, bi);
       })}
     </View>
   );
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
-function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, onOpenGhostStop, onReplayWhatsNew }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void }) {
   const c = useColors();
   const { pref, setPref } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -262,12 +241,15 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
   const [logs, setLogs] = useState<LogEntry[]>(() => logger.get());
   useEffect(() => { const unsub = logger.subscribe(() => setLogs(logger.get())); return () => { unsub(); }; }, []);
   const [devMode, setDevMode] = useState(false);
-  const [logoTaps, setLogoTaps] = useState(0);
-  useEffect(() => { AsyncStorage.getItem('@gp_dev_mode').then(v => { if (v === '1') setDevMode(true); }); }, []);
+  useEffect(() => {
+    AsyncStorage.getItem('@gp_dev_mode').then(v => { if (v === '1') setDevMode(true); });
+  }, []);
   const [showChangelog, setShowChangelog] = useState(false);
   const changelogAnim = useRef(new Animated.Value(0)).current;
   const [activeVersion, setActiveVersion] = useState<string | null>(null);
   const contentAnim = useRef(new Animated.Value(0)).current;
+
+  const [toggleWidth, setToggleWidth] = useState(0);
 
   const toggleVersion = (version: string) => {
     if (activeVersion === version) {
@@ -314,10 +296,15 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
   }
 
   const THEME_OPTIONS: { key: ThemePref; icon: string; label: string }[] = [
-    { key: 'auto',  icon: '🌐', label: 'Auto'   },
+    { key: 'auto',  icon: '🌐', label: 'Système' },
     { key: 'light', icon: '☀️', label: 'Clair'  },
     { key: 'dark',  icon: '🌙', label: 'Sombre' },
   ];
+  const cursorAnim = useRef(new Animated.Value(THEME_OPTIONS.findIndex(o => o.key === pref))).current;
+  useEffect(() => {
+    const idx = THEME_OPTIONS.findIndex(o => o.key === pref);
+    Animated.spring(cursorAnim, { toValue: idx, useNativeDriver: true, tension: 280, friction: 22 }).start();
+  }, [pref]);
 
   const LIENS = [
     { icon: '💬', label: 'Communauté WhatsApp', url: 'https://whatsapp.com/channel/0029VbCSkQt5vKA7MojdZH3N' },
@@ -331,7 +318,11 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
 
         {/* Nav header */}
         <View style={[styles.settingsNavHeader, { borderBottomColor: c.border }]}>
-          <TouchableOpacity style={styles.settingsBackBtn} onPress={onClose}>
+          <TouchableOpacity
+            style={[styles.settingsBackBtn, { backgroundColor: c.btnBg }]}
+            onPress={onClose}
+            activeOpacity={0.7}
+          >
             <Text style={[styles.settingsBackArrow, { color: c.accent }]}>‹</Text>
             <Text style={[styles.settingsBackLabel, { color: c.accent }]}>Retour</Text>
           </TouchableOpacity>
@@ -347,22 +338,31 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
             <Text style={[styles.settingsSection, { color: c.textSub }]}>APPARENCE</Text>
             <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
               <Text style={[styles.settingsRowLabel, { color: c.text }]}>Thème</Text>
-              <View style={[styles.themeToggle, { backgroundColor: c.bgSubtle }]}>
+              <View
+                style={[styles.themeToggle, { backgroundColor: c.bgSubtle }]}
+                onLayout={(e) => setToggleWidth(e.nativeEvent.layout.width)}
+              >
+                {toggleWidth > 0 && (() => {
+                  const PAD = 3, GAP = 2, N = THEME_OPTIONS.length;
+                  const optW = (toggleWidth - 2 * PAD - (N - 1) * GAP) / N;
+                  const cursorX = cursorAnim.interpolate({
+                    inputRange: [0, 1, 2],
+                    outputRange: [0, optW + GAP, 2 * (optW + GAP)],
+                  });
+                  return (
+                    <Animated.View style={{
+                      position: 'absolute', left: PAD, top: PAD, bottom: PAD, width: optW,
+                      borderRadius: 10, backgroundColor: c.bgCard,
+                      shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 6,
+                      shadowOffset: { width: 0, height: 2 },
+                      transform: [{ translateX: cursorX }],
+                    }} />
+                  );
+                })()}
                 {THEME_OPTIONS.map(({ key, icon, label }) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={[
-                      styles.themeOption,
-                      pref === key && {
-                        backgroundColor: c.bgFloat,
-                        shadowColor: '#000', shadowOpacity: 0.10, shadowRadius: 4,
-                        shadowOffset: { width: 0, height: 1 }, elevation: 3,
-                      },
-                    ]}
-                    onPress={() => setPref(key)}
-                  >
-                    <Text style={{ fontSize: 15 }}>{icon}</Text>
-                    <Text style={[styles.themeOptionLabel, { color: pref === key ? c.text : c.textSub }]}>{label}</Text>
+                  <TouchableOpacity key={key} style={styles.themeOption} onPress={() => setPref(key)}>
+                    <Text style={{ fontSize: 15, backgroundColor: 'transparent' }}>{icon}</Text>
+                    <Text style={[styles.themeOptionLabel, { color: pref === key ? c.text : c.textSub, backgroundColor: 'transparent' }]}>{label}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -372,16 +372,14 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
             <Text style={[styles.settingsSection, { color: c.textSub }]}>À PROPOS</Text>
             <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
               <View style={styles.aProposHeader}>
-                <TouchableOpacity onPress={() => {
-                    const next = logoTaps + 1;
-                    setLogoTaps(next);
-                    if (next >= 5) {
-                      setLogoTaps(0);
-                      const newVal = !devMode;
-                      setDevMode(newVal);
-                      AsyncStorage.setItem('@gp_dev_mode', newVal ? '1' : '0').catch(() => {});
-                    }
-                  }}>
+                <TouchableOpacity
+                  delayLongPress={5000}
+                  onLongPress={() => {
+                    const newVal = !devMode;
+                    setDevMode(newVal);
+                    AsyncStorage.setItem('@gp_dev_mode', newVal ? '1' : '0').catch(() => {});
+                  }}
+                >
                   <Image source={require('./assets/app_icon.png')} style={styles.aProposLogo} />
                 </TouchableOpacity>
                 <View>
@@ -495,7 +493,51 @@ function SettingsModal({ visible, onClose }: { visible: boolean; onClose: () => 
             {devMode && (
               <>
                 <Text style={[styles.settingsSection, { color: c.textSub }]}>DÉBOGAGE</Text>
+                <TouchableOpacity
+                  style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                  onPress={onOpenGhostStop}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.settingsRowLabel, { color: c.text }]}>Arrêt fantôme</Text>
+                    <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                      Données fictives pour tester le moteur natif
+                    </Text>
+                  </View>
+                  <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
+                </TouchableOpacity>
                 <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Horaires webapp</Text>
+                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                        Repasser sur la WebView Streamlit (dev)
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setNativeSchedules(!nativeSchedules);
+                      }}
+                      style={{
+                        width: 44, height: 26, borderRadius: 13,
+                        backgroundColor: !nativeSchedules ? c.accent : c.dragBar,
+                        justifyContent: 'center', paddingHorizontal: 3,
+                      }}
+                    >
+                      <View style={{
+                        width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
+                        alignSelf: !nativeSchedules ? 'flex-end' : 'flex-start',
+                      }} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                    onPress={() => { onClose(); setTimeout(onReplayWhatsNew, 200); }}
+                  >
+                    <Text style={[styles.settingsRowLabel, { color: c.text }]}>Rejouer "Quoi de neuf"</Text>
+                    <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
+                  </TouchableOpacity>
+                  <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
                   <TouchableOpacity
                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                     onPress={() => setShowLogs(v => !v)}
@@ -579,7 +621,7 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, activeTab, mapRef }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -592,8 +634,24 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   const searchBarBottom = useRef(new Animated.Value(SEARCH_BAR_BOTTOM)).current;
   const resultsBottom   = useRef(Animated.add(searchBarBottom, SEARCH_BAR_HEIGHT + 8)).current;
 
-  const handleViewportChanged = useCallback((_lat: number, _lon: number, _zoom: number, _radius: number) => {
-    mapRef.current?.setNearbyStops([]);
+  useEffect(() => {
+    Animated.timing(searchBarBottom, {
+      toValue: panelOpen ? -(SEARCH_BAR_HEIGHT + 20) : SEARCH_BAR_BOTTOM,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [panelOpen]);
+
+  const vpAbortRef = useRef<AbortController | null>(null);
+
+  const handleViewportChanged = useCallback(async (lat: number, lon: number, zoom: number, radius: number) => {
+    if (zoom < 11.5) { mapRef.current?.setNearbyStops([]); return; }
+    vpAbortRef.current?.abort();
+    vpAbortRef.current = new AbortController();
+    try {
+      const stops = await nearbyStopsWithCoords(lat, lon, vpAbortRef.current.signal, radius);
+      mapRef.current?.setNearbyStops(stops);
+    } catch {}
   }, [mapRef]);
 
   useEffect(() => {
@@ -704,6 +762,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         isDark={isDark}
         onStationSelected={onGareChoisie}
         onViewportChanged={handleViewportChanged}
+        onMapTapped={onMapTapped}
         onReady={() => {
           mapRef.current?.setTheme(isDark);
           mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
@@ -894,10 +953,17 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
                       </TouchableOpacity>
                     )}
                     <View style={styles.alignementFavori}>
-                      <View style={[styles.iconGare, { backgroundColor: c.iconGareBg }]}>
-                        <Text style={{ fontSize: 16 }}>🚉</Text>
-                      </View>
-                      <Text style={[styles.texteNomGareFavori, { color: c.text }]} numberOfLines={1}>{item.label}</Text>
+                      {(() => {
+                        const m = item.label.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+                        const name = m ? m[1].trim() : item.label;
+                        const city = m ? m[2].trim() : null;
+                        return (
+                          <>
+                            <Text style={[styles.texteNomGareFavori, { color: c.text }]} numberOfLines={1}>{name}</Text>
+                            {city && <Text style={[styles.texteVilleFavori, { color: c.textSub }]} numberOfLines={1}>{city}</Text>}
+                          </>
+                        );
+                      })()}
                     </View>
                     {editMode ? (
                       <View style={styles.boutonsOrdre}>
@@ -952,6 +1018,79 @@ function AssistantScreen() {
   );
 }
 
+// ─── MODALE "QUOI DE NEUF" ───────────────────────────────────────────────────
+function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean; onClose: () => void; onOpenChangelog: () => void }) {
+  const c = useColors();
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, tension: 70, friction: 14 }).start();
+    }
+  }, [visible]);
+
+  const handleClose = () => {
+    Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(onClose);
+  };
+
+  const entry = WHATSNEW.find(e => e.version === APP_VERSION);
+
+  if (!visible || !entry) return null;
+
+  const Feature = ({ emoji, title, description }: { emoji: string; title: string; description: string }) => (
+    <View style={{ borderRadius: 10, borderWidth: 1, borderColor: c.accent, backgroundColor: c.bgCard, padding: 12, gap: 4 }}>
+      <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 14, color: c.text }}>{emoji}  {title}</Text>
+      <Text style={{ fontFamily: 'GrandParis-Light', fontSize: 13, color: c.textSub, lineHeight: 19 }}>{description}</Text>
+    </View>
+  );
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={handleClose} statusBarTranslucent>
+      <Animated.View style={{
+        flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
+        justifyContent: 'center', alignItems: 'center', padding: 24,
+        opacity: anim,
+      }}>
+        <Animated.View style={{
+          width: '100%', borderRadius: 18,
+          backgroundColor: c.bgCard, borderWidth: 1, borderColor: c.borderCard,
+          padding: 24, gap: 16,
+          transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
+        }}>
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>✨ Quoi de neuf ?</Text>
+            <View style={{ backgroundColor: c.accent, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' }}>
+              <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 11, color: '#fff', letterSpacing: 0.5 }}>v{APP_VERSION}</Text>
+            </View>
+          </View>
+
+          <View style={{ gap: 10 }}>
+            {entry.features.map((f, i) => (
+              <Feature key={i} emoji={f.emoji} title={f.title} description={f.description} />
+            ))}
+          </View>
+
+          {entry.footer && (
+            <Text style={{ fontFamily: 'GrandParis-Light', fontSize: 12, color: c.textSub, textAlign: 'center', lineHeight: 18 }}>
+              {entry.footer + '\n'}
+              <Text onPress={() => { handleClose(); setTimeout(onOpenChangelog, 300); }} style={{ color: c.accent }}>
+                Voir l'historique des versions →
+              </Text>
+            </Text>
+          )}
+
+          <TouchableOpacity
+            onPress={handleClose}
+            style={{ backgroundColor: c.accent, borderRadius: 30, paddingVertical: 14, alignItems: 'center' }}
+          >
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>C'est parti !</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
+  );
+}
+
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 function AppInner() {
   const insets = useSafeAreaInsets();
@@ -963,10 +1102,49 @@ function AppInner() {
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'assistant'>('accueil');
   const [favoris, setFavoris] = useState<Gare[]>([]);
   const [headerHeight, setHeaderHeight] = useState(0);
-  const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string } | null>(null);
+  const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string; osmOnly?: boolean } | null>(null);
+  const [panelIsOpen, setPanelIsOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const [nativeSchedules, setNativeSchedules] = useState(true);
+  useEffect(() => { AsyncStorage.getItem('@gp_native_schedules').then(v => { if (v === '0') setNativeSchedules(false); }); }, []);
+  useEffect(() => {
+    AsyncStorage.getItem('@gp_last_seen_version').then(v => {
+      if (v !== APP_VERSION) {
+        setShowWhatsNew(true);
+        AsyncStorage.setItem('@gp_last_seen_version', APP_VERSION).catch(() => {});
+      }
+    });
+  }, []);
+  const [nativeRefreshKey, setNativeRefreshKey] = useState(0);
+  const nativeSchedulesRef = useRef<SchedulesRef>(null);
+  const [svLayout, setSvLayout] = useState(0);
   const [panelLines, setPanelLines] = useState<LineChip[] | null>(null);
   const linesAbortRef = useRef<AbortController | null>(null);
+
+  type PanelLineItem = { type: 'chip'; chip: LineChip } | { type: 'mode'; mode: string };
+  const panelLineItems = useMemo((): PanelLineItem[] => {
+    if (!panelLines || panelLines.length === 0) return [];
+    const MODE_ORDER: Record<string, number> = { RER: 0, TRAIN: 1, METRO: 2, TRAM: 3, CABLE: 4, FLUVIAL: 5, BUS: 6 };
+    const sorted = [...panelLines].sort((a, b) => {
+      const isLetterA = a.mode === 'BUS' && isNaN(Number(a.code[0]));
+      const isLetterB = b.mode === 'BUS' && isNaN(Number(b.code[0]));
+      const oa = (MODE_ORDER[a.mode] ?? 6) + (isLetterA ? 0.5 : 0);
+      const ob = (MODE_ORDER[b.mode] ?? 6) + (isLetterB ? 0.5 : 0);
+      if (oa !== ob) return oa - ob;
+      return a.code.localeCompare(b.code, undefined, { numeric: true });
+    });
+    const items: PanelLineItem[] = [];
+    let lastGroup = '';
+    for (const chip of sorted) {
+      if (chip.mode !== lastGroup) {
+        items.push({ type: 'mode', mode: chip.mode });
+        lastGroup = chip.mode;
+      }
+      items.push({ type: 'chip', chip });
+    }
+    return items;
+  }, [panelLines]);
   const webViewRef = useRef<WebView>(null);
   const mapRef = useRef<MapWebViewRef | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
@@ -978,8 +1156,20 @@ function AppInner() {
   snapRef.current.full   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
 
   const panelY      = useRef(new Animated.Value(PANEL_H)).current;
+  const panelYJS    = useRef(new Animated.Value(PANEL_H)).current;
   const panelSnap   = useRef<'hidden' | 'half' | 'full'>('hidden');
-  const [panelSnapState, setPanelSnapState] = useState<'hidden' | 'half' | 'full'>('hidden');
+
+  // Hauteur visible du contenu = svLayout + paddingBottom - panelY (dérivation exacte pour position:absolute bottom:0)
+  const contentAreaH = useMemo(() => {
+    const snapFull = snapRef.current.full;
+    const snapHalf = snapRef.current.half;
+    if (svLayout <= 0 || snapFull >= snapHalf) return new Animated.Value(50);
+    return panelYJS.interpolate({
+      inputRange:  [snapFull, snapHalf],
+      outputRange: [svLayout, Math.max(50, svLayout + NAV_BAR_HEIGHT + NAV_BAR_BOTTOM - snapHalf)],
+      extrapolate: 'clamp',
+    });
+  }, [panelYJS, svLayout, headerHeight]);
   const currentY    = useRef(PANEL_H);
   const startY      = useRef(PANEL_H);
 
@@ -993,25 +1183,24 @@ function AppInner() {
              : snap === 'half'   ? snapRef.current.half
                                  : snapRef.current.full;
     panelSnap.current = snap;
-    setPanelSnapState(snap);
-    Animated.spring(panelY, {
-      toValue: to, useNativeDriver: true, tension: 68, friction: 13,
-    }).start(({ finished }) => { if (finished) onDone?.(); });
-  }, [panelY]);
+
+    Animated.parallel([
+      Animated.spring(panelY,   { toValue: to, useNativeDriver: true,  tension: 68, friction: 13 }),
+      Animated.spring(panelYJS, { toValue: to, useNativeDriver: false, tension: 68, friction: 13 }),
+    ]).start(({ finished }) => { if (finished) onDone?.(); });
+  }, [panelY, panelYJS]);
 
   const snapToRef = useRef(snapTo);
   snapToRef.current = snapTo;
 
   const fermerPanel = useCallback(() => {
     linesAbortRef.current?.abort();
+    setPanelIsOpen(false);
     snapTo('hidden', () => { setGareActuelle(null); setPanelLines(null); });
   }, [snapTo]);
   const fermerPanelRef = useRef(fermerPanel);
   fermerPanelRef.current = fermerPanel;
 
-  const togglePanel = useCallback(() => {
-    snapTo(panelSnap.current === 'full' ? 'half' : 'full');
-  }, [snapTo]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -1019,11 +1208,13 @@ function AppInner() {
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 5 && Math.abs(g.dy) > Math.abs(g.dx),
       onPanResponderGrant: () => {
         panelY.stopAnimation();
+        panelYJS.stopAnimation();
         startY.current = currentY.current;
       },
       onPanResponderMove: (_, g) => {
         const next = Math.max(snapRef.current.full - 30, Math.min(snapRef.current.hidden, startY.current + g.dy));
         panelY.setValue(next);
+        panelYJS.setValue(next);
       },
       onPanResponderRelease: (_, g) => {
         if (g.vy < -0.5 || g.dy < -60) {
@@ -1099,14 +1290,29 @@ function AppInner() {
   }, [gareActuelle, APP_URL]);
 
   const ouvrirGare = useCallback((id: string, label: string) => {
+    const isOSM = id.startsWith('osm:');
     const dejaOuverte = gareActuelle?.id === id;
-    setGareActuelle({ id, label });
+    setGareActuelle({ id, label, osmOnly: isOSM });
+    setPanelIsOpen(true);
     setActiveTab('accueil');
+    if (panelSnap.current === 'hidden') snapTo('half');
+
+    if (isOSM) {
+      setPanelLines([]);
+      return;
+    }
+
+    if (id === GHOST_STOP_ID) {
+      setPanelLines(GHOST_CHIPS);
+      mapRef.current?.flyTo(GHOST_STOP_COORD.lat, GHOST_STOP_COORD.lon);
+      mapRef.current?.showStation(id, GHOST_STOP_COORD.lat, GHOST_STOP_COORD.lon, label);
+      return;
+    }
+
     if (dejaOuverte) {
       const url = `${APP_URL}?selectionned_stop_id=${id}&selectionned_stop_name=${encodeURIComponent(label)}&t=${Date.now()}`;
       webViewRef.current?.injectJavaScript(`window.location.href = "${url}"; true;`);
     }
-    if (panelSnap.current === 'hidden') snapTo('half');
     if (!dejaOuverte) {
       setPanelLines(null);
       linesAbortRef.current?.abort();
@@ -1116,14 +1322,16 @@ function AppInner() {
         .then(lines => { if (!ctrl.signal.aborted) setPanelLines(lines); })
         .catch(() => setPanelLines([]));
     }
-    coordGare(id)
-      .then(coord => {
-        if (coord) {
-          mapRef.current?.flyTo(coord.lat, coord.lon);
-          mapRef.current?.showStation(id, coord.lat, coord.lon);
-        }
-      })
-      .catch(e => logger.warn(`coord ${id}: ${e?.message}`));
+    if (!dejaOuverte) {
+      coordGare(id)
+        .then(coord => {
+          if (coord) {
+            mapRef.current?.flyTo(coord.lat, coord.lon);
+            mapRef.current?.showStation(id, coord.lat, coord.lon, label);
+          }
+        })
+        .catch(e => logger.warn(`coord ${id}: ${e?.message}`));
+    }
   }, [gareActuelle, APP_URL, snapTo]);
 
   const selectionnerDepuisFavoris = useCallback((id: string, label: string) => {
@@ -1135,15 +1343,6 @@ function AppInner() {
     webViewRef.current?.injectJavaScript(`location.reload(); true;`);
   };
 
-  const basculerSidebar = () => {
-    Keyboard.dismiss();
-    webViewRef.current?.injectJavaScript(`
-      var o = document.querySelector('[data-testid="collapsedControl"]');
-      if (o) { o.click(); }
-      else { var c = document.querySelector('section[data-testid="stSidebar"] button'); if (c) c.click(); }
-      true;
-    `);
-  };
 
   useEffect(() => {
     const D = 300;
@@ -1183,8 +1382,10 @@ function AppInner() {
         onGareChoisie={ouvrirGare}
         onOpenSettings={() => setShowSettings(true)}
         onClosePanel={() => setActiveTab('accueil')}
+        onMapTapped={fermerPanel}
         activeTab={activeTab}
         mapRef={mapRef}
+        panelOpen={panelIsOpen}
       />
 
       {/* Zone de fermeture des tiroirs (sans voile) */}
@@ -1242,39 +1443,34 @@ function AppInner() {
 
       {/* Panel gare : bottom sheet animé */}
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        <Animated.View style={[styles.garePanel, { height: PANEL_H, backgroundColor: c.bg, transform: [{ translateY: panelY }] }]}>
+        <Animated.View style={[styles.garePanel, { height: PANEL_H, backgroundColor: c.bg, transform: [{ translateY: panelY }], paddingBottom: NAV_BAR_HEIGHT + NAV_BAR_BOTTOM }]}>
 
-          <View {...panResponder.panHandlers} style={styles.dragZone}>
-            <View style={[styles.dragBar, { backgroundColor: c.dragBar }]} />
-          </View>
-
-          <View style={[styles.sheetHeader, { borderBottomColor: c.border }]}>
-            <Text style={[styles.sheetTitreGare, { color: c.text }]} numberOfLines={1}>
-              {gareActuelle?.label.split('(')[0].trim() || ''}
-            </Text>
-            <View style={styles.sheetActions}>
-              <TouchableOpacity style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]} onPress={rechargerWebView}>
-                <Text style={{ fontSize: 15 }}>🔄</Text>
-              </TouchableOpacity>
-              {gareActuelle && (
-                <TouchableOpacity
-                  style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]}
-                  onPress={() => basculerFavori({ id: gareActuelle.id, label: gareActuelle.label })}
-                >
-                  <Text style={{ fontSize: 15 }}>{estFavori(gareActuelle.id) ? '⭐' : '☆'}</Text>
+          <View {...panResponder.panHandlers}>
+            <View style={styles.dragZone}>
+              <View style={[styles.dragBar, { backgroundColor: c.dragBar }]} />
+            </View>
+            <View style={[styles.sheetHeader, { borderBottomColor: c.border }]}>
+              <Text style={[styles.sheetTitreGare, { color: c.text }]} numberOfLines={1}>
+                {gareActuelle?.label.split('(')[0].trim() || ''}
+              </Text>
+              <View style={styles.sheetActions}>
+                {!gareActuelle?.osmOnly && (
+                  <TouchableOpacity style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]} onPress={nativeSchedules ? () => setNativeRefreshKey(k => k + 1) : rechargerWebView}>
+                    <Text style={{ fontSize: 15 }}>🔄</Text>
+                  </TouchableOpacity>
+                )}
+                {gareActuelle && !gareActuelle.osmOnly && (
+                  <TouchableOpacity
+                    style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]}
+                    onPress={() => basculerFavori({ id: gareActuelle.id, label: gareActuelle.label })}
+                  >
+                    <Text style={{ fontSize: 15 }}>{estFavori(gareActuelle.id) ? '⭐' : '☆'}</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={[styles.sheetBoutonFermer, { backgroundColor: c.btnBg }]} onPress={fermerPanel}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: c.textSub }}>✕</Text>
                 </TouchableOpacity>
-              )}
-              <TouchableOpacity style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]} onPress={togglePanel}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: c.text }}>
-                  {panelSnapState === 'full' ? '↓' : '↑'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]} onPress={basculerSidebar}>
-                <Text style={{ fontSize: 15 }}>⚙️</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.sheetBoutonFermer, { backgroundColor: c.btnBg }]} onPress={fermerPanel}>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: c.textSub }}>✕</Text>
-              </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -1284,31 +1480,54 @@ function AppInner() {
                 <View style={{ height: 38, justifyContent: 'center', paddingLeft: 16 }}>
                   <ActivityIndicator size="small" color={c.accent} />
                 </View>
-              ) : panelLines.length > 0 ? (
+              ) : panelLineItems.length > 0 ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8 }}
+                  contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' }}
                 >
-                  {panelLines.map((l, i) => (
-                    <View
-                      key={l.id}
-                      style={{
-                        backgroundColor: '#' + l.color,
-                        borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3,
-                        borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)',
-                        marginRight: i < panelLines.length - 1 ? 6 : 0,
-                      }}
-                    >
-                      <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'GrandParis-Bold' }}>{l.code}</Text>
-                    </View>
-                  ))}
+                  {panelLineItems.map((item, i) =>
+                    item.type === 'mode' ? (
+                      <ExpoImage
+                        key={`mode-${i}`}
+                        source={{ uri: MODE_ICONS[item.mode] ?? MODE_ICONS['BUS'] }}
+                        style={{
+                          width: 22, height: 22,
+                          marginRight: 4, marginLeft: i > 0 ? 6 : 0,
+                          tintColor: isDark ? '#ddeeff' : '#25303b',
+                        }}
+                        contentFit="contain"
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        key={item.chip.id}
+                        onPress={() => nativeSchedulesRef.current?.scrollTo(item.chip.code)}
+                        style={{
+                          backgroundColor: '#' + item.chip.color,
+                          borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3,
+                          borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)', marginRight: 4,
+                        }}
+                      >
+                        <Text style={{ color: item.chip.textColor, fontSize: 12, fontFamily: 'GrandParis-Bold' }}>{item.chip.code}</Text>
+                      </TouchableOpacity>
+                    )
+                  )}
                 </ScrollView>
               ) : null}
             </View>
           )}
-          <View style={{ flex: 1 }}>
-            {gareActuelle && (
+          <View style={{ flex: 1 }} onLayout={e => setSvLayout(e.nativeEvent.layout.height)}>
+            <Animated.View style={{ height: contentAreaH, overflow: 'hidden' }}>
+            {gareActuelle?.osmOnly ? (
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                <Text style={{ fontSize: 28, marginBottom: 12 }}>🚏</Text>
+                <Text style={{ fontSize: 15, color: c.textSub, textAlign: 'center', fontFamily: 'GrandParis' }}>
+                  Cet arrêt n'est pas référencé dans les données temps réel IDFM.{'\n'}Aucun horaire disponible.
+                </Text>
+              </View>
+            ) : gareActuelle && (nativeSchedules || gareActuelle.id === GHOST_STOP_ID) ? (
+              <NativeSchedules ref={nativeSchedulesRef} stopId={gareActuelle.id} stopName={gareActuelle.id === GHOST_STOP_ID ? GHOST_STOP_NAME : gareActuelle.label.split('(')[0].trim()} refreshKey={nativeRefreshKey} />
+            ) : gareActuelle ? (
               <WebView
                 ref={webViewRef}
                 source={{ uri: urlGareActuelle }}
@@ -1317,14 +1536,16 @@ function AppInner() {
                 startInLoadingState={true}
                 injectedJavaScript={WEBVIEW_HIDE_JS + getWebviewDarkJS(isDark)}
               />
-            )}
+            ) : null}
+            </Animated.View>
           </View>
 
         </Animated.View>
       </View>
 
       {/* Modal paramètres */}
-      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_last_seen_version').catch(() => {}); setShowWhatsNew(true); }} />
+      <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
 
     </SafeAreaView>
   );
@@ -1412,18 +1633,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, height: FAV_ITEM_H, borderRadius: 14, borderWidth: 1,
     shadowColor: '#1a2a4a', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
   },
-  alignementFavori: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  iconGare: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  texteNomGareFavori: { fontSize: 15, fontFamily: 'GrandParis-Medium', flex: 1 },
-  actionsItemFavori: { flexDirection: 'row', alignItems: 'center' },
-  boutonSupprimerFavori: { padding: 4 },
+  alignementFavori: { flex: 1, flexDirection: 'column', justifyContent: 'center' },
+  texteNomGareFavori: { fontSize: 15, fontFamily: 'GrandParis-Medium' },
+  texteVilleFavori: { fontSize: 12, fontFamily: 'GrandParis-Light', marginTop: 2 },
   favorisTitreRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 },
   boutonSupprimer: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#e74c3c', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   boutonSupprimerTexte: { color: '#fff', fontSize: 11, fontWeight: 'bold' as const },
   boutonsOrdre: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 4 },
-  cardContent: { flex: 1, alignItems: 'center', paddingTop: 20 },
-  cardTitle: { fontSize: 26, fontFamily: 'GrandParis-Bold', marginBottom: 10 },
-  cardSubtitle: { fontSize: 16, fontFamily: 'GrandParis-Light' },
 
   // Nav bar
   floatingTabBar: {
@@ -1472,9 +1688,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 8, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  settingsBackBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, width: 80 },
-  settingsBackArrow: { fontSize: 28, lineHeight: 30, marginRight: 2 },
-  settingsBackLabel: { fontSize: 17 },
+  settingsBackBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 20, gap: 2,
+  },
+  settingsBackArrow: { fontSize: 20, lineHeight: 22 },
+  settingsBackLabel: { fontSize: 15, fontFamily: 'GrandParis-Medium' },
   settingsNavTitle: { fontSize: 17, fontFamily: 'GrandParis-Bold', textAlign: 'center' },
   settingsSection: {
     fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.8,
@@ -1488,7 +1708,7 @@ const styles = StyleSheet.create({
   themeToggle: { flexDirection: 'row', borderRadius: 12, padding: 3, gap: 2 },
   themeOption: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 5, paddingVertical: 9, borderRadius: 10,
+    gap: 5, paddingVertical: 9, borderRadius: 10, backgroundColor: 'transparent',
   },
   themeOptionLabel: { fontSize: 13, fontFamily: 'GrandParis-Medium' },
   aProposHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },

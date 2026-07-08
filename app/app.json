@@ -2,11 +2,11 @@
   "expo": {
     "name": "Grand Paname",
     "slug": "grand-paname",
-    "version": "3.0.1",
+    "version": "3.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash_icon.png",
       "resizeMode": "contain",
@@ -22,7 +22,7 @@
       }
     },
     "android": {
-      "versionCode": 30001,
+      "versionCode": 30100,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff",

@@ -1,4 +1,4 @@
-import React, { useRef, useImperativeHandle, forwardRef } from 'react';
+import React, { useRef, useImperativeHandle, forwardRef, useState, useEffect } from 'react';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { MODE_ICONS } from './modeIcons';
@@ -42,18 +42,23 @@ function getMapHTML(isDark: boolean) {
     }
     .s-dot:hover{transform:scale(1.4)}
     .s-dot.active{background:#3498db}
-    .n-icon{
-      width:24px;height:24px;border-radius:6px;
-      box-shadow:0 2px 6px rgba(0,0,0,0.45);
+    .n-wrap{
+      background:#ffffff;
+      border:1px solid rgba(0,0,0,0.12);
+      box-shadow:0 2px 6px rgba(0,0,0,0.18);
       cursor:pointer;transition:transform .15s;
     }
-    .n-icon:hover{transform:scale(1.2)}
+    .n-wrap:hover{transform:scale(1.12)}
+    .n-icon{
+      width:24px;height:24px;
+      filter:${isDark ? 'invert(1)' : 'none'};
+    }
   </style>
 </head>
 <body>
 <div id="map"></div>
 <script>
-  var map = L.map('map',{zoomControl:false,attributionControl:false}).setView([48.8566,2.3522],13);
+  var map = L.map('map',{zoomControl:false,attributionControl:false,zoomSnap:0.1,zoomDelta:0.5}).setView([48.8566,2.3522],12);
 
   window._tileLayer = L.tileLayer('${tileUrl}',{
     maxZoom:19, subdomains:'abcd'
@@ -104,7 +109,8 @@ function getMapHTML(isDark: boolean) {
       var active=(s.id===activeMarkerId);
       var m=L.marker([s.lat,s.lon],{icon:stationIcon(active),zIndexOffset:1000})
         .addTo(map)
-        .on('click',function(){
+        .on('click',function(e){
+          e.originalEvent.stopPropagation();
           activeMarkerId=s.id;
           stationMarkers.forEach(function(mk,i){
             mk.setIcon(stationIcon(stations[i]&&stations[i].id===s.id));
@@ -131,11 +137,18 @@ function getMapHTML(isDark: boolean) {
     });
   }
 
-  function showStation(id,lat,lon){
+  function showStation(id,lat,lon,label){
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
     activeMarkerId=id;
-    var m=L.marker([lat,lon],{icon:pinIcon(),zIndexOffset:3000}).addTo(map);
+    var m=L.marker([lat,lon],{icon:pinIcon(),zIndexOffset:3000})
+      .addTo(map)
+      .on('click',function(e){
+        e.originalEvent.stopPropagation();
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({type:'stationSelected',id:id,label:label||id})
+        );
+      });
     stationMarkers.push(m);
   }
 
@@ -186,12 +199,16 @@ function getMapHTML(isDark: boolean) {
       ? 'img.leaflet-tile{filter:sepia(0.9) hue-rotate(180deg) saturate(2.5) brightness(2.2)!important}'
         + '.s-dot{background:#5ab3f5!important;border-color:rgba(1,14,38,0.8)!important;box-shadow:0 1px 6px rgba(90,179,245,0.4)!important}'
         + '.s-dot.active{background:#fff!important}'
-      : '';
+        + '.n-icon{filter:invert(1)!important}'
+        + '.n-wrap{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
+      : '.n-icon{filter:none!important}'
+        + '.n-wrap{background:#ffffff!important;border-color:rgba(0,0,0,0.12)!important}';
   }
 
   var NEARBY_ICONS=${iconsJson};
-  var MODE_MIN_ZOOM={RER:13,TRAIN:13,METRO:14,TRAM:14,CABLE:14,BUS:15,FLUVIAL:15,AUTRE:15};
+  var MODE_MIN_ZOOM={RER:11.5,TRAIN:11.5,METRO:13,TRAM:13.5,CABLE:13.5,BUS:15,FLUVIAL:14,AUTRE:14.5};
   var MODE_ICON_SIZE={RER:24,TRAIN:24,METRO:20,TRAM:18,CABLE:18,BUS:14,FLUVIAL:16,AUTRE:14};
+  var MODE_ZINDEX={RER:790,TRAIN:770,METRO:750,TRAM:730,CABLE:710,FLUVIAL:690,BUS:670,AUTRE:650};
   var _allNearbyStops=[];
 
   function _minZoomForStop(s){
@@ -207,10 +224,16 @@ function getMapHTML(isDark: boolean) {
     _allNearbyStops.forEach(function(s){
       if(s.lat==null||s.lon==null)return;
       if(_minZoomForStop(s)>z)return;
-      var visibleModes=(s.modes||[]).filter(function(m){ return (MODE_MIN_ZOOM[m]||15)<=z; });
+      var isPoint=s.id&&s.id.indexOf('stop_point:')===0;
+      var visibleModes=(s.modes||[]).filter(function(m){
+        if((MODE_MIN_ZOOM[m]||15)>z)return false;
+        if(isPoint) return m==='BUS'||m==='FLUVIAL';
+        return m!=='BUS'&&m!=='FLUVIAL';
+      });
       if(!visibleModes.length)return;
+      var scale=z<12.5?0.62:z<13?0.72:z<13.5?0.80:z<14?0.88:z<15?0.96:z<16?1.05:z<17?1.2:1.4;
       var maxSz=0;
-      visibleModes.forEach(function(m){ var s2=MODE_ICON_SIZE[m]||14; if(s2>maxSz)maxSz=s2; });
+      visibleModes.forEach(function(m){ var s2=Math.round((MODE_ICON_SIZE[m]||14)*scale); if(s2>maxSz)maxSz=s2; });
       var sz=visibleModes.length>1?Math.max(maxSz-2,12):maxSz;
       var gap=3;
       var totalW=visibleModes.length*sz+(visibleModes.length-1)*gap;
@@ -218,12 +241,29 @@ function getMapHTML(isDark: boolean) {
         var src=NEARBY_ICONS[m]||NEARBY_ICONS['BUS'];
         return '<img class="n-icon" src="'+src+'" style="width:'+sz+'px;height:'+sz+'px"/>';
       }).join('');
-      var html='<div style="display:flex;gap:'+gap+'px;align-items:center">'+imgs+'</div>';
-      var icon=L.divIcon({className:'',html:html,iconSize:[totalW,sz],iconAnchor:[totalW/2,sz/2]});
-      var m=L.marker([s.lat,s.lon],{icon:icon,zIndexOffset:800})
+      var pad=Math.round(sz*0.18);
+      var inner=sz+pad*2; // taille intérieure (sans border)
+      var b=2; // 1px border * 2 côtés
+      var wrapBr=Math.round((inner+b)*0.22);
+      var html,iW,iH;
+      if(visibleModes.length===1){
+        // Carré parfait : width=height=inner forcés, icône centrée
+        html='<div class="n-wrap" style="width:'+inner+'px;height:'+inner+'px;display:flex;align-items:center;justify-content:center;border-radius:'+wrapBr+'px">'+imgs+'</div>';
+        iW=inner+b; iH=inner+b;
+      } else {
+        // Multi-mode : largeur naturelle, hauteur = inner
+        var innerW=totalW+pad*2;
+        html='<div class="n-wrap" style="width:'+innerW+'px;height:'+inner+'px;display:flex;gap:'+gap+'px;align-items:center;justify-content:center;border-radius:'+wrapBr+'px">'+imgs+'</div>';
+        iW=innerW+b; iH=inner+b;
+      }
+      var icon=L.divIcon({className:'',html:html,iconSize:[iW,iH],iconAnchor:[iW/2,iH/2]});
+      var bestZ=0;
+      visibleModes.forEach(function(m){var z=MODE_ZINDEX[m]||670;if(z>bestZ)bestZ=z;});
+      var m=L.marker([s.lat,s.lon],{icon:icon,zIndexOffset:bestZ})
         .addTo(map)
-        .on('click',function(){
-          window.ReactNativeWebView.postMessage(JSON.stringify({type:'stationSelected',id:s.id,label:s.label}));
+        .on('click',function(e){
+          e.originalEvent.stopPropagation();
+          window.ReactNativeWebView.postMessage(JSON.stringify({type:'stationSelected',id:s.stop_area_id||s.id,label:s.label}));
         });
       nearbyStopMarkers.push(m);
     });
@@ -235,6 +275,10 @@ function getMapHTML(isDark: boolean) {
   }
 
   map.on('zoomend',function(){ _renderNearbyStops(); });
+  map.on('click',function(){
+    clearActiveStation();
+    window.ReactNativeWebView.postMessage(JSON.stringify({type:'mapTapped'}));
+  });
 
   var _vpTimer=null;
   map.on('moveend zoomend',function(){
@@ -267,7 +311,7 @@ function getMapHTML(isDark: boolean) {
 </body>
 </html>`;}
 
-export type NearbyStopMarker = { id: string; label: string; lat: number; lon: number; modes: string[] };
+export type NearbyStopMarker = { id: string; stop_area_id: string; label: string; lat: number; lon: number; modes: string[] };
 
 export type MapWebViewRef = {
   setUserLocation: (lat: number, lon: number) => void;
@@ -275,7 +319,7 @@ export type MapWebViewRef = {
   clearActiveStation: () => void;
   setTheme: (isDark: boolean) => void;
   flyTo: (lat: number, lon: number) => void;
-  showStation: (id: string, lat: number, lon: number) => void;
+  showStation: (id: string, lat: number, lon: number, label?: string) => void;
   setTransportData: (data: { stops: any[]; lines: any[] }) => void;
   setNearbyStops: (stops: NearbyStopMarker[]) => void;
 };
@@ -283,12 +327,20 @@ export type MapWebViewRef = {
 type Props = {
   onStationSelected?: (id: string, label: string) => void;
   onViewportChanged?: (lat: number, lon: number, zoom: number, radius: number) => void;
+  onMapTapped?: () => void;
   onReady?: () => void;
   isDark?: boolean;
 };
 
-const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onViewportChanged, onReady, isDark }, ref) => {
+const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onViewportChanged, onMapTapped, onReady, isDark }, ref) => {
   const wvRef = useRef<WebView>(null);
+  const [htmlSource] = useState(() => ({ html: getMapHTML(isDark ?? false) }));
+  const isMounted = useRef(false);
+
+  useEffect(() => {
+    if (!isMounted.current) { isMounted.current = true; return; }
+    wvRef.current?.injectJavaScript(`setTheme(${isDark ?? false});true;`);
+  }, [isDark]);
 
   useImperativeHandle(ref, () => ({
     setUserLocation: (lat, lon) => {
@@ -306,8 +358,8 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
     flyTo: (lat, lon) => {
       wvRef.current?.injectJavaScript(`flyToStation(${lat},${lon});true;`);
     },
-    showStation: (id, lat, lon) => {
-      wvRef.current?.injectJavaScript(`showStation(${JSON.stringify(id)},${lat},${lon});true;`);
+    showStation: (id, lat, lon, label) => {
+      wvRef.current?.injectJavaScript(`showStation(${JSON.stringify(id)},${lat},${lon},${JSON.stringify(label??id)});true;`);
     },
     setTransportData: (data) => {
       wvRef.current?.injectJavaScript(`setTransportData(${JSON.stringify(data)});true;`);
@@ -321,7 +373,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
     <View style={StyleSheet.absoluteFill}>
       <WebView
         ref={wvRef}
-        source={{ html: getMapHTML(isDark ?? false) }}
+        source={htmlSource}
         style={StyleSheet.absoluteFill}
         scrollEnabled={false}
         bounces={false}
@@ -339,6 +391,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
             const d = JSON.parse(e.nativeEvent.data);
             if (d.type === 'stationSelected') onStationSelected?.(d.id, d.label);
             if (d.type === 'viewportChanged') onViewportChanged?.(d.lat, d.lon, d.zoom, d.radius ?? 1000);
+            if (d.type === 'mapTapped') onMapTapped?.();
           } catch {}
         }}
       />

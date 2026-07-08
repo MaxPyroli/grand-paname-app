@@ -7,6 +7,28 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.1.0',
+    date: '8 juillet 2026',
+    content: `**🚀 Nouveautés**
+===
+* **🕐 Horaires Natifs :** Le moteur d'affichage des horaires a été entièrement réécrit et tourne désormais directement sur votre appareil. Certaines fonctionnalités ne sont plus disponibles pour le moment mais réapparaîtront plus fortes que jamais dans les prochaines versions !
+===
+===
+* **🗺️ Arrêts sur la carte :** Les arrêts sont désormais visibles directement sur la carte au fur et à mesure que vous zoomez. Cliquez sur un arrêt pour accéder à ses temps d'attente.
+===
+
+**🛠️ Améliorations et Corrections**
+* Le menu des favoris a été revu pour être plus clair et plus propre.
+* L'en-tête d'un arrêt affiche désormais toutes ses lignes sous forme de pilules colorées. Un tap sur une pilule fait défiler directement vers la ligne et ses temps d'attente.
+* Le bouton de retour du menu "Paramètres" a été revu pour être plus agréable à l'œil et plus facile à cliquer.
+* Elle s'efface discrètement lors de la consultation des horaires pour dégager la vue, et réapparaît dès la fermeture du volet.
+* Re-cliquer sur un arrêt déjà sélectionné permet désormais de le rouvrir.
+* Correction d'un bug sur le changement de thème clair/sombre, la carte ne remet plus à son point d'origine.
+* Correction d'un bug visuel sur le curseur de changement de thème, animation améliorée.
+
+Bon voyage !`,
+  },
+  {
     version: '3.0.1',
     date: '5 juillet 2026',
     content: `**🛠️ Corrections et Améliorations**
