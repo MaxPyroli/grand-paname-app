@@ -1,5 +1,6 @@
 node_modules
 firebase-service-account.json
+google-service-account.json
 app/google-services.json
 scripts/node_modules
 archive/
