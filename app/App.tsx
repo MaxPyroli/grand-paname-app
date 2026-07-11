@@ -1,9 +1,9 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo, useContext } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, ActivityIndicator,
-  FlatList, TextInput, Keyboard, Image, Animated, Dimensions,
-  LayoutChangeEvent, Platform, PanResponder,
-  Modal, Linking, ScrollView,
+  FlatList, TextInput, Keyboard, Image, Animated, Dimensions, Easing,
+  LayoutChangeEvent, Platform, PanResponder, ToastAndroid, NativeModules,
+  Modal, Linking, ScrollView, BackHandler,
 } from 'react-native';
 import { ThemeContext, ThemeProvider, useColors } from './theme';
 import type { ThemeColors, ThemePref } from './theme';
@@ -17,9 +17,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
-import { CHANGELOGS } from './changelogs';
+import { CHANGELOGS, ChangelogEntry } from './changelogs';
 import { WHATSNEW } from './whatsnew';
-import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, linesForArea, LineChip } from './api';
+import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, linesForArea, LineChip, comparerLignesParMode } from './api';
 import { GHOST_STOP_ID, GHOST_STOP_LABEL, GHOST_STOP_NAME, GHOST_CHIPS, GHOST_STOP_COORD } from './ghostStop';
 import { logger, LogEntry } from './logger';
 import { Image as ExpoImage } from 'expo-image';
@@ -27,6 +27,15 @@ import { MODE_ICONS } from './modeIcons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useAudioPlayer } from 'expo-audio';
 import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { registerForPushNotificationsAsync } from './notifications';
+// Import de type uniquement : pas de require() exécuté au chargement du bundle.
+// react-native-device-info (dépendance de cette lib) plante à l'évaluation de
+// son module si le natif n'est pas lié (Expo Go, ou dev client pas encore
+// reconstruit) — on charge donc ces deux libs en require() différé, dans un
+// try/catch, uniquement quand on en a réellement besoin (voir plus bas).
+import type SpInAppUpdatesType from 'sp-react-native-in-app-updates';
+import type { AndroidUpdateType, AndroidInstallStatus } from 'sp-react-native-in-app-updates';
 
 // ─── CONSTANTES DE LAYOUT ────────────────────────────────────────────────────
 const NAV_BAR_BOTTOM = 16;
@@ -153,6 +162,7 @@ type AccueilProps = {
   activeTab: string;
   mapRef: React.RefObject<MapWebViewRef | null>;
   panelOpen: boolean;
+  updateDownloadingBg: boolean;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -233,7 +243,7 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
-function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, onOpenGhostStop, onReplayWhatsNew }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void }) {
+function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void }) {
   const c = useColors();
   const { pref, setPref } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -268,6 +278,41 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
       Animated.timing(contentAnim, { toValue: 1, duration: 220, useNativeDriver: true }).start();
     }
   };
+  const renderChangelogEntry = (entry: ChangelogEntry, showDivider: boolean) => (
+    <View key={entry.version}>
+      {showDivider && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.border }} />}
+      <TouchableOpacity
+        style={styles.changelogRow}
+        onPress={() => toggleVersion(entry.version)}
+      >
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[styles.changelogVersion, { color: c.text }]}>v{entry.version}</Text>
+            {entry.codename && (
+              <View style={styles.codenameBadge}>
+                <Text style={styles.codenameBadgeText}>{entry.codename}</Text>
+              </View>
+            )}
+          </View>
+          <Text style={[styles.changelogDate, { color: c.textSub }]}>{entry.date}</Text>
+        </View>
+        <Text style={{ color: c.textSub, fontSize: 18 }}>
+          {activeVersion === entry.version ? '˅' : '›'}
+        </Text>
+      </TouchableOpacity>
+      {activeVersion === entry.version && (
+        <Animated.View style={{
+          opacity: contentAnim,
+          transform: [{ translateY: contentAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
+        }}>
+          <View style={[styles.changelogContent, { borderTopColor: c.border }]}>
+            <ChangelogContent content={entry.content} c={c} />
+          </View>
+        </Animated.View>
+      )}
+    </View>
+  );
+
   const [versionTaps, setVersionTaps] = useState(0);
   const [trainVisible, setTrainVisible] = useState(false);
   const trainAnim = useRef(new Animated.Value(0)).current;
@@ -378,9 +423,12 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                     const newVal = !devMode;
                     setDevMode(newVal);
                     AsyncStorage.setItem('@gp_dev_mode', newVal ? '1' : '0').catch(() => {});
+                    if (Platform.OS === 'android') {
+                      ToastAndroid.show(newVal ? '🛠️ Mode dev activé' : '🛠️ Mode dev désactivé', ToastAndroid.SHORT);
+                    }
                   }}
                 >
-                  <Image source={require('./assets/app_icon.png')} style={styles.aProposLogo} />
+                  <Image source={require('./assets/icon.png')} style={styles.aProposLogo} />
                 </TouchableOpacity>
                 <View>
                   <Text style={[styles.aProposNom, { color: c.text }]}>Grand Paname</Text>
@@ -424,68 +472,34 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
             </View>
 
             {/* ── Historique des versions ── */}
-            <TouchableOpacity
-              style={styles.changelogSectionHeader}
-              onPress={() => {
-                if (!showChangelog) {
-                  setShowChangelog(true);
-                  setActiveVersion(null);
-                  changelogAnim.setValue(0);
-                  Animated.timing(changelogAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
-                } else {
-                  Animated.timing(changelogAnim, { toValue: 0, duration: 200, useNativeDriver: true })
-                    .start(() => setShowChangelog(false));
-                }
-              }}
-            >
-              <Text style={[styles.settingsSection, { color: c.textSub, marginTop: 0, marginBottom: 0, marginHorizontal: 0 }]}>
-                HISTORIQUE DES VERSIONS
-              </Text>
-              <Text style={{ color: c.textSub, fontSize: 18, marginRight: 4 }}>
-                {showChangelog ? '˅' : '›'}
-              </Text>
-            </TouchableOpacity>
+            <Text style={[styles.settingsSection, { color: c.textSub }]}>
+              HISTORIQUE DES VERSIONS
+            </Text>
+            <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0 }]}>
+              {CHANGELOGS.slice(0, 3).map((entry, i) => renderChangelogEntry(entry, i > 0))}
+            </View>
+            {CHANGELOGS.length > 3 && (
+              <TouchableOpacity
+                style={{ alignSelf: 'center', marginTop: 10 }}
+                onPress={() => {
+                  if (!showChangelog) {
+                    setShowChangelog(true);
+                    changelogAnim.setValue(0);
+                    Animated.timing(changelogAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+                  } else {
+                    Animated.timing(changelogAnim, { toValue: 0, duration: 200, useNativeDriver: true })
+                      .start(() => setShowChangelog(false));
+                  }
+                }}
+              >
+                <Text style={{ color: c.textSub, fontSize: 12, fontFamily: 'GrandParis-Medium' }}>
+                  {showChangelog ? 'Masquer les anciennes versions' : 'Afficher les plus anciennes versions'}
+                </Text>
+              </TouchableOpacity>
+            )}
             {showChangelog && (
-              <Animated.View style={{
-                opacity: changelogAnim,
-                transform: [{ translateY: changelogAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
-              }}>
-                <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0 }]}>
-                  {CHANGELOGS.map((entry, i) => (
-                    <View key={entry.version}>
-                      {i > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.border }} />}
-                      <TouchableOpacity
-                        style={styles.changelogRow}
-                        onPress={() => toggleVersion(entry.version)}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <Text style={[styles.changelogVersion, { color: c.text }]}>v{entry.version}</Text>
-                            {entry.codename && (
-                              <View style={styles.codenameBadge}>
-                                <Text style={styles.codenameBadgeText}>{entry.codename}</Text>
-                              </View>
-                            )}
-                          </View>
-                          <Text style={[styles.changelogDate, { color: c.textSub }]}>{entry.date}</Text>
-                        </View>
-                        <Text style={{ color: c.textSub, fontSize: 18 }}>
-                          {activeVersion === entry.version ? '˅' : '›'}
-                        </Text>
-                      </TouchableOpacity>
-                      {activeVersion === entry.version && (
-                        <Animated.View style={{
-                          opacity: contentAnim,
-                          transform: [{ translateY: contentAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
-                        }}>
-                          <View style={[styles.changelogContent, { borderTopColor: c.border }]}>
-                            <ChangelogContent content={entry.content} c={c} />
-                          </View>
-                        </Animated.View>
-                      )}
-                    </View>
-                  ))}
-                </View>
+              <Animated.View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0, marginTop: 10, opacity: changelogAnim, transform: [{ translateY: changelogAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }] }]}>
+                {CHANGELOGS.slice(3).map((entry, i) => renderChangelogEntry(entry, i > 0))}
               </Animated.View>
             )}
 
@@ -535,6 +549,19 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                     onPress={() => { onClose(); setTimeout(onReplayWhatsNew, 200); }}
                   >
                     <Text style={[styles.settingsRowLabel, { color: c.text }]}>Rejouer "Quoi de neuf"</Text>
+                    <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
+                  </TouchableOpacity>
+                  <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                    onPress={() => { onClose(); setTimeout(onTestUpdateModal, 200); }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Tester la modale de mise à jour</Text>
+                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                        Simule tout le flow (prompt → "téléchargement" → prêt) sans Play Store
+                      </Text>
+                    </View>
                     <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
                   </TouchableOpacity>
                   <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
@@ -621,7 +648,7 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -630,9 +657,42 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   const [searchResults, setSearchResults] = useState<Gare[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [feurVisible, setFeurVisible] = useState(false);
+  const [headerBarHeight, setHeaderBarHeight] = useState(0);
+
+  // Logo qui tourne sur lui-même pendant le téléchargement d'une mise à jour
+  const logoSpin = useRef(new Animated.Value(0)).current;
+  const logoSpinLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  useEffect(() => {
+    if (updateDownloadingBg) {
+      logoSpin.setValue(0);
+      logoSpinLoopRef.current = Animated.loop(
+        Animated.timing(logoSpin, { toValue: 1, duration: 1200, easing: Easing.linear, useNativeDriver: true })
+      );
+      logoSpinLoopRef.current.start();
+    } else {
+      logoSpinLoopRef.current?.stop();
+      Animated.timing(logoSpin, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+    }
+    return () => logoSpinLoopRef.current?.stop();
+  }, [updateDownloadingBg]);
+  const logoSpinDeg = logoSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+
+  // Pilule "mise à jour en cours" qui glisse depuis le haut, sous le header
+  const [updatePillMounted, setUpdatePillMounted] = useState(false);
+  const updatePillAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (updateDownloadingBg) {
+      setUpdatePillMounted(true);
+      Animated.spring(updatePillAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 12 }).start();
+    } else if (updatePillMounted) {
+      Animated.timing(updatePillAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => setUpdatePillMounted(false));
+    }
+  }, [updateDownloadingBg]);
 
   const searchBarBottom = useRef(new Animated.Value(SEARCH_BAR_BOTTOM)).current;
   const resultsBottom   = useRef(Animated.add(searchBarBottom, SEARCH_BAR_HEIGHT + 8)).current;
+  const panelOpenRef = useRef(panelOpen);
+  panelOpenRef.current = panelOpen;
 
   useEffect(() => {
     Animated.timing(searchBarBottom, {
@@ -655,10 +715,6 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   }, [mapRef]);
 
   useEffect(() => {
-    (async () => { await Location.requestForegroundPermissionsAsync(); })();
-  }, []);
-
-  useEffect(() => {
     mapRef.current?.setTheme(isDark);
   }, [isDark]);
 
@@ -673,6 +729,11 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       }).start();
     });
     const s2 = Keyboard.addListener(hideEvt, (e) => {
+      // Si le volet horaires est ouvert, c'est lui qui gère la position de la
+      // barre (cachée) — Keyboard.dismiss() (appelé par fermerRecherche() à
+      // l'ouverture d'une gare) ne doit pas la remettre visible en course
+      // avec l'animation d'ouverture du volet.
+      if (panelOpenRef.current) return;
       Animated.timing(searchBarBottom, {
         toValue: SEARCH_BAR_BOTTOM,
         duration: Platform.OS === 'ios' ? (e.duration ?? 200) : 180,
@@ -739,14 +800,24 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
     setIsSearching(true);
     try {
       setLoadingGps(true);
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        if (Platform.OS === 'android') {
+          ToastAndroid.show('📍 Autorisation de localisation refusée', ToastAndroid.SHORT);
+        }
+        return;
+      }
       let loc = await Location.getLastKnownPositionAsync();
       if (!loc) loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
       const lat = loc!.coords.latitude;
       const lon = loc!.coords.longitude;
       mapRef.current?.setUserLocation(lat, lon);
-      const results = await nearbyGares(lat, lon);
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      const results = await nearbyGares(lat, lon, controller.signal);
       setSearchResults(results.length > 0 ? results : [{ id: 'vide', label: 'Aucun arrêt dans un rayon de 1.5km 😕' }]);
     } catch (e: any) {
+      if (e?.name === 'AbortError') return;
       logger.error(`nearby: ${e?.message}`);
       const msg = isNetworkError(e) ? '📵 Pas de connexion internet' : '⚠️ Impossible de géolocaliser ou joindre le serveur';
       setSearchResults([{ id: 'erreur', label: msg }]);
@@ -769,15 +840,37 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         }}
       />
 
+      {/* Pilule "mise à jour en cours" qui glisse depuis le haut, sous le header */}
+      {updatePillMounted && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', top: insets.top + 12 + headerBarHeight + 8, left: 0, right: 0,
+            alignItems: 'center', zIndex: 9,
+            opacity: updatePillAnim,
+            transform: [{ translateY: updatePillAnim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) }],
+          }}
+        >
+          <View style={[styles.updateBgPill, { backgroundColor: c.bgFloat }]}>
+            <ActivityIndicator size="small" color={c.accent} />
+            <Text style={{ fontFamily: 'GrandParis-Medium', fontSize: 12, color: c.text }}>Mise à jour...</Text>
+          </View>
+        </Animated.View>
+      )}
+
       {/* Header pill flottant */}
       <View
         style={[styles.headerNatif, { backgroundColor: c.bgFloat, top: insets.top + 12 }]}
         onLayout={(e: LayoutChangeEvent) => {
           const { y, height } = e.nativeEvent.layout;
           onHeaderLayout(y + height);
+          setHeaderBarHeight(height);
         }}
       >
-        <Image source={require('./assets/app_icon.png')} style={styles.logoApp} />
+        <Animated.Image
+          source={require('./assets/icon.png')}
+          style={[styles.logoApp, { transform: [{ rotate: logoSpinDeg }] }]}
+        />
         <Text style={[styles.titreGrandPaname, { color: c.text }]}>Grand Paname</Text>
       </View>
 
@@ -816,7 +909,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
                 </TouchableOpacity>
                 {item.id !== 'erreur' && item.id !== 'vide' && (
                   <TouchableOpacity style={styles.etoileAction} onPress={() => onBasculerFavori(item)}>
-                    <Text style={{ fontSize: 22 }}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
+                    <Text style={{ fontSize: 22, color: estFavori(item.id) ? undefined : c.textSub }}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -831,7 +924,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         <View style={styles.searchContainer}>
           <TextInput
             style={[styles.searchInput, { backgroundColor: c.bgSubtle, color: c.text }]}
-            placeholder="Rechercher une gare..."
+            placeholder="Rechercher un arrêt..."
             value={searchQuery}
             onChangeText={rechercherGare}
             onFocus={onClosePanel}
@@ -1091,6 +1184,82 @@ function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean
   );
 }
 
+// ─── MODALE "MISE À JOUR DISPONIBLE" ────────────────────────────────────────
+function UpdateModal({ visible, mode, onAccept, onDismiss }: {
+  visible: boolean;
+  mode: 'prompt' | 'ready';
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  const c = useColors();
+  const anim = useRef(new Animated.Value(0)).current;
+  // `mounted` reste true pendant l'animation de fermeture (visible passe à
+  // false immédiatement côté parent, mais on ne démonte qu'une fois l'anim
+  // terminée) — sinon `anim` reste bloqué à sa valeur finale (1) et la
+  // prochaine ouverture ne rejoue plus rien visuellement.
+  const [mounted, setMounted] = useState(visible);
+  // `displayedMode` ne se met à jour que quand la modale est (re)ouverte —
+  // si on suivait `mode` directement, un changement de mode simultané à la
+  // fermeture (ready -> prompt reset) ferait flasher le mauvais contenu
+  // pendant les ~180ms de l'animation de fermeture.
+  const [displayedMode, setDisplayedMode] = useState(mode);
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      setDisplayedMode(mode);
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, tension: 70, friction: 14 }).start();
+    } else if (mounted) {
+      Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => setMounted(false));
+    }
+  }, [visible]);
+
+  if (!mounted) return null;
+  const ready = displayedMode === 'ready';
+
+  return (
+    <Modal visible={mounted} transparent animationType="none" statusBarTranslucent>
+      <Animated.View style={{
+        flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
+        justifyContent: 'center', alignItems: 'center', padding: 24,
+        opacity: anim,
+      }}>
+        <Animated.View style={{
+          width: '100%', borderRadius: 18,
+          backgroundColor: c.bgCard, borderWidth: 1, borderColor: c.borderCard,
+          padding: 24, gap: 16,
+          transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
+        }}>
+          <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>
+            {ready ? '✅ Mise à jour prête' : '⬆️ Mise à jour disponible'}
+          </Text>
+
+          <Text style={{ fontFamily: 'GrandParis-Light', fontSize: 13, color: c.textSub, lineHeight: 19 }}>
+            {ready
+              ? "Le téléchargement est terminé. Redémarre l'app pour l'installer."
+              : "Une nouvelle version de Grand Paname est disponible sur le Play Store. Tu veux l'installer maintenant ?"}
+          </Text>
+
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              onPress={onDismiss}
+              style={{ flex: 1, borderRadius: 30, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: c.borderCard }}
+            >
+              <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: c.textSub }}>Plus tard</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onAccept}
+              style={{ flex: 1, backgroundColor: c.accent, borderRadius: 30, paddingVertical: 14, alignItems: 'center' }}
+            >
+              <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>{ready ? 'Redémarrer' : 'Mettre à jour'}</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
+  );
+}
+
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 function AppInner() {
   const insets = useSafeAreaInsets();
@@ -1116,6 +1285,119 @@ function AppInner() {
       }
     });
   }, []);
+  useEffect(() => { registerForPushNotificationsAsync(); }, []);
+
+  // ── Mise à jour Play Store depuis l'app ──────────────────────────────────
+  // require() différé partout ci-dessous : ces deux libs plantent à l'évaluation
+  // de leur module si le natif n'est pas lié (Expo Go / dev client pas rebuild).
+  // Un import statique en tête de fichier crasherait tout le bundle avant même
+  // qu'un try/catch puisse intervenir ; require() à l'intérieur d'un try/catch
+  // reporte cette évaluation au bon endroit et au bon moment.
+  const inAppUpdates = useRef<SpInAppUpdatesType | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
+  const [updateDownloadingBg, setUpdateDownloadingBg] = useState(false);
+  const [fakeUpdateTest, setFakeUpdateTest] = useState(false);
+  const fakeUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (fakeUpdateTimerRef.current) clearTimeout(fakeUpdateTimerRef.current); }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    // On vérifie que les modules natifs sont bien liés AVANT de les require() —
+    // sinon leur simple chargement lève une exception bruyante (Expo Go, ou
+    // dev client pas encore reconstruit avec ces libs). Cas normal en dev,
+    // pas la peine de logger quoi que ce soit.
+    if (!NativeModules.RNDeviceInfo || !NativeModules.SpInAppUpdates) return;
+    try {
+      const SpInAppUpdates = require('sp-react-native-in-app-updates').default;
+      const { getBuildNumber } = require('react-native-device-info');
+      inAppUpdates.current = new SpInAppUpdates(__DEV__);
+      // Sur Android, la lib compare le versionCode du Store au curVersion fourni —
+      // il faut donc lui passer le versionCode natif (getBuildNumber), pas le nom
+      // de version APP_VERSION (semver "3.1.1"), sinon la comparaison est absurde.
+      inAppUpdates.current
+        ?.checkNeedsUpdate({ curVersion: getBuildNumber() })
+        .then((result: { shouldUpdate: boolean }) => { if (result.shouldUpdate) setShowUpdateModal(true); })
+        .catch((e: any) => logger.warn(`checkNeedsUpdate: ${e?.message}`));
+    } catch (e: any) {
+      logger.warn(`in-app-updates indisponible : ${e?.message}`);
+    }
+  }, []);
+
+  // Déclenche le téléchargement (mode FLEXIBLE) : la boîte de dialogue native
+  // Play Store s'affiche par-dessus, puis on referme notre modale pour laisser
+  // l'app utilisable pendant le téléchargement en arrière-plan. On la rouvre
+  // en mode "ready" une fois le téléchargement terminé, plutôt que de
+  // redémarrer l'app tout seul sans prévenir.
+  const declarerMiseAJour = () => {
+    if (!inAppUpdates.current) { setShowUpdateModal(false); return; }
+    try {
+      const { IAUUpdateKind, IAUInstallStatus } = require('sp-react-native-in-app-updates');
+      const onStatus = (status: { status: AndroidInstallStatus }) => {
+        if (status.status === IAUInstallStatus.DOWNLOADED) {
+          inAppUpdates.current?.removeStatusUpdateListener(onStatus);
+          setUpdateDownloadingBg(false);
+          setUpdateReady(true);
+          setShowUpdateModal(true);
+        } else if (status.status === IAUInstallStatus.FAILED || status.status === IAUInstallStatus.CANCELED) {
+          inAppUpdates.current?.removeStatusUpdateListener(onStatus);
+          setUpdateDownloadingBg(false);
+        }
+      };
+      inAppUpdates.current.addStatusUpdateListener(onStatus);
+      inAppUpdates.current
+        .startUpdate({ updateType: IAUUpdateKind.FLEXIBLE as AndroidUpdateType })
+        .then(() => { setShowUpdateModal(false); setUpdateDownloadingBg(true); })
+        .catch((e: any) => {
+          logger.warn(`startUpdate: ${e?.message}`);
+          inAppUpdates.current?.removeStatusUpdateListener(onStatus);
+          setShowUpdateModal(false);
+        });
+    } catch (e: any) {
+      logger.warn(`declarerMiseAJour: ${e?.message}`);
+      setShowUpdateModal(false);
+    }
+  };
+
+  // Cinématique simulée pour le bouton de test dev : reproduit le même
+  // enchaînement que le vrai flow (fermeture pendant le "téléchargement",
+  // réouverture en mode "ready") sans toucher au module natif.
+  const declarerMiseAJourFake = () => {
+    setShowUpdateModal(false);
+    setUpdateDownloadingBg(true);
+    fakeUpdateTimerRef.current = setTimeout(() => {
+      setUpdateDownloadingBg(false);
+      setUpdateReady(true);
+      setShowUpdateModal(true);
+    }, 8000);
+  };
+
+  const handleUpdateAccept = () => {
+    if (fakeUpdateTest) {
+      if (updateReady) {
+        logger.info('Simulation : redémarrage (test dev)');
+        setShowUpdateModal(false);
+        setUpdateReady(false);
+        setFakeUpdateTest(false);
+      } else {
+        declarerMiseAJourFake();
+      }
+      return;
+    }
+    if (updateReady) {
+      inAppUpdates.current?.installUpdate();
+    } else {
+      declarerMiseAJour();
+    }
+  };
+
+  const handleUpdateDismiss = () => {
+    setUpdateDownloadingBg(false);
+    if (fakeUpdateTimerRef.current) { clearTimeout(fakeUpdateTimerRef.current); fakeUpdateTimerRef.current = null; }
+    setShowUpdateModal(false);
+    setUpdateReady(false);
+    setFakeUpdateTest(false);
+  };
   const [nativeRefreshKey, setNativeRefreshKey] = useState(0);
   const nativeSchedulesRef = useRef<SchedulesRef>(null);
   const [svLayout, setSvLayout] = useState(0);
@@ -1125,15 +1407,7 @@ function AppInner() {
   type PanelLineItem = { type: 'chip'; chip: LineChip } | { type: 'mode'; mode: string };
   const panelLineItems = useMemo((): PanelLineItem[] => {
     if (!panelLines || panelLines.length === 0) return [];
-    const MODE_ORDER: Record<string, number> = { RER: 0, TRAIN: 1, METRO: 2, TRAM: 3, CABLE: 4, FLUVIAL: 5, BUS: 6 };
-    const sorted = [...panelLines].sort((a, b) => {
-      const isLetterA = a.mode === 'BUS' && isNaN(Number(a.code[0]));
-      const isLetterB = b.mode === 'BUS' && isNaN(Number(b.code[0]));
-      const oa = (MODE_ORDER[a.mode] ?? 6) + (isLetterA ? 0.5 : 0);
-      const ob = (MODE_ORDER[b.mode] ?? 6) + (isLetterB ? 0.5 : 0);
-      if (oa !== ob) return oa - ob;
-      return a.code.localeCompare(b.code, undefined, { numeric: true });
-    });
+    const sorted = [...panelLines].sort(comparerLignesParMode);
     const items: PanelLineItem[] = [];
     let lastGroup = '';
     for (const chip of sorted) {
@@ -1156,27 +1430,36 @@ function AppInner() {
   snapRef.current.full   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
 
   const panelY      = useRef(new Animated.Value(PANEL_H)).current;
-  const panelYJS    = useRef(new Animated.Value(PANEL_H)).current;
   const panelSnap   = useRef<'hidden' | 'half' | 'full'>('hidden');
 
-  // Hauteur visible du contenu = svLayout + paddingBottom - panelY (dérivation exacte pour position:absolute bottom:0)
-  const contentAreaH = useMemo(() => {
+  // Hauteur visible du contenu, dérivée en JS à partir de panelY (seule source
+  // de vérité, pilotée en natif) plutôt que via un second spring JS séparé —
+  // deux animations indépendantes avec la même physique peuvent diverger
+  // visuellement dès que le thread JS est occupé (rendu de la liste des
+  // horaires pendant le mouvement), d'où un décalage entre le volet et son
+  // contenu. En dérivant depuis panelY via un listener, il n'y a plus qu'une
+  // seule animation réelle : le contenu suit toujours exactement le volet.
+  const contentH = useRef(new Animated.Value(50)).current;
+  const svLayoutRef = useRef(0);
+  svLayoutRef.current = svLayout;
+
+  const updateContentH = useCallback((y: number) => {
     const snapFull = snapRef.current.full;
     const snapHalf = snapRef.current.half;
-    if (svLayout <= 0 || snapFull >= snapHalf) return new Animated.Value(50);
-    return panelYJS.interpolate({
-      inputRange:  [snapFull, snapHalf],
-      outputRange: [svLayout, Math.max(50, svLayout + NAV_BAR_HEIGHT + NAV_BAR_BOTTOM - snapHalf)],
-      extrapolate: 'clamp',
-    });
-  }, [panelYJS, svLayout, headerHeight]);
+    const sv = svLayoutRef.current;
+    if (sv <= 0 || snapFull >= snapHalf) { contentH.setValue(50); return; }
+    const t = Math.min(1, Math.max(0, (y - snapFull) / (snapHalf - snapFull)));
+    const hMin = Math.max(50, sv + NAV_BAR_HEIGHT + NAV_BAR_BOTTOM - snapHalf);
+    contentH.setValue(sv + t * (hMin - sv));
+  }, []);
+
   const currentY    = useRef(PANEL_H);
   const startY      = useRef(PANEL_H);
 
   useEffect(() => {
-    const id = panelY.addListener(({ value }) => { currentY.current = value; });
+    const id = panelY.addListener(({ value }) => { currentY.current = value; updateContentH(value); });
     return () => panelY.removeListener(id);
-  }, []);
+  }, [updateContentH]);
 
   const snapTo = useCallback((snap: 'hidden' | 'half' | 'full', onDone?: () => void) => {
     const to = snap === 'hidden' ? snapRef.current.hidden
@@ -1184,11 +1467,9 @@ function AppInner() {
                                  : snapRef.current.full;
     panelSnap.current = snap;
 
-    Animated.parallel([
-      Animated.spring(panelY,   { toValue: to, useNativeDriver: true,  tension: 68, friction: 13 }),
-      Animated.spring(panelYJS, { toValue: to, useNativeDriver: false, tension: 68, friction: 13 }),
-    ]).start(({ finished }) => { if (finished) onDone?.(); });
-  }, [panelY, panelYJS]);
+    Animated.spring(panelY, { toValue: to, useNativeDriver: true, tension: 68, friction: 13 })
+      .start(({ finished }) => { if (finished) onDone?.(); });
+  }, [panelY]);
 
   const snapToRef = useRef(snapTo);
   snapToRef.current = snapTo;
@@ -1202,32 +1483,78 @@ function AppInner() {
   fermerPanelRef.current = fermerPanel;
 
 
+  // Logique de drag partagée entre la poignée (toujours active) et la zone de
+  // contenu (active seulement quand la liste des horaires est tout en haut —
+  // cf. contentPanGesture plus bas), pour permettre de "tirer" le volet
+  // vers le bas depuis l'intérieur de la liste, comme un vrai bottom sheet.
+  const onDragGrant = useCallback(() => {
+    panelY.stopAnimation();
+    startY.current = currentY.current;
+  }, [panelY]);
+
+  const onDragMove = useCallback((_: any, g: { dy: number }) => {
+    const next = Math.max(snapRef.current.full - 30, Math.min(snapRef.current.hidden, startY.current + g.dy));
+    panelY.setValue(next);
+  }, [panelY]);
+
+  const onDragRelease = useCallback((_: any, g: { vy: number; dy: number }) => {
+    if (g.vy < -0.5 || g.dy < -60) {
+      snapToRef.current('full');
+    } else if (g.vy > 0.5 || g.dy > 60) {
+      if (panelSnap.current === 'full') snapToRef.current('half');
+      else fermerPanelRef.current();
+    } else {
+      snapToRef.current(panelSnap.current);
+    }
+  }, []);
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 5 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderGrant: () => {
-        panelY.stopAnimation();
-        panelYJS.stopAnimation();
-        startY.current = currentY.current;
-      },
-      onPanResponderMove: (_, g) => {
-        const next = Math.max(snapRef.current.full - 30, Math.min(snapRef.current.hidden, startY.current + g.dy));
-        panelY.setValue(next);
-        panelYJS.setValue(next);
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.vy < -0.5 || g.dy < -60) {
-          snapToRef.current('full');
-        } else if (g.vy > 0.5 || g.dy > 60) {
-          if (panelSnap.current === 'full') snapToRef.current('half');
-          else fermerPanelRef.current();
-        } else {
-          snapToRef.current(panelSnap.current);
-        }
-      },
+      onPanResponderGrant: onDragGrant,
+      onPanResponderMove: onDragMove,
+      onPanResponderRelease: onDragRelease,
     })
   ).current;
+
+  // true quand la liste des horaires est tout en haut de son scroll — dans ce
+  // cas seulement, un tiré vers le bas doit être "capturé" par le volet plutôt
+  // que de rester un simple (non-)scroll de la liste.
+  //
+  // Un PanResponder JS pur ne peut pas fiablement "voler" le geste à une
+  // ScrollView : celle-ci a son propre reconnaisseur de geste natif qui
+  // traite le toucher avant que la capture JS ait voix au chapitre. On passe
+  // donc par react-native-gesture-handler : `scheduleNativeGesture`
+  // représente le geste natif du scroll de la liste (attaché côté
+  // NativeSchedules), et `contentPanGesture` compose explicitement avec lui
+  // via simultaneousWithExternalGesture — les deux gestes coexistent
+  // réellement, et on ignore les mises à jour tant qu'on n'est pas en haut de
+  // la liste en train de tirer vers le bas.
+  const scheduleAtTopRef = useRef(true);
+  const scheduleNativeGesture = useMemo(() => Gesture.Native(), []);
+  const contentDragEngaged = useRef(false);
+
+  const contentPanGesture = useMemo(() =>
+    Gesture.Pan()
+      .onBegin(() => {
+        contentDragEngaged.current = false;
+      })
+      .onUpdate((e) => {
+        if (!scheduleAtTopRef.current || e.translationY <= 0) return;
+        if (!contentDragEngaged.current) {
+          contentDragEngaged.current = true;
+          onDragGrant();
+        }
+        onDragMove(null, { dy: e.translationY });
+      })
+      .onEnd((e) => {
+        if (!contentDragEngaged.current) return;
+        contentDragEngaged.current = false;
+        onDragRelease(null, { vy: e.velocityY / 1000, dy: e.translationY });
+      })
+      .simultaneousWithExternalGesture(scheduleNativeGesture)
+  , [scheduleNativeGesture, onDragGrant, onDragMove, onDragRelease]);
 
   // ── Données ──────────────────────────────────────────────────────────────
   const [fontsLoaded] = useFonts({
@@ -1312,8 +1639,7 @@ function AppInner() {
     if (dejaOuverte) {
       const url = `${APP_URL}?selectionned_stop_id=${id}&selectionned_stop_name=${encodeURIComponent(label)}&t=${Date.now()}`;
       webViewRef.current?.injectJavaScript(`window.location.href = "${url}"; true;`);
-    }
-    if (!dejaOuverte) {
+    } else {
       setPanelLines(null);
       linesAbortRef.current?.abort();
       const ctrl = new AbortController();
@@ -1322,16 +1648,15 @@ function AppInner() {
         .then(lines => { if (!ctrl.signal.aborted) setPanelLines(lines); })
         .catch(() => setPanelLines([]));
     }
-    if (!dejaOuverte) {
-      coordGare(id)
-        .then(coord => {
-          if (coord) {
-            mapRef.current?.flyTo(coord.lat, coord.lon);
-            mapRef.current?.showStation(id, coord.lat, coord.lon, label);
-          }
-        })
-        .catch(e => logger.warn(`coord ${id}: ${e?.message}`));
-    }
+
+    coordGare(id)
+      .then(coord => {
+        if (coord) {
+          mapRef.current?.flyTo(coord.lat, coord.lon);
+          mapRef.current?.showStation(id, coord.lat, coord.lon, label);
+        }
+      })
+      .catch(e => logger.warn(`coord ${id}: ${e?.message}`));
   }, [gareActuelle, APP_URL, snapTo]);
 
   const selectionnerDepuisFavoris = useCallback((id: string, label: string) => {
@@ -1364,6 +1689,29 @@ function AppInner() {
     }
   }, [activeTab]);
 
+  const showSettingsRef = useRef(showSettings);
+  showSettingsRef.current = showSettings;
+  const showWhatsNewRef = useRef(showWhatsNew);
+  showWhatsNewRef.current = showWhatsNew;
+  const showUpdateModalRef = useRef(showUpdateModal);
+  showUpdateModalRef.current = showUpdateModal;
+  const panelIsOpenRef = useRef(panelIsOpen);
+  panelIsOpenRef.current = panelIsOpen;
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showSettingsRef.current) { setShowSettings(false); return true; }
+      if (showWhatsNewRef.current) { setShowWhatsNew(false); return true; }
+      if (showUpdateModalRef.current) { handleUpdateDismiss(); return true; }
+      if (panelIsOpenRef.current) { fermerPanelRef.current(); return true; }
+      if (activeTabRef.current !== 'accueil') { setActiveTab('accueil'); return true; }
+      return false;
+    });
+    return () => sub.remove();
+  }, []);
+
   if (!fontsLoaded) {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.bg }}><ActivityIndicator size="large" color={c.accent} /></View>;
   }
@@ -1383,6 +1731,7 @@ function AppInner() {
         onOpenSettings={() => setShowSettings(true)}
         onClosePanel={() => setActiveTab('accueil')}
         onMapTapped={fermerPanel}
+        updateDownloadingBg={updateDownloadingBg}
         activeTab={activeTab}
         mapRef={mapRef}
         panelOpen={panelIsOpen}
@@ -1419,6 +1768,16 @@ function AppInner() {
         </>
       )}
 
+      {/* Fondu progressif en bas de l'écran pour détacher la barre de navigation du contenu */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={isDark
+          ? ['rgba(1,14,38,0)', 'rgba(1,14,38,0.35)', 'rgba(1,14,38,0.75)']
+          : ['rgba(255,255,255,0)', 'rgba(255,255,255,0.35)', 'rgba(255,255,255,0.75)']}
+        locations={[0, 0.6, 1]}
+        style={styles.bottomFade}
+      />
+
       {/* Barre de navigation */}
       <View style={[styles.floatingTabBar, { backgroundColor: c.bgFloat }]}>
         <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('favoris')}>
@@ -1442,7 +1801,7 @@ function AppInner() {
       </View>
 
       {/* Panel gare : bottom sheet animé */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      <View style={[StyleSheet.absoluteFill, { zIndex: 500, elevation: 0 }]} pointerEvents="box-none">
         <Animated.View style={[styles.garePanel, { height: PANEL_H, backgroundColor: c.bg, transform: [{ translateY: panelY }], paddingBottom: NAV_BAR_HEIGHT + NAV_BAR_BOTTOM }]}>
 
           <View {...panResponder.panHandlers}>
@@ -1464,7 +1823,7 @@ function AppInner() {
                     style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]}
                     onPress={() => basculerFavori({ id: gareActuelle.id, label: gareActuelle.label })}
                   >
-                    <Text style={{ fontSize: 15 }}>{estFavori(gareActuelle.id) ? '⭐' : '☆'}</Text>
+                    <Text style={{ fontSize: 15, color: estFavori(gareActuelle.id) ? undefined : c.textSub }}>{estFavori(gareActuelle.id) ? '⭐' : '☆'}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity style={[styles.sheetBoutonFermer, { backgroundColor: c.btnBg }]} onPress={fermerPanel}>
@@ -1516,8 +1875,9 @@ function AppInner() {
               ) : null}
             </View>
           )}
+          <GestureDetector gesture={contentPanGesture}>
           <View style={{ flex: 1 }} onLayout={e => setSvLayout(e.nativeEvent.layout.height)}>
-            <Animated.View style={{ height: contentAreaH, overflow: 'hidden' }}>
+            <Animated.View style={{ height: contentH, overflow: 'hidden' }}>
             {gareActuelle?.osmOnly ? (
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
                 <Text style={{ fontSize: 28, marginBottom: 12 }}>🚏</Text>
@@ -1526,7 +1886,14 @@ function AppInner() {
                 </Text>
               </View>
             ) : gareActuelle && (nativeSchedules || gareActuelle.id === GHOST_STOP_ID) ? (
-              <NativeSchedules ref={nativeSchedulesRef} stopId={gareActuelle.id} stopName={gareActuelle.id === GHOST_STOP_ID ? GHOST_STOP_NAME : gareActuelle.label.split('(')[0].trim()} refreshKey={nativeRefreshKey} />
+              <NativeSchedules
+                ref={nativeSchedulesRef}
+                stopId={gareActuelle.id}
+                stopName={gareActuelle.id === GHOST_STOP_ID ? GHOST_STOP_NAME : gareActuelle.label.split('(')[0].trim()}
+                refreshKey={nativeRefreshKey}
+                onAtTopChange={(atTop) => { scheduleAtTopRef.current = atTop; }}
+                nativeGesture={scheduleNativeGesture}
+              />
             ) : gareActuelle ? (
               <WebView
                 ref={webViewRef}
@@ -1539,13 +1906,20 @@ function AppInner() {
             ) : null}
             </Animated.View>
           </View>
+          </GestureDetector>
 
         </Animated.View>
       </View>
 
       {/* Modal paramètres */}
-      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_last_seen_version').catch(() => {}); setShowWhatsNew(true); }} />
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_last_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
+      <UpdateModal
+        visible={showUpdateModal}
+        mode={updateReady ? 'ready' : 'prompt'}
+        onAccept={handleUpdateAccept}
+        onDismiss={handleUpdateDismiss}
+      />
 
     </SafeAreaView>
   );
@@ -1553,13 +1927,15 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <View style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <AppInner />
-        </SafeAreaProvider>
-      </View>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <View style={{ flex: 1 }}>
+          <SafeAreaProvider>
+            <AppInner />
+          </SafeAreaProvider>
+        </View>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -1585,6 +1961,14 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.10, shadowRadius: 8, elevation: 8, zIndex: 10,
+  },
+
+  // Pilule "mise à jour en cours" (sous le header)
+  updateBgPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderRadius: 20, paddingVertical: 6, paddingHorizontal: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10, shadowRadius: 8, elevation: 8,
   },
 
   // Barre de recherche
@@ -1642,6 +2026,10 @@ const styles = StyleSheet.create({
   boutonsOrdre: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 4 },
 
   // Nav bar
+  bottomFade: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    height: NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 90, zIndex: 900,
+  },
   floatingTabBar: {
     position: 'absolute', bottom: NAV_BAR_BOTTOM, alignSelf: 'center',
     width: '88%', height: NAV_BAR_HEIGHT, borderRadius: 30,
@@ -1739,10 +2127,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#5e4bb6', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2,
   },
   codenameBadgeText: { color: '#fff', fontSize: 11, fontFamily: 'GrandParis-Medium' },
-  changelogSectionHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginTop: 24, marginBottom: 8, marginHorizontal: 20,
-  },
   changelogRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16,
   },

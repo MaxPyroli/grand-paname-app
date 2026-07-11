@@ -46,9 +46,10 @@ export async function searchGares(q: string, signal?: AbortSignal): Promise<Sear
   return results;
 }
 
-export async function nearbyGares(lat: number, lon: number): Promise<SearchResult[]> {
+export async function nearbyGares(lat: number, lon: number, signal?: AbortSignal): Promise<SearchResult[]> {
   const data = await navitia(
-    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=1500&count=60`
+    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=1500&count=60`,
+    signal
   );
   const results: SearchResult[] = [];
   for (const p of data?.places_nearby || []) {
@@ -66,44 +67,6 @@ export async function nearbyGares(lat: number, lon: number): Promise<SearchResul
 }
 
 export type NearbyStop = SearchResult & { lat: number; lon: number; modes: string[]; stop_area_id: string };
-
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-async function fetchOSMStops(lat: number, lon: number, distance: number, signal?: AbortSignal): Promise<any[]> {
-  const q = `[out:json][timeout:10];(node["highway"="bus_stop"]["name"](around:${distance},${lat},${lon});node["public_transport"="platform"]["name"](around:${distance},${lat},${lon}););out;`;
-  const endpoints: Array<{ url: string; init: RequestInit }> = [
-    {
-      url: 'https://overpass-api.de/api/interpreter',
-      init: { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: q },
-    },
-    {
-      url: 'https://overpass-api.de/api/interpreter',
-      init: { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `data=${encodeURIComponent(q)}` },
-    },
-    {
-      url: 'https://overpass.kumi.systems/api/interpreter',
-      init: { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: q },
-    },
-  ];
-  for (const { url, init } of endpoints) {
-    try {
-      const r = await fetch(url, { ...init, signal });
-      if (!r.ok) { logger.warn(`Overpass ${url} HTTP ${r.status}`); continue; }
-      const data = await r.json();
-      logger.info(`Overpass OK (${url}) → ${data.elements?.length ?? 0} nœuds`);
-      return data.elements || [];
-    } catch (e: any) {
-      logger.warn(`Overpass ${url} error: ${e?.message}`);
-    }
-  }
-  return [];
-}
 
 function modesDepuisPhysicalModes(physModes: any[]): string[] {
   const seen = new Set<string>();
@@ -185,6 +148,20 @@ export function modeDepuisCommercialMode(id: string): string {
   if (id.includes('Cable') || id.includes('Funicular')) return 'CABLE';
   if (id.includes('Ferry') || id.includes('Boat') || id.includes('Fluvial')) return 'FLUVIAL';
   return 'BUS';
+}
+
+const MODE_ORDER: Record<string, number> = { RER: 0, TRAIN: 1, METRO: 2, TRAM: 3, CABLE: 4, FLUVIAL: 5, BUS: 6 };
+
+// Ordre d'affichage des lignes : RER/train/métro/tram/câble/fluvial puis bus,
+// avec les bus "Noctilien" (code commençant par une lettre) repoussés après
+// les bus numérotés classiques, puis tri alphanumérique du code.
+export function comparerLignesParMode(a: { code: string; mode: string }, b: { code: string; mode: string }): number {
+  const isLettreA = a.mode === 'BUS' && isNaN(Number(a.code[0]));
+  const isLettreB = b.mode === 'BUS' && isNaN(Number(b.code[0]));
+  const oa = (MODE_ORDER[a.mode] ?? 6) + (isLettreA ? 0.5 : 0);
+  const ob = (MODE_ORDER[b.mode] ?? 6) + (isLettreB ? 0.5 : 0);
+  if (oa !== ob) return oa - ob;
+  return a.code.localeCompare(b.code, undefined, { numeric: true });
 }
 
 export async function linesForArea(stopAreaId: string, signal?: AbortSignal): Promise<LineChip[]> {

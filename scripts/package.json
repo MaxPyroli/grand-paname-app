@@ -1,0 +1,11 @@
+{
+  "name": "grand-paname-scripts",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "send-notification": "node send-notification.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

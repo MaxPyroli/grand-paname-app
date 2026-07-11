@@ -1,0 +1,3 @@
+# Archives d'anciens .apk/.aab conservés dans git à titre d'historique,
+# mais inutiles (et volumineux) pour le processus de build EAS.
+archive/

@@ -38,20 +38,27 @@ function getMapHTML(isDark: boolean) {
       width:11px;height:11px;
       background:#25303b;border:2.5px solid #fff;border-radius:50%;
       box-shadow:0 1px 5px rgba(0,0,0,0.35);cursor:pointer;
-      transition:transform .15s;
     }
-    .s-dot:hover{transform:scale(1.4)}
     .s-dot.active{background:#3498db}
     .n-wrap{
       background:#ffffff;
       border:1px solid rgba(0,0,0,0.12);
       box-shadow:0 2px 6px rgba(0,0,0,0.18);
-      cursor:pointer;transition:transform .15s;
+      cursor:pointer;
     }
-    .n-wrap:hover{transform:scale(1.12)}
     .n-icon{
       width:24px;height:24px;
       filter:${isDark ? 'invert(1)' : 'none'};
+    }
+    .leaflet-control-attribution{
+      background:${isDark ? 'rgba(1,14,38,0.4)' : 'rgba(255,255,255,0.55)'}!important;
+      box-shadow:none!important;
+      border-radius:6px;
+      padding:1px 6px!important;
+    }
+    .leaflet-control-attribution a, .leaflet-control-attribution span{
+      color:${isDark ? '#8fb8e6' : '#3d4852'}!important;
+      opacity:0.85!important;
     }
   </style>
 </head>
@@ -65,7 +72,7 @@ function getMapHTML(isDark: boolean) {
   }).addTo(map);
 
   L.control.attribution({position:'bottomright',prefix:''})
-    .addAttribution('<span style="opacity:.4;font-size:9px">© CartoDB · OpenStreetMap</span>')
+    .addAttribution('<span style="font-size:9px">© CartoDB · OpenStreetMap</span>')
     .addTo(map);
 
   var userMarker = null;
@@ -158,6 +165,12 @@ function getMapHTML(isDark: boolean) {
     // visible au-dessus du panneau des horaires qui couvre le bas de l'écran.
     var offset=map.getSize().y*0.22;
     var shifted=map.unproject(map.project([lat,lon],zoom).add([0,offset]),zoom);
+    // Si on est déjà quasiment sur la cible, on ne relance pas l'animation
+    // (évite un petit "tremblement" quand on reclique la station déjà centrée).
+    var curPt=map.latLngToContainerPoint(map.getCenter());
+    var tgtPt=map.latLngToContainerPoint(shifted);
+    var dist=curPt.distanceTo(tgtPt);
+    if(dist<3 && Math.abs(map.getZoom()-zoom)<0.05) return;
     map.flyTo(shifted,zoom,{animate:true,duration:0.9});
   }
 
@@ -193,6 +206,7 @@ function getMapHTML(isDark: boolean) {
     if(window._tileLayer){ map.removeLayer(window._tileLayer); }
     window._tileLayer = L.tileLayer(url,{maxZoom:19,subdomains:'abcd'}).addTo(map);
     document.body.style.background = isDark ? '#031a3a' : '#eef2f7';
+    document.getElementById('map').style.background = isDark ? '#031a3a' : '#eef2f7';
     var s = document.getElementById('_gp_dots');
     if(!s){ s=document.createElement('style'); s.id='_gp_dots'; document.head.appendChild(s); }
     s.textContent = isDark
@@ -203,6 +217,13 @@ function getMapHTML(isDark: boolean) {
         + '.n-wrap{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
       : '.n-icon{filter:none!important}'
         + '.n-wrap{background:#ffffff!important;border-color:rgba(0,0,0,0.12)!important}';
+    var attr=document.querySelector('.leaflet-control-attribution');
+    if(attr){
+      attr.style.background = isDark ? 'rgba(1,14,38,0.4)' : 'rgba(255,255,255,0.55)';
+      attr.querySelectorAll('a,span').forEach(function(el){
+        el.style.color = isDark ? '#8fb8e6' : '#3d4852';
+      });
+    }
   }
 
   var NEARBY_ICONS=${iconsJson};

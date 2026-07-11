@@ -7,6 +7,35 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.1.2',
+    date: '11 juillet 2026',
+    content: `**🛠️ Améliorations et Corrections**
+*
+
+Bon voyage !`,
+  },
+  {
+    version: '3.1.1',
+    date: '10 juillet 2026',
+    content: `**🛠️ Améliorations et Corrections**
+* L'action de retour d'Android est désormais prise en charge.
+* Le volet des horaires est désormais plus facile à glisser verticalement.
+* Ajout de séparateurs dans la liste des horaires.
+* Ajout de l'autorisation aux notifications pour un usage futur.
+* Nouveaux pop-up pour les mises à jour.
+* Mises à jour désormais intégrées via un pop-up et une animation spécifique.
+* Correction de la géographie des directions des lignes RER et Train.
+* Correction de l'autorisation d'accès à la position.
+* Correction d'une autorisation d'accès au micro inutile.
+* Correction d'un bug visuel de chargement de la carte.
+* Correction d'un bug de défilement lors de l'affichage des horaires.
+* Correction d'un bug d'alignement du message «😴 Service terminé».
+* Correction de bugs d'affichage sur la carte lorsque les horaires sont affichés.
+* Correction de l'affichage du bouton favori qui devenait invisible en mode sombre.
+
+Bon voyage !`,
+  },
+  {
     version: '3.1.0',
     date: '8 juillet 2026',
     content: `**🚀 Nouveautés**
@@ -21,7 +50,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
 * Le menu des favoris a été revu pour être plus clair et plus propre.
 * L'en-tête d'un arrêt affiche désormais toutes ses lignes sous forme de pilules colorées. Un tap sur une pilule fait défiler directement vers la ligne et ses temps d'attente.
 * Le bouton de retour du menu "Paramètres" a été revu pour être plus agréable à l'œil et plus facile à cliquer.
-* Elle s'efface discrètement lors de la consultation des horaires pour dégager la vue, et réapparaît dès la fermeture du volet.
+* La barre de recherche s'efface discrètement lors de la consultation des horaires pour dégager la vue, et réapparaît dès la fermeture du volet.
 * Re-cliquer sur un arrêt déjà sélectionné permet désormais de le rouvrir.
 * Correction d'un bug sur le changement de thème clair/sombre, la carte ne remet plus à son point d'origine.
 * Correction d'un bug visuel sur le curseur de changement de thème, animation améliorée.

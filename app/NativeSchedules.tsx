@@ -1,10 +1,13 @@
-import React, { useEffect, useState, useCallback, memo, startTransition, useRef, forwardRef, useImperativeHandle } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, StyleSheet, ToastAndroid, Platform, Animated } from 'react-native';
+import React, { useEffect, useState, useCallback, useMemo, memo, startTransition, useRef, forwardRef, useImperativeHandle } from 'react';
+import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, ToastAndroid, Platform, Animated } from 'react-native';
+import { GestureDetector, ScrollView, type NativeGesture } from 'react-native-gesture-handler';
+import { Image as ExpoImage } from 'expo-image';
 import { NAVITIA_BASE, NAVITIA_KEY } from './constants';
 import { useColors } from './theme';
-import { modeDepuisCommercialMode } from './api';
-import { GEOGRAPHIE_RER, TOPOLOGIE_LIGNES } from './lignesData';
+import { modeDepuisCommercialMode, comparerLignesParMode } from './api';
+import { GEOGRAPHIE_RER, TOPOLOGIE_LIGNES, normaliserGare } from './lignesData';
 import { GHOST_STOP_ID } from './ghostStop';
+import { MODE_ICONS } from './modeIcons';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,10 +51,10 @@ function parseNavitiaDate(s: string): Date {
   return new Date(y, mo, d, h, mn, sec);
 }
 
-function computeValTri(dateStr: string): number {
+function computeValTri(dateStr: string, capMinutes = 120): number {
   const dep = parseNavitiaDate(dateStr);
   const delta = Math.round((dep.getTime() - Date.now()) / 60000);
-  if (delta > 120) return 3000;
+  if (delta > capMinutes) return 3000;
   return delta;
 }
 
@@ -77,14 +80,29 @@ function computeContrast(hex: string): string {
 
 // ── Direction RER/Train ───────────────────────────────────────────────────────
 
+// Cherche dans la route l'entrée dont le fragment matché est le plus long
+// (évite qu'un fragment court comme "COLOMBES" prenne le pas sur "BOIS COLOMBES"
+// juste parce qu'il apparaît avant dans le tableau)
+function meilleurIndex(route: string[], gareN: string): number {
+  let best = -1;
+  let bestLen = -1;
+  for (let i = 0; i < route.length; i++) {
+    if (gareN.includes(route[i]) && route[i].length > bestLen) {
+      best = i;
+      bestLen = route[i].length;
+    }
+  }
+  return best;
+}
+
 function calculerDirectionRelative(code: string, maGare: string, terminus: string): 0 | 1 | null {
   const ligne = TOPOLOGIE_LIGNES[code];
   if (!ligne) return null;
-  const gareU = maGare.toUpperCase();
-  const termU = terminus.toUpperCase();
+  const gareN = normaliserGare(maGare);
+  const termN = normaliserGare(terminus);
   for (const route of ligne.routes) {
-    const idxDep = route.findIndex(g => gareU.includes(g));
-    const idxTerm = route.findIndex(g => termU.includes(g));
+    const idxDep  = meilleurIndex(route, gareN);
+    const idxTerm = meilleurIndex(route, termN);
     if (idxDep !== -1 && idxTerm !== -1) {
       return idxTerm > idxDep ? 1 : 0;
     }
@@ -106,23 +124,23 @@ function buildDirections(code: string, stopName: string, dests: Map<string, Depa
     return [{ label: '', items: allDeparts.slice(0, 4) }];
   }
 
-  const stopU = stopName.toUpperCase();
+  const stopN = normaliserGare(stopName);
 
   let mots1 = [...geo.mots_1];
   let mots2 = [...geo.mots_2];
 
   // Ajustements contextuels RER C : nord de Paris → INVALIDES devient direction EST
   if (code === 'C') {
-    const zoneNord = ['MAILLOT','PEREIRE','CLICHY','ST-OUEN','GENNEVILLIERS','ERMONT','PONTOISE','FOCH','MARTIN','BOULAINVILLIERS','KENNEDY','JAVEL','GARIGLIANO'];
-    if (zoneNord.some(k => stopU.includes(k))) {
+    const zoneNord = ['MAILLOT','PEREIRE','CLICHY','OUEN','GENNEVILLIERS','ERMONT','PONTOISE','FOCH','MARTIN','BOULAINVILLIERS','KENNEDY','JAVEL','GARIGLIANO'];
+    if (zoneNord.some(k => stopN.includes(k))) {
       mots1 = mots1.filter(m => m !== 'INVALIDES');
       if (!mots2.includes('INVALIDES')) mots2 = [...mots2, 'INVALIDES'];
     }
   }
   // Ajustements contextuels RER D : nord de Paris → GARE DE LYON devient direction SUD
   if (code === 'D') {
-    const zoneNord = ['CREIL','ORRY','COYE','SURVILLIERS','FOSSES','LOUVRES','GOUSSAINVILLE','VILLIERS-LE-BEL','GARGES','SARCELLES','PIERREFITTE','STAINS','SAINT-DENIS','STADE DE FRANCE','NORD'];
-    if (zoneNord.some(k => stopU.includes(k))) {
+    const zoneNord = ['CREIL','ORRY','COYE','SURVILLIERS','FOSSES','LOUVRES','GOUSSAINVILLE','VILLIERS LE BEL','GARGES','SARCELLES','PIERREFITTE','STAINS','SAINT DENIS','STADE DE FRANCE','NORD'];
+    if (zoneNord.some(k => stopN.includes(k))) {
       mots2 = mots2.filter(m => m !== 'GARE DE LYON');
       if (!mots1.includes('GARE DE LYON')) mots1 = [...mots1, 'GARE DE LYON'];
     }
@@ -133,21 +151,21 @@ function buildDirections(code: string, stopName: string, dests: Map<string, Depa
   const p3: DepartAvecDest[] = [];
 
   for (const item of allDeparts) {
-    const termU = item.dest.toUpperCase();
+    const termN = normaliserGare(item.dest);
     const dir = calculerDirectionRelative(code, stopName, item.dest);
     if (dir === 0) p1.push(item);
     else if (dir === 1) p2.push(item);
-    else if (mots1.some(m => termU.includes(m))) p1.push(item);
-    else if (mots2.some(m => termU.includes(m))) p2.push(item);
+    else if (mots1.some(m => termN.includes(normaliserGare(m)))) p1.push(item);
+    else if (mots2.some(m => termN.includes(normaliserGare(m)))) p2.push(item);
     else p3.push(item);
   }
 
   const directions: DirectionGroupe[] = [];
 
-  if (!geo.term_1.some(t => stopU.includes(t))) {
+  if (!geo.term_1.some(t => stopN.includes(normaliserGare(t)))) {
     directions.push({ label: geo.labels[0], items: p1.slice(0, 4) });
   }
-  if (!geo.term_2.some(t => stopU.includes(t))) {
+  if (!geo.term_2.some(t => stopN.includes(normaliserGare(t)))) {
     directions.push({ label: geo.labels[1], items: p2.slice(0, 4) });
   }
   if (p3.length > 0) {
@@ -301,8 +319,6 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const data = await r.json();
 
-  const MODE_ORDER: Record<string, number> = { RER: 0, TRAIN: 1, METRO: 2, TRAM: 3, CABLE: 4, FLUVIAL: 5, BUS: 6 };
-
   const lignesMap = new Map<string, { code: string; color: string; textColor: string; mode: string; dests: Map<string, Depart[]> }>();
 
   for (const d of data?.departures || []) {
@@ -310,8 +326,6 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     if (!info) continue;
     const dateStr: string = info.departure_date_time || '';
     if (!dateStr) continue;
-    const valTri = computeValTri(dateStr);
-    if (valTri < -5) continue;
 
     const route = d.route || {};
     const line = route.line || {};
@@ -320,6 +334,12 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     const textColor: string = line.text_color ? `#${line.text_color}` : computeContrast(color);
     const mode: string = modeDepuisCommercialMode(line.commercial_mode?.id || '');
     const dest: string = (d.display_informations?.direction || route.name || '?').replace(/\s*\([^)]+\)$/, '');
+
+    // Les Noctiliens sont peu fréquents : un 3e départ réel tombe facilement
+    // au-delà de 2h, il ne faut pas l'étiqueter "Terminé" pour autant.
+    const isNocti = mode === 'BUS' && isNaN(Number(code[0]));
+    const valTri = computeValTri(dateStr, isNocti ? 180 : 120);
+    if (valTri < -5) continue;
 
     const lineKey = `${code}|${color}`;
     if (!lignesMap.has(lineKey)) lignesMap.set(lineKey, { code, color, textColor, mode, dests: new Map() });
@@ -361,14 +381,7 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     lignes.push({ key, code: entry.code, color: entry.color, textColor: entry.textColor, mode: entry.mode, destinations: finalDests });
   }
 
-  return lignes.sort((a, b) => {
-    const isNoctiA = a.mode === 'BUS' && isNaN(Number(a.code[0]));
-    const isNoctiB = b.mode === 'BUS' && isNaN(Number(b.code[0]));
-    const oa = (MODE_ORDER[a.mode] ?? 6) + (isNoctiA ? 0.5 : 0);
-    const ob = (MODE_ORDER[b.mode] ?? 6) + (isNoctiB ? 0.5 : 0);
-    if (oa !== ob) return oa - ob;
-    return a.code.localeCompare(b.code, undefined, { numeric: true });
-  });
+  return lignes.sort(comparerLignesParMode);
 }
 
 // ── Carte ligne (memoïsée pour éviter re-renders pendant le scroll) ───────────
@@ -418,13 +431,13 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
       </View>
       <View style={{ flex: 1, gap: 6 }}>
         {toutTermine ? (
-          <Text style={[s.destTexte, { color: c.textSub, textAlign: 'center' }]}>😴 Service terminé</Text>
+          <Text style={[s.destTexte, { color: c.textSub, textAlign: 'left', paddingTop: 4 }]}>😴 Service terminé</Text>
         ) : ligne.directions ? (
           ligne.directions.map((dir, di) => (
             <View key={di} style={{ gap: 2 }}>
               {dir.label ? <Text style={[s.dirLabel, { color: c.accent }]}>{dir.label}</Text> : null}
               {dir.items.length === 0 ? (
-                <Text style={[s.destTexte, { color: c.textSub, textAlign: 'center' }]}>😴 Service terminé</Text>
+                <Text style={[s.destTexte, { color: c.textSub, textAlign: 'left' }]}>😴 Service terminé</Text>
               ) : (
                 dir.items.map((item, i) => (
                   <View key={i} style={s.rerRow}>
@@ -460,11 +473,11 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
-type Props = { stopId: string; stopName?: string; refreshKey?: number };
+type Props = { stopId: string; stopName?: string; refreshKey?: number; onAtTopChange?: (atTop: boolean) => void; nativeGesture?: NativeGesture };
 export type SchedulesRef = { scrollTo: (code: string) => void };
 
 const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules(
-  { stopId, stopName = '', refreshKey },
+  { stopId, stopName = '', refreshKey, onAtTopChange, nativeGesture },
   ref,
 ) {
   const c = useColors();
@@ -476,6 +489,17 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
   const terminatedBusCodes = useRef<Set<string>>(new Set());
   const [highlightState, setHighlightState] = useState<{ code: string; tick: number } | null>(null);
   const toastCooldown = useRef(false);
+  const atTopRef = useRef(true);
+
+  const handleScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
+    const atTop = e.nativeEvent.contentOffset.y <= 2;
+    if (atTop !== atTopRef.current) {
+      atTopRef.current = atTop;
+      onAtTopChange?.(atTop);
+    }
+  }, [onAtTopChange]);
+
+  useEffect(() => { onAtTopChange?.(atTopRef.current); }, []);
 
   useImperativeHandle(ref, () => ({
     scrollTo: (code: string) => {
@@ -496,10 +520,17 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
   // Vide les données immédiatement quand on change de gare (évite d'afficher les horaires de l'ancienne gare)
   useEffect(() => { setLignes(null); isInitialLoad.current = true; }, [stopId]);
 
+  // Pointe toujours vers l'annulation de la requête EN COURS. `charger()` est
+  // rappelé à chaque tick du setInterval ci-dessous ; sans cette ref, seul le
+  // tout premier appel serait annulable au démontage, et les requêtes des
+  // ticks suivants continueraient inutilement en arrière-plan.
+  const abortCourantRef = useRef<() => void>(() => {});
+
   const charger = useCallback(() => {
     setErreur(null);
 
     if (stopId === GHOST_STOP_ID) {
+      abortCourantRef.current = () => {};
       const terminatedCodes = new Set(
         GHOST_LIGNES_BASE
           .filter(x => x.mode === 'BUS' && x.destinations.every(d => (d.departs[0]?.valTri ?? 0) >= 3000))
@@ -509,10 +540,11 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
       const filtered = GHOST_LIGNES_BASE.filter(x => x.mode !== 'BUS' || !terminatedCodes.has(x.code));
       isInitialLoad.current = false;
       setLignes(filtered);
-      return () => {};
+      return;
     }
 
     const ctrl = new AbortController();
+    abortCourantRef.current = () => ctrl.abort();
     fetchLignes(stopId, stopName, ctrl.signal)
       .then(l => {
         terminatedBusCodes.current = new Set(
@@ -528,14 +560,31 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
         }
       })
       .catch(e => { if (e.name !== 'AbortError') setErreur(e.message); });
-    return () => ctrl.abort();
   }, [stopId, stopName, refreshKey]);
 
   useEffect(() => {
-    const cleanup = charger();
+    charger();
     const timer = setInterval(charger, 15000);
-    return () => { cleanup(); clearInterval(timer); };
+    return () => { abortCourantRef.current(); clearInterval(timer); };
   }, [charger]);
+
+  // Regroupe les lignes déjà triées par mode (comparerLignesParMode) en
+  // insérant un séparateur (icône + trait) avant chaque nouveau mode, pour
+  // mieux distinguer RER / train / métro / tram / bus dans la liste.
+  type RenderItem = { type: 'mode'; mode: string } | { type: 'ligne'; ligne: LigneGroupe };
+  const renderItems = useMemo((): RenderItem[] => {
+    if (!lignes) return [];
+    const items: RenderItem[] = [];
+    let lastMode = '';
+    for (const ligne of lignes) {
+      if (ligne.mode !== lastMode) {
+        items.push({ type: 'mode', mode: ligne.mode });
+        lastMode = ligne.mode;
+      }
+      items.push({ type: 'ligne', ligne });
+    }
+    return items;
+  }, [lignes]);
 
   if (erreur) {
     return (
@@ -560,15 +609,39 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
     );
   }
 
-  return (
-    <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={s.listContent}>
-      {lignes.map(ligne => (
-        <View key={ligne.key} onLayout={e => { yPositions.current[ligne.code] = e.nativeEvent.layout.y; }}>
-          <LigneCard ligne={ligne} highlightTick={highlightState?.code === ligne.code ? highlightState.tick : 0} />
-        </View>
-      ))}
+  const listView = (
+    <ScrollView
+      ref={scrollRef}
+      style={{ flex: 1 }}
+      contentContainerStyle={s.listContent}
+      onScroll={handleScroll}
+      scrollEventThrottle={16}
+      overScrollMode="never"
+      bounces={false}
+    >
+      {renderItems.map((item, i) =>
+        item.type === 'mode' ? (
+          <View key={`mode-${i}`} style={[s.modeSeparator, i === 0 && { marginTop: 0 }]}>
+            <ExpoImage
+              source={{ uri: MODE_ICONS[item.mode] ?? MODE_ICONS['BUS'] }}
+              style={[s.modeIcon, { tintColor: c.textSub }]}
+              contentFit="contain"
+            />
+            <View style={[s.modeSeparatorLine, { backgroundColor: c.border }]} />
+          </View>
+        ) : (
+          <View key={item.ligne.key} onLayout={e => { yPositions.current[item.ligne.code] = e.nativeEvent.layout.y; }}>
+            <LigneCard ligne={item.ligne} highlightTick={highlightState?.code === item.ligne.code ? highlightState.tick : 0} />
+          </View>
+        )
+      )}
     </ScrollView>
   );
+
+  // GestureDetector expose le geste natif du scroll au parent (App.tsx), qui
+  // le compose avec le geste de drag du volet pour permettre de tirer le
+  // volet vers le bas depuis l'intérieur de la liste, une fois en haut.
+  return nativeGesture ? <GestureDetector gesture={nativeGesture}>{listView}</GestureDetector> : listView;
 });
 
 export default memo(NativeSchedules);
@@ -576,6 +649,9 @@ export default memo(NativeSchedules);
 const s = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   listContent: { padding: 10, gap: 8, paddingBottom: 74 },
+  modeSeparator: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  modeIcon: { width: 20, height: 20 },
+  modeSeparatorLine: { flex: 1, height: 1 },
   carte: {
     flexDirection: 'row', alignItems: 'flex-start',
     borderRadius: 12, padding: 10, gap: 10,
