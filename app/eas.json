@@ -6,14 +6,17 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "environment": "development"
+      "environment": "development",
+      "env": { "APP_VARIANT": "development" }
     },
     "preview": {
       "distribution": "internal",
-      "environment": "preview"
+      "environment": "preview",
+      "env": { "APP_VARIANT": "development" }
     },
     "production": {
-      "environment": "production"
+      "environment": "production",
+      "env": { "APP_VARIANT": "production" }
     }
   },
   "submit": {

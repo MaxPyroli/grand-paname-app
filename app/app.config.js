@@ -1,11 +1,18 @@
 // app.config.js plutôt qu'app.json : on a besoin de logique dynamique pour
 // distinguer le build "dev" (installé à côté de la version publique sur le
 // téléphone, avec son propre identifiant d'app) du build de production.
-// EAS Build renseigne automatiquement EAS_BUILD_PROFILE avec le nom du
-// profil eas.json utilisé (development / preview / production). En local
-// (expo start, expo run:android sans EAS), cette variable n'existe pas — on
-// considère alors qu'on est en dev par défaut.
-const IS_DEV = (process.env.EAS_BUILD_PROFILE ?? 'development') === 'development';
+//
+// On lit APP_VARIANT (défini explicitement dans eas.json → env pour chaque
+// profil), PAS EAS_BUILD_PROFILE : ce dernier est une variable d'environnement
+// interne à l'EAS CLI, invisible pour l'outil de "fingerprint" qu'EAS utilise
+// pour décider de réutiliser ou non un build/prebuild en cache. Comme le
+// contenu des fichiers ne changeait jamais entre un build dev et un build
+// prod (seule EAS_BUILD_PROFILE différait), EAS considérait les deux comme
+// identiques et réutilisait le même dossier android/ (et les mêmes
+// credentials) entre les deux — d'où des builds de prod signés/packagés
+// comme des builds dev. APP_VARIANT étant une valeur littérale dans
+// eas.json, elle fait bien partie de l'empreinte du projet.
+const IS_DEV = process.env.APP_VARIANT !== 'production';
 
 const BASE_ID = 'fun.grandpaname.app';
 const APP_ID = IS_DEV ? `${BASE_ID}.dev` : BASE_ID;

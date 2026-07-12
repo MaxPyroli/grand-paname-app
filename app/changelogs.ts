@@ -8,9 +8,15 @@ export type ChangelogEntry = {
 export const CHANGELOGS: ChangelogEntry[] = [
   {
     version: '3.1.2',
-    date: '11 juillet 2026',
+    date: '12 juillet 2026',
     content: `**🛠️ Améliorations et Corrections**
-*
+* Le menu des paramètres affiche désormais par défaut les 3 dernières notes de mises à jour.
+* Nouveau mode sombre "OLED" disponible dans les paramètres avancés.
+* Affichage des arrêts de RER/Train optimisé pour être plus fluide et afficher tous les arrêts à zoom plus éloigné.
+* Ajout du suivi de la localisation en direct.
+* Ajout du suivi de la boussole.
+* Ajustement de la taille de la fenêtre des stations à proximité et de la distance affichée.
+* Correction d'un bug de tremblement de la carte lors de la localisation.
 
 Bon voyage !`,
   },

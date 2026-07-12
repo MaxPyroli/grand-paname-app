@@ -34,6 +34,16 @@ function getMapHTML(isDark: boolean) {
       background:#3498db;border:3px solid #fff;border-radius:50%;
       box-shadow:0 2px 10px rgba(52,152,219,0.65);
     }
+    .u-heading{
+      position:absolute;left:50%;top:50%;width:0;height:0;
+      margin-left:-4px;margin-top:-13px;
+      border-left:4px solid transparent;
+      border-right:4px solid transparent;
+      border-bottom:5px solid #fff;
+      transform-origin:4px 13px;
+      transition:transform 0.25s ease-out;
+      pointer-events:none;display:none;
+    }
     .s-dot{
       width:11px;height:11px;
       background:#25303b;border:2.5px solid #fff;border-radius:50%;
@@ -65,7 +75,7 @@ function getMapHTML(isDark: boolean) {
 <body>
 <div id="map"></div>
 <script>
-  var map = L.map('map',{zoomControl:false,attributionControl:false,zoomSnap:0.1,zoomDelta:0.5}).setView([48.8566,2.3522],12);
+  var map = L.map('map',{zoomControl:false,attributionControl:false,zoomSnap:0.1,zoomDelta:0.5}).setView([48.8566,2.3522],11.5);
 
   window._tileLayer = L.tileLayer('${tileUrl}',{
     maxZoom:19, subdomains:'abcd'
@@ -76,6 +86,7 @@ function getMapHTML(isDark: boolean) {
     .addTo(map);
 
   var userMarker = null;
+  var followMode = false;
   var stationMarkers = [];
   var activeMarkerId = null;
   var transportLines = [];
@@ -85,7 +96,7 @@ function getMapHTML(isDark: boolean) {
   function userIcon(){
     return L.divIcon({
       className:'',
-      html:'<div class="u-ring"></div><div class="u-dot"></div>',
+      html:'<div class="u-ring"></div><div class="u-heading"></div><div class="u-dot"></div>',
       iconSize:[16,16], iconAnchor:[8,8]
     });
   }
@@ -105,8 +116,53 @@ function getMapHTML(isDark: boolean) {
     } else {
       userMarker.setLatLng(ll);
     }
-    map.flyTo(ll,15,{animate:true,duration:0.9});
+    if(followMode){ map.panTo(ll,{animate:true,duration:0.5}); }
   }
+
+  // Appelé uniquement au tap du bouton GPS : recentre toujours (avec zoom)
+  // et (re)active le suivi automatique de la position.
+  function recenterOnUser(lat,lon){
+    followMode=true;
+    var ll=[lat,lon];
+    if(!userMarker){
+      userMarker=L.marker(ll,{icon:userIcon(),zIndexOffset:2000}).addTo(map);
+    } else {
+      userMarker.setLatLng(ll);
+    }
+    var zoom=15;
+    // Si on est déjà quasiment sur la cible, on ne relance pas l'animation
+    // (évite un petit "tremblement" quand on retape l'icône déjà centrée).
+    var curPt=map.latLngToContainerPoint(map.getCenter());
+    var tgtPt=map.latLngToContainerPoint(ll);
+    var dist=curPt.distanceTo(tgtPt);
+    if(dist<3 && Math.abs(map.getZoom()-zoom)<0.05) return;
+    map.flyTo(ll,zoom,{animate:true,duration:0.9});
+  }
+
+  // Manipule directement le DOM de l'icône (au lieu de la recréer via
+  // setIcon) pour que la transition CSS puisse animer la rotation en douceur.
+  function setUserHeading(deg){
+    if(!userMarker) return;
+    var el=userMarker.getElement();
+    if(!el) return;
+    var h=el.querySelector('.u-heading');
+    if(!h) return;
+    if(typeof deg==='number'){
+      h.style.display='block';
+      h.style.transform='rotate('+deg+'deg)';
+    } else {
+      h.style.display='none';
+    }
+  }
+
+  // Un glissement manuel de la carte (pas nos propres panTo/flyTo) coupe le
+  // suivi automatique, comme sur Google Maps.
+  map.on('dragstart',function(){
+    if(followMode){
+      followMode=false;
+      window.ReactNativeWebView.postMessage(JSON.stringify({type:'followModeExited'}));
+    }
+  });
 
   function setStations(stations){
     stationMarkers.forEach(function(m){map.removeLayer(m);});
@@ -317,6 +373,8 @@ function getMapHTML(isDark: boolean) {
     try{
       var msg=JSON.parse(e.data);
       if(msg.type==='setLocation') setUserLocation(msg.lat,msg.lon);
+      if(msg.type==='recenterOnUser') recenterOnUser(msg.lat,msg.lon);
+      if(msg.type==='setUserHeading') setUserHeading(msg.deg);
       if(msg.type==='setStations') setStations(msg.stations);
       if(msg.type==='clearActive') clearActiveStation();
       if(msg.type==='setTheme') setTheme(msg.isDark);
@@ -336,6 +394,8 @@ export type NearbyStopMarker = { id: string; stop_area_id: string; label: string
 
 export type MapWebViewRef = {
   setUserLocation: (lat: number, lon: number) => void;
+  recenterOnUser: (lat: number, lon: number) => void;
+  setUserHeading: (deg: number | null) => void;
   setStations: (stations: Array<{ id: string; label: string; lat?: number; lon?: number }>) => void;
   clearActiveStation: () => void;
   setTheme: (isDark: boolean) => void;
@@ -349,11 +409,12 @@ type Props = {
   onStationSelected?: (id: string, label: string) => void;
   onViewportChanged?: (lat: number, lon: number, zoom: number, radius: number) => void;
   onMapTapped?: () => void;
+  onFollowExited?: () => void;
   onReady?: () => void;
   isDark?: boolean;
 };
 
-const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onViewportChanged, onMapTapped, onReady, isDark }, ref) => {
+const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onViewportChanged, onMapTapped, onFollowExited, onReady, isDark }, ref) => {
   const wvRef = useRef<WebView>(null);
   const [htmlSource] = useState(() => ({ html: getMapHTML(isDark ?? false) }));
   const isMounted = useRef(false);
@@ -366,6 +427,12 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
   useImperativeHandle(ref, () => ({
     setUserLocation: (lat, lon) => {
       wvRef.current?.injectJavaScript(`setUserLocation(${lat},${lon});true;`);
+    },
+    recenterOnUser: (lat, lon) => {
+      wvRef.current?.injectJavaScript(`recenterOnUser(${lat},${lon});true;`);
+    },
+    setUserHeading: (deg) => {
+      wvRef.current?.injectJavaScript(`setUserHeading(${deg === null ? 'null' : deg});true;`);
     },
     setStations: (stations) => {
       wvRef.current?.injectJavaScript(`setStations(${JSON.stringify(stations)});true;`);
@@ -413,6 +480,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
             if (d.type === 'stationSelected') onStationSelected?.(d.id, d.label);
             if (d.type === 'viewportChanged') onViewportChanged?.(d.lat, d.lon, d.zoom, d.radius ?? 1000);
             if (d.type === 'mapTapped') onMapTapped?.();
+            if (d.type === 'followModeExited') onFollowExited?.();
           } catch {}
         }}
       />

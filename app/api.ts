@@ -1,7 +1,7 @@
 import { NAVITIA_BASE, NAVITIA_KEY } from './constants';
 import { logger } from './logger';
 
-export type SearchResult = { id: string; label: string };
+export type SearchResult = { id: string; label: string; distance?: number };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,10 +57,8 @@ export async function nearbyGares(lat: number, lon: number, signal?: AbortSignal
     const sa = p.stop_area;
     const ville = villeDepuisRegions(sa.administrative_regions || []);
     const dist = parseInt(p.distance || '0');
-    const label = ville
-      ? `${sa.name} (${ville}) - à ${dist}m`
-      : `${sa.name} - à ${dist}m`;
-    results.push({ id: sa.id, label });
+    const label = ville ? `${sa.name} (${ville})` : sa.name;
+    results.push({ id: sa.id, label, distance: dist });
   }
   logger.info(`nearby (${lat.toFixed(4)}, ${lon.toFixed(4)}) → ${results.length} arrêt(s)`);
   return results;
@@ -83,6 +81,44 @@ function modesDepuisPhysicalModes(physModes: any[]): string[] {
     if (!seen.has(mode)) { seen.add(mode); result.push(mode); }
   }
   return result.length > 0 ? result : ['BUS'];
+}
+
+// Liste complète des gares RER/Transilien de toute la région (~250 chacune).
+// Contrairement à nearbyStopsWithCoords (rayon + quota, vite saturé par les
+// arrêts de bus proches), cette liste est petite et quasi-fixe : on la
+// charge une seule fois (pas à chaque déplacement de carte) pour garantir
+// que toutes les gares s'affichent même au zoom le plus large, sans
+// alourdir les recherches de proximité classiques.
+export async function regionWideRailStops(signal?: AbortSignal): Promise<NearbyStop[]> {
+  const [rer, train] = await Promise.all([
+    navitia(`physical_modes/physical_mode:RapidTransit/stop_areas?count=300`, signal),
+    navitia(`physical_modes/physical_mode:LocalTrain/stop_areas?count=300`, signal),
+  ]);
+  const byId = new Map<string, NearbyStop>();
+  const ajouter = (data: any, mode: string) => {
+    for (const sa of data?.stop_areas || []) {
+      const coord = sa.coord;
+      if (!coord?.lat || !coord?.lon) continue;
+      const existing = byId.get(sa.id);
+      if (existing) {
+        if (!existing.modes.includes(mode)) existing.modes.push(mode);
+        continue;
+      }
+      const ville = villeDepuisRegions(sa.administrative_regions || []);
+      byId.set(sa.id, {
+        id: sa.id,
+        stop_area_id: sa.id,
+        label: ville ? `${sa.name} (${ville})` : sa.name,
+        lat: parseFloat(coord.lat),
+        lon: parseFloat(coord.lon),
+        modes: [mode],
+      });
+    }
+  };
+  ajouter(rer, 'RER');
+  ajouter(train, 'TRAIN');
+  logger.info(`regionWideRailStops → ${byId.size}`);
+  return Array.from(byId.values());
 }
 
 export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: AbortSignal, distance = 1000): Promise<NearbyStop[]> {

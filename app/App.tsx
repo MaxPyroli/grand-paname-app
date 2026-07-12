@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo, useContext } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, ActivityIndicator,
-  FlatList, TextInput, Keyboard, Image, Animated, Dimensions, Easing,
+  FlatList, TextInput, Keyboard, Animated, Dimensions, Easing,
   LayoutChangeEvent, Platform, PanResponder, ToastAndroid, NativeModules,
   Modal, Linking, ScrollView, BackHandler,
 } from 'react-native';
@@ -13,13 +13,14 @@ import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS, ChangelogEntry } from './changelogs';
 import { WHATSNEW } from './whatsnew';
-import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, linesForArea, LineChip, comparerLignesParMode } from './api';
+import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode } from './api';
 import { GHOST_STOP_ID, GHOST_STOP_LABEL, GHOST_STOP_NAME, GHOST_CHIPS, GHOST_STOP_COORD } from './ghostStop';
 import { logger, LogEntry } from './logger';
 import { Image as ExpoImage } from 'expo-image';
@@ -143,8 +144,12 @@ function FadeTop({ color, height = 56 }: { color: string; height?: number }) {
   );
 }
 
+function formatDistance(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${m}m`;
+}
+
 // ─── TYPES ───────────────────────────────────────────────────────────────────
-type Gare = { id: string; label: string; lat?: number; lon?: number };
+type Gare = { id: string; label: string; lat?: number; lon?: number; distance?: number };
 type FavorisProps = {
   favoris: Gare[];
   onSupprimerFavori: (gare: Gare) => void;
@@ -163,6 +168,7 @@ type AccueilProps = {
   mapRef: React.RefObject<MapWebViewRef | null>;
   panelOpen: boolean;
   updateDownloadingBg: boolean;
+  showDebugOverlay: boolean;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -243,9 +249,9 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
-function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void }) {
+function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, showDebugOverlay, setShowDebugOverlay, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void }) {
   const c = useColors();
-  const { pref, setPref } = useContext(ThemeContext);
+  const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
   const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>(() => logger.get());
@@ -254,8 +260,28 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
   useEffect(() => {
     AsyncStorage.getItem('@gp_dev_mode').then(v => { if (v === '1') setDevMode(true); });
   }, []);
+
+  // Logo qui tourne sur lui-même pour signaler que le mode dev est actif
+  const devLogoSpin = useRef(new Animated.Value(0)).current;
+  const devLogoSpinLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  useEffect(() => {
+    if (devMode && visible) {
+      devLogoSpin.setValue(0);
+      devLogoSpinLoopRef.current = Animated.loop(
+        Animated.timing(devLogoSpin, { toValue: 1, duration: 1200, easing: Easing.linear, useNativeDriver: true })
+      );
+      devLogoSpinLoopRef.current.start();
+    } else {
+      devLogoSpinLoopRef.current?.stop();
+      Animated.timing(devLogoSpin, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+    }
+    return () => devLogoSpinLoopRef.current?.stop();
+  }, [devMode, visible]);
+  const devLogoSpinDeg = devLogoSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const [showChangelog, setShowChangelog] = useState(false);
   const changelogAnim = useRef(new Animated.Value(0)).current;
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const advancedAnim = useRef(new Animated.Value(0)).current;
   const [activeVersion, setActiveVersion] = useState<string | null>(null);
   const contentAnim = useRef(new Animated.Value(0)).current;
 
@@ -420,6 +446,7 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                 <TouchableOpacity
                   delayLongPress={5000}
                   onLongPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                     const newVal = !devMode;
                     setDevMode(newVal);
                     AsyncStorage.setItem('@gp_dev_mode', newVal ? '1' : '0').catch(() => {});
@@ -428,7 +455,10 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                     }
                   }}
                 >
-                  <Image source={require('./assets/icon.png')} style={styles.aProposLogo} />
+                  <Animated.Image
+                    source={require('./assets/icon.png')}
+                    style={[styles.aProposLogo, { transform: [{ rotate: devLogoSpinDeg }] }]}
+                  />
                 </TouchableOpacity>
                 <View>
                   <Text style={[styles.aProposNom, { color: c.text }]}>Grand Paname</Text>
@@ -503,6 +533,65 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
               </Animated.View>
             )}
 
+            {/* ── Paramètres avancés ── */}
+            <TouchableOpacity
+              style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: '#f39c1250', borderWidth: 1, marginTop: 24, flexDirection: 'row', alignItems: 'center' }]}
+              onPress={() => {
+                if (!showAdvanced) {
+                  setShowAdvanced(true);
+                  advancedAnim.setValue(0);
+                  Animated.timing(advancedAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+                } else {
+                  Animated.timing(advancedAnim, { toValue: 0, duration: 200, useNativeDriver: true })
+                    .start(() => setShowAdvanced(false));
+                }
+              }}
+            >
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#f39c1225', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                <Text style={{ fontSize: 18 }}>⚙️</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.settingsRowLabel, { color: c.text }]}>Paramètres Avancés</Text>
+                <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                  Pour les plus téméraires
+                </Text>
+              </View>
+              <Text style={{ color: c.textSub, fontSize: 20 }}>
+                {showAdvanced ? '˅' : '›'}
+              </Text>
+            </TouchableOpacity>
+            {showAdvanced && (
+              <Animated.View style={{
+                opacity: advancedAnim,
+                transform: [{ translateY: advancedAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
+              }}>
+                <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard, marginTop: 10 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', opacity: isDark ? 1 : 0.5 }}>
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Mode sombre OLED</Text>
+                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                        Tranforme le mode sombre en noir profond pour économiser la batterie sur les écrans OLED{!isDark ? ' (nécessite le thème sombre)' : ''}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      disabled={!isDark}
+                      onPress={() => setOled(!oled)}
+                      style={{
+                        width: 44, height: 26, borderRadius: 13,
+                        backgroundColor: oled ? c.accent : c.dragBar,
+                        justifyContent: 'center', paddingHorizontal: 3,
+                      }}
+                    >
+                      <View style={{
+                        width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
+                        alignSelf: oled ? 'flex-end' : 'flex-start',
+                      }} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Animated.View>
+            )}
+
             {/* ── Débogage (mode dev, caché) ── */}
             {devMode && (
               <>
@@ -540,6 +629,28 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                       <View style={{
                         width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
                         alignSelf: !nativeSchedules ? 'flex-end' : 'flex-start',
+                      }} />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Infos de debug</Text>
+                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                        Affiche le zoom et les coordonnées en direct sur la carte
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setShowDebugOverlay(!showDebugOverlay)}
+                      style={{
+                        width: 44, height: 26, borderRadius: 13,
+                        backgroundColor: showDebugOverlay ? c.accent : c.dragBar,
+                        justifyContent: 'center', paddingHorizontal: 3,
+                      }}
+                    >
+                      <View style={{
+                        width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
+                        alignSelf: showDebugOverlay ? 'flex-end' : 'flex-start',
                       }} />
                     </TouchableOpacity>
                   </View>
@@ -648,11 +759,21 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
   const [loadingGps, setLoadingGps] = useState(false);
+  const [followingLocation, setFollowingLocation] = useState(false);
+  const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
+  const headingWatchRef = useRef<Location.LocationSubscription | null>(null);
+  const lastHeadingRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      locationWatchRef.current?.remove();
+      headingWatchRef.current?.remove();
+    };
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Gare[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -703,14 +824,22 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   }, [panelOpen]);
 
   const vpAbortRef = useRef<AbortController | null>(null);
+  const regionRailStopsRef = useRef<NearbyStop[]>([]);
+  useEffect(() => {
+    regionWideRailStops().then(stops => { regionRailStopsRef.current = stops; }).catch(() => {});
+  }, []);
+  const [debugInfo, setDebugInfo] = useState({ zoom: 0, lat: 0, lon: 0 });
 
   const handleViewportChanged = useCallback(async (lat: number, lon: number, zoom: number, radius: number) => {
+    setDebugInfo({ zoom, lat, lon });
     if (zoom < 11.5) { mapRef.current?.setNearbyStops([]); return; }
     vpAbortRef.current?.abort();
     vpAbortRef.current = new AbortController();
     try {
       const stops = await nearbyStopsWithCoords(lat, lon, vpAbortRef.current.signal, radius);
-      mapRef.current?.setNearbyStops(stops);
+      const ids = new Set(stops.map(s => s.id));
+      const merged = stops.concat(regionRailStopsRef.current.filter(s => !ids.has(s.id)));
+      mapRef.current?.setNearbyStops(merged);
     } catch {}
   }, [mapRef]);
 
@@ -811,11 +940,31 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       if (!loc) loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
       const lat = loc!.coords.latitude;
       const lon = loc!.coords.longitude;
-      mapRef.current?.setUserLocation(lat, lon);
+      mapRef.current?.recenterOnUser(lat, lon);
+      setFollowingLocation(true);
       const controller = new AbortController();
       searchAbortRef.current = controller;
       const results = await nearbyGares(lat, lon, controller.signal);
       setSearchResults(results.length > 0 ? results : [{ id: 'vide', label: 'Aucun arrêt dans un rayon de 1.5km 😕' }]);
+
+      if (!locationWatchRef.current) {
+        locationWatchRef.current = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 3000, distanceInterval: 5 },
+          (p) => mapRef.current?.setUserLocation(p.coords.latitude, p.coords.longitude)
+        );
+      }
+      if (!headingWatchRef.current) {
+        headingWatchRef.current = await Location.watchHeadingAsync((h) => {
+          const heading = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+          const prev = lastHeadingRef.current;
+          if (prev !== null) {
+            const diff = Math.abs(heading - prev);
+            if (Math.min(diff, 360 - diff) < 5) return;
+          }
+          lastHeadingRef.current = heading;
+          mapRef.current?.setUserHeading(heading);
+        });
+      }
     } catch (e: any) {
       if (e?.name === 'AbortError') return;
       logger.error(`nearby: ${e?.message}`);
@@ -823,6 +972,8 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       setSearchResults([{ id: 'erreur', label: msg }]);
     } finally { setLoadingGps(false); setIsSearching(false); }
   };
+
+  const handleFollowExited = useCallback(() => setFollowingLocation(false), []);
 
   const showResults = searchResults.length > 0;
 
@@ -834,11 +985,30 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         onStationSelected={onGareChoisie}
         onViewportChanged={handleViewportChanged}
         onMapTapped={onMapTapped}
+        onFollowExited={handleFollowExited}
         onReady={() => {
           mapRef.current?.setTheme(isDark);
           mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
         }}
       />
+
+      {/* Overlay d'infos de debug (mode dev) */}
+      {showDebugOverlay && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', top: insets.top + 12 + headerBarHeight + 8, right: 12, zIndex: 9,
+            backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 10, paddingVertical: 6, paddingHorizontal: 10,
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 11, fontFamily: 'GrandParis-Medium' }}>
+            Zoom {debugInfo.zoom.toFixed(2)}
+          </Text>
+          <Text style={{ color: '#fff', fontSize: 11, fontFamily: 'GrandParis-Light' }}>
+            {debugInfo.lat.toFixed(4)}, {debugInfo.lon.toFixed(4)}
+          </Text>
+        </View>
+      )}
 
       {/* Pilule "mise à jour en cours" qui glisse depuis le haut, sous le header */}
       {updatePillMounted && (
@@ -902,10 +1072,17 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
             renderItem={({ item }) => (
               <View style={[styles.searchResultRow, { borderBottomColor: c.border }]}>
                 <TouchableOpacity
-                  style={{ flex: 1, paddingVertical: 15 }}
+                  style={{ flex: 1, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', gap: 8 }}
                   onPress={() => { if (item.id !== 'erreur' && item.id !== 'vide') choisirGare(item.id, item.label); }}
                 >
-                  <Text style={[styles.searchResultText, { color: c.text }]}>{item.label}</Text>
+                  <Text style={[styles.searchResultText, { color: c.text, flex: 1 }]}>{item.label}</Text>
+                  {item.distance != null && (
+                    <View style={[styles.distancePill, { backgroundColor: c.bgSubtle }]}>
+                      <Text style={{ fontSize: 11, fontFamily: 'GrandParis-Medium', color: c.textSub }}>
+                        {formatDistance(item.distance)}
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
                 {item.id !== 'erreur' && item.id !== 'vide' && (
                   <TouchableOpacity style={styles.etoileAction} onPress={() => onBasculerFavori(item)}>
@@ -940,7 +1117,11 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
             </TouchableOpacity>
           )}
         </View>
-        <TouchableOpacity style={[styles.boutonGpsBarre, { backgroundColor: c.bgSubtle }]} onPress={declarerClicGpsNatif} disabled={loadingGps}>
+        <TouchableOpacity
+          style={[styles.boutonGpsBarre, { backgroundColor: followingLocation ? c.pillCenter : c.bgSubtle }]}
+          onPress={declarerClicGpsNatif}
+          disabled={loadingGps}
+        >
           {loadingGps
             ? <ActivityIndicator size="small" color={c.accent} />
             : <Text style={{ fontSize: 18 }}>📍</Text>
@@ -1277,6 +1458,8 @@ function AppInner() {
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [nativeSchedules, setNativeSchedules] = useState(true);
   useEffect(() => { AsyncStorage.getItem('@gp_native_schedules').then(v => { if (v === '0') setNativeSchedules(false); }); }, []);
+  const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+  useEffect(() => { AsyncStorage.getItem('@gp_debug_overlay').then(v => { if (v === '1') setShowDebugOverlay(true); }); }, []);
   useEffect(() => {
     AsyncStorage.getItem('@gp_last_seen_version').then(v => {
       if (v !== APP_VERSION) {
@@ -1593,6 +1776,7 @@ function AppInner() {
   }, []);
 
   const basculerFavori = useCallback((gare: Gare) => {
+    Haptics.selectionAsync().catch(() => {});
     const labelPropre = gare.label.replace(/\s*-\s*à\s*\d+m\s*$/i, '').trim();
     const garePropre = { ...gare, label: labelPropre };
     setFavoris(prev => {
@@ -1617,6 +1801,7 @@ function AppInner() {
   }, [gareActuelle, APP_URL]);
 
   const ouvrirGare = useCallback((id: string, label: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     const isOSM = id.startsWith('osm:');
     const dejaOuverte = gareActuelle?.id === id;
     setGareActuelle({ id, label, osmOnly: isOSM });
@@ -1732,6 +1917,7 @@ function AppInner() {
         onClosePanel={() => setActiveTab('accueil')}
         onMapTapped={fermerPanel}
         updateDownloadingBg={updateDownloadingBg}
+        showDebugOverlay={showDebugOverlay}
         activeTab={activeTab}
         mapRef={mapRef}
         panelOpen={panelIsOpen}
@@ -1912,7 +2098,7 @@ function AppInner() {
       </View>
 
       {/* Modal paramètres */}
-      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_last_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} />
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_last_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
       <UpdateModal
         visible={showUpdateModal}
@@ -1994,7 +2180,7 @@ const styles = StyleSheet.create({
   // Résultats
   searchResultsContainer: {
     position: 'absolute', left: '6%', right: '6%',
-    borderRadius: 16, maxHeight: 280,
+    borderRadius: 16, maxHeight: 220,
     zIndex: 999, elevation: 10,
     shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, overflow: 'hidden',
   },
@@ -2003,6 +2189,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, paddingHorizontal: 15,
   },
   searchResultText: { fontSize: 15, fontFamily: 'GrandParis-Medium' },
+  distancePill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   etoileAction: { padding: 10 },
 
   // Tiroir
