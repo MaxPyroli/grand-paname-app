@@ -1,3 +1,25 @@
+# Présence de ce fichier = EAS n'utilise plus .gitignore pour composer
+# l'archive envoyée au build, donc tout ce qui doit rester exclu doit être
+# listé ici explicitement (vécu : un dossier app/android/ local obsolète
+# s'est retrouvé uploadé et a cassé un build de prod).
+
 # Archives d'anciens .apk/.aab conservés dans git à titre d'historique,
 # mais inutiles (et volumineux) pour le processus de build EAS.
 archive/
+
+# Dossiers natifs générés par expo prebuild — doivent toujours être
+# régénérés depuis app.config.js par EAS, jamais réutilisés depuis l'état
+# local de la machine de dev.
+app/android/
+app/ios/
+
+# Dépendances, jamais utiles dans l'archive (réinstallées par EAS).
+node_modules/
+app/node_modules/
+scripts/node_modules/
+
+# Autres fichiers/dossiers non nécessaires au build.
+app/.expo/
+.expo/
+app/.kotlin/
+
