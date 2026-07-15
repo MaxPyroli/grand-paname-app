@@ -313,15 +313,38 @@ const GHOST_LIGNES_BASE: LigneGroupe[] = [
 
 // ── Fetch ─────────────────────────────────────────────────────────────────────
 
-async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal): Promise<LigneGroupe[]> {
-  const url = `${NAVITIA_BASE}/stop_areas/${stopId}/departures?count=100`;
+async function fetchDepartures(url: string, signal: AbortSignal): Promise<any[]> {
   const r = await fetch(url, { headers: { apiKey: NAVITIA_KEY }, signal });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const data = await r.json();
+  return data?.departures || [];
+}
+
+async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal): Promise<LigneGroupe[]> {
+  const base = `${NAVITIA_BASE}/stop_areas/${stopId}/departures`;
+
+  // Dans les gares très fréquentées par le bus/Noctilien (ex: Saint-Lazare la
+  // nuit), les rares départs RER/Train/Métro peuvent se retrouver noyés
+  // au-delà du compteur global de 100 et disparaître complètement, comme si
+  // le service était terminé alors qu'il ne l'est pas. On ajoute donc un
+  // appel dédié qui exclut le bus, à l'abri de ce bruit.
+  const [tousDeparts, departsRail] = await Promise.all([
+    fetchDepartures(`${base}?count=100`, signal),
+    fetchDepartures(`${base}?count=30&forbidden_uris[]=physical_mode:Bus`, signal),
+  ]);
+
+  const vus = new Set<string>();
+  const departures: any[] = [];
+  for (const d of [...tousDeparts, ...departsRail]) {
+    const cle = `${d.route?.line?.code || ''}|${d.stop_date_time?.departure_date_time || ''}|${d.display_informations?.direction || ''}`;
+    if (vus.has(cle)) continue;
+    vus.add(cle);
+    departures.push(d);
+  }
 
   const lignesMap = new Map<string, { code: string; color: string; textColor: string; mode: string; dests: Map<string, Depart[]> }>();
 
-  for (const d of data?.departures || []) {
+  for (const d of departures) {
     const info = d.stop_date_time;
     if (!info) continue;
     const dateStr: string = info.departure_date_time || '';
@@ -454,7 +477,7 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
         ) : (
           ligne.destinations.map((dest, di) => (
             <View key={di} style={s.destRow}>
-              <Text style={[s.destTexte, { color: c.text }]} numberOfLines={1} ellipsizeMode="tail">{dest.destination}</Text>
+              <Text style={[s.destTexte, { color: c.text }]} numberOfLines={2} ellipsizeMode="tail">{dest.destination}</Text>
               <View style={s.departsRow}>
                 {dest.departs.map((dep, i) => (
                   <View key={i} style={s.departItem}>

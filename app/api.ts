@@ -46,9 +46,9 @@ export async function searchGares(q: string, signal?: AbortSignal): Promise<Sear
   return results;
 }
 
-export async function nearbyGares(lat: number, lon: number, signal?: AbortSignal): Promise<SearchResult[]> {
+export async function nearbyGares(lat: number, lon: number, signal?: AbortSignal, distance = 1500): Promise<SearchResult[]> {
   const data = await navitia(
-    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=1500&count=60`,
+    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=${distance}&count=60`,
     signal
   );
   const results: SearchResult[] = [];
@@ -141,10 +141,11 @@ export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: A
     const modes = modesDepuisPhysicalModes(sp.physical_modes);
     if (!modes.includes('BUS') && !modes.includes('FLUVIAL')) continue;
     const stopAreaId = sp.stop_area?.id ?? sp.id;
+    const ville = villeDepuisRegions(sp.administrative_regions || []);
     results.push({
       id: sp.id,
       stop_area_id: stopAreaId,
-      label: sp.name,
+      label: ville ? `${sp.name} (${ville})` : sp.name,
       lat: parseFloat(coord.lat),
       lon: parseFloat(coord.lon),
       modes,
@@ -200,24 +201,49 @@ export function comparerLignesParMode(a: { code: string; mode: string }, b: { co
   return a.code.localeCompare(b.code, undefined, { numeric: true });
 }
 
+function chipDepuisLigne(l: any): LineChip {
+  const color: string = l.color || '888888';
+  const r = parseInt(color.slice(0, 2), 16);
+  const g = parseInt(color.slice(2, 4), 16);
+  const b = parseInt(color.slice(4, 6), 16);
+  const textColor = l.text_color
+    ? `#${l.text_color}`
+    : (r * 299 + g * 587 + b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
+  return {
+    id: l.id || '',
+    code: l.code || l.name || '?',
+    color,
+    textColor,
+    mode: modeDepuisCommercialMode(l.commercial_mode?.id || ''),
+  };
+}
+
 export async function linesForArea(stopAreaId: string, signal?: AbortSignal): Promise<LineChip[]> {
-  const data = await navitia(`stop_areas/${stopAreaId}/lines`, signal);
-  return (data?.lines || []).map((l: any) => {
-    const color: string = l.color || '888888';
-    const r = parseInt(color.slice(0, 2), 16);
-    const g = parseInt(color.slice(2, 4), 16);
-    const b = parseInt(color.slice(4, 6), 16);
-    const textColor = l.text_color
-      ? `#${l.text_color}`
-      : (r * 299 + g * 587 + b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
-    return {
-      id: l.id || '',
-      code: l.code || l.name || '?',
-      color,
-      textColor,
-      mode: modeDepuisCommercialMode(l.commercial_mode?.id || ''),
-    };
-  });
+  // Sans count explicite, Navitia plafonne à 25 lignes par page — les gros
+  // pôles (Châtelet, Gare de Lyon...) en ont davantage.
+  const data = await navitia(`stop_areas/${stopAreaId}/lines?count=100`, signal);
+  return (data?.lines || []).map(chipDepuisLigne).sort(comparerLignesParMode);
+}
+
+export type StopPointDetail = { id: string; lat: number; lon: number; lines: LineChip[] };
+
+// Les arrêts physiques (poteaux) de bus d'une station peuvent être dispersés
+// dans tout un quartier, chacun desservi par des lignes différentes.
+// depth=3 fait remonter directement les lignes de chaque poteau dans la
+// même réponse (un seul appel, pas un par poteau) — RER/Métro/Train/Tram/
+// Câble/Fluvial restent un point unique bien identifié, donc on ne garde
+// ici que les poteaux desservis par au moins une ligne de bus.
+export async function stopPointsForArea(stopAreaId: string, signal?: AbortSignal): Promise<StopPointDetail[]> {
+  const data = await navitia(`stop_areas/${stopAreaId}/stop_points?count=50&depth=3`, signal);
+  const points: StopPointDetail[] = (data?.stop_points || [])
+    .filter((sp: any) => sp.coord?.lat && sp.coord?.lon)
+    .map((sp: any) => ({
+      id: sp.id,
+      lat: parseFloat(sp.coord.lat),
+      lon: parseFloat(sp.coord.lon),
+      lines: (sp.lines || []).map(chipDepuisLigne).filter((l: LineChip) => l.mode === 'BUS').sort(comparerLignesParMode),
+    }));
+  return points.filter(p => p.lines.length > 0);
 }
 
 export async function coordGare(stopId: string): Promise<{ lat: number; lon: number } | null> {

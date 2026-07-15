@@ -20,7 +20,7 @@ import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS, ChangelogEntry } from './changelogs';
 import { WHATSNEW } from './whatsnew';
-import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode } from './api';
+import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode, stopPointsForArea } from './api';
 import { GHOST_STOP_ID, GHOST_STOP_LABEL, GHOST_STOP_NAME, GHOST_CHIPS, GHOST_STOP_COORD } from './ghostStop';
 import { logger, LogEntry } from './logger';
 import { Image as ExpoImage } from 'expo-image';
@@ -169,6 +169,8 @@ type AccueilProps = {
   panelOpen: boolean;
   updateDownloadingBg: boolean;
   showDebugOverlay: boolean;
+  gareActuelle: { id: string; label: string } | null;
+  onQuitterVueArret: () => void;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -378,7 +380,7 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
   }, [pref]);
 
   const LIENS = [
-    { icon: '💬', label: 'Communauté WhatsApp', url: 'https://whatsapp.com/channel/0029VbCSkQt5vKA7MojdZH3N' },
+    { icon: '💬', label: 'Chaîne WhatsApp', url: 'https://whatsapp.com/channel/0029VbCSkQt5vKA7MojdZH3N' },
     { icon: '🐛', label: 'Signaler un bug',      url: 'https://tally.so/r/A7qJxe' },
     { icon: '✉️',  label: 'Contact',              url: 'mailto:contact@grandpaname.fun' },
   ];
@@ -759,11 +761,12 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
   const [loadingGps, setLoadingGps] = useState(false);
+  const [gpsSearchStatus, setGpsSearchStatus] = useState<string | null>(null);
   const [followingLocation, setFollowingLocation] = useState(false);
   const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
   const headingWatchRef = useRef<Location.LocationSubscription | null>(null);
@@ -883,6 +886,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
     setSearchQuery('');
     setSearchResults([]);
     setIsSearching(false);
+    setGpsSearchStatus(null);
   };
 
   useEffect(() => {
@@ -944,8 +948,24 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       setFollowingLocation(true);
       const controller = new AbortController();
       searchAbortRef.current = controller;
-      const results = await nearbyGares(lat, lon, controller.signal);
-      setSearchResults(results.length > 0 ? results : [{ id: 'vide', label: 'Aucun arrêt dans un rayon de 1.5km 😕' }]);
+
+      const attendre = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+      let results = await nearbyGares(lat, lon, controller.signal, 1500);
+      if (results.length === 0) {
+        setGpsSearchStatus('🔍 Rien trouvé... on cherche un peu plus loin (5 km)');
+        [results] = await Promise.all([nearbyGares(lat, lon, controller.signal, 5000), attendre(2200)]);
+      }
+      if (results.length === 0) {
+        setGpsSearchStatus('🔍 Toujours rien... on cherche vers perpette. (15 km)');
+        [results] = await Promise.all([nearbyGares(lat, lon, controller.signal, 15000), attendre(2200)]);
+      }
+      if (results.length > 0) {
+        setGpsSearchStatus(null);
+        setSearchResults(results);
+      } else {
+        setGpsSearchStatus("🫥 Aucun arrêt trouvé, même en cherchant loin. Vous êtes vraiment au milieu de nulle part !");
+      }
 
       if (!locationWatchRef.current) {
         locationWatchRef.current = await Location.watchPositionAsync(
@@ -969,6 +989,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       if (e?.name === 'AbortError') return;
       logger.error(`nearby: ${e?.message}`);
       const msg = isNetworkError(e) ? '📵 Pas de connexion internet' : '⚠️ Impossible de géolocaliser ou joindre le serveur';
+      setGpsSearchStatus(null);
       setSearchResults([{ id: 'erreur', label: msg }]);
     } finally { setLoadingGps(false); setIsSearching(false); }
   };
@@ -1061,6 +1082,15 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         />
       )}
 
+      {/* Statut de la recherche GPS par paliers, au-dessus de la barre de recherche */}
+      {gpsSearchStatus && (
+        <Animated.View style={[styles.gpsStatusPill, { bottom: resultsBottom, backgroundColor: c.bgFloat, borderColor: c.borderCard }]}>
+          <Text style={{ fontSize: 14, fontFamily: 'GrandParis-Medium', color: c.text, textAlign: 'center' }}>
+            {gpsSearchStatus}
+          </Text>
+        </Animated.View>
+      )}
+
       {/* Résultats au-dessus de la barre de recherche */}
       {showResults && (
         <Animated.View style={[styles.searchResultsContainer, { bottom: resultsBottom, backgroundColor: c.bg }]}>
@@ -1073,7 +1103,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
               <View style={[styles.searchResultRow, { borderBottomColor: c.border }]}>
                 <TouchableOpacity
                   style={{ flex: 1, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                  onPress={() => { if (item.id !== 'erreur' && item.id !== 'vide') choisirGare(item.id, item.label); }}
+                  onPress={() => { if (!['erreur', 'vide'].includes(item.id)) choisirGare(item.id, item.label); }}
                 >
                   <Text style={[styles.searchResultText, { color: c.text, flex: 1 }]}>{item.label}</Text>
                   {item.distance != null && (
@@ -1084,7 +1114,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
                     </View>
                   )}
                 </TouchableOpacity>
-                {item.id !== 'erreur' && item.id !== 'vide' && (
+                {!['erreur', 'vide'].includes(item.id) && (
                   <TouchableOpacity style={styles.etoileAction} onPress={() => onBasculerFavori(item)}>
                     <Text style={{ fontSize: 22, color: estFavori(item.id) ? undefined : c.textSub }}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
                   </TouchableOpacity>
@@ -1096,37 +1126,59 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         </Animated.View>
       )}
 
-      {/* Barre de recherche flottante */}
+      {/* Barre de recherche flottante, ou nom de l'arrêt affiché tant qu'on
+          reste sur sa vue (poteaux compris), même horaires fermées */}
       <Animated.View style={[styles.bottomSearchBar, { bottom: searchBarBottom, backgroundColor: c.bgFloat }]}>
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={[styles.searchInput, { backgroundColor: c.bgSubtle, color: c.text }]}
-            placeholder="Rechercher un arrêt..."
-            value={searchQuery}
-            onChangeText={rechercherGare}
-            onFocus={onClosePanel}
-            placeholderTextColor={c.textSub}
-            autoCorrect={false}
-          />
-          {isSearching && (
-            <ActivityIndicator style={{ position: 'absolute', right: 12 }} size="small" color={c.accent} />
-          )}
-          {searchQuery.length > 0 && !isSearching && (
-            <TouchableOpacity style={{ position: 'absolute', right: 12 }} onPress={fermerRecherche}>
-              <Text style={{ fontSize: 15, color: c.textSub, fontWeight: '600' }}>✕</Text>
+        {gareActuelle ? (
+          <>
+            <TouchableOpacity
+              style={styles.searchContainer}
+              onPress={() => onGareChoisie(gareActuelle.id, gareActuelle.label)}
+            >
+              <Text
+                style={[styles.searchInput, { backgroundColor: c.bgSubtle, color: c.text, textAlignVertical: 'center', fontFamily: 'GrandParis-Medium' }]}
+                numberOfLines={1}
+              >
+                {gareActuelle.label.split('(')[0].trim()}
+              </Text>
             </TouchableOpacity>
-          )}
-        </View>
-        <TouchableOpacity
-          style={[styles.boutonGpsBarre, { backgroundColor: followingLocation ? c.pillCenter : c.bgSubtle }]}
-          onPress={declarerClicGpsNatif}
-          disabled={loadingGps}
-        >
-          {loadingGps
-            ? <ActivityIndicator size="small" color={c.accent} />
-            : <Text style={{ fontSize: 18 }}>📍</Text>
-          }
-        </TouchableOpacity>
+            <TouchableOpacity style={[styles.boutonGpsBarre, { backgroundColor: c.bgSubtle }]} onPress={onQuitterVueArret}>
+              <Text style={{ fontSize: 18, color: c.textSub, fontWeight: '600' }}>✕</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={[styles.searchInput, { backgroundColor: c.bgSubtle, color: c.text }]}
+                placeholder="Rechercher un arrêt..."
+                value={searchQuery}
+                onChangeText={rechercherGare}
+                onFocus={onClosePanel}
+                placeholderTextColor={c.textSub}
+                autoCorrect={false}
+              />
+              {isSearching && (
+                <ActivityIndicator style={{ position: 'absolute', right: 12 }} size="small" color={c.accent} />
+              )}
+              {searchQuery.length > 0 && !isSearching && (
+                <TouchableOpacity style={{ position: 'absolute', right: 12 }} onPress={fermerRecherche}>
+                  <Text style={{ fontSize: 15, color: c.textSub, fontWeight: '600' }}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[styles.boutonGpsBarre, { backgroundColor: followingLocation ? c.pillCenter : c.bgSubtle }]}
+              onPress={declarerClicGpsNatif}
+              disabled={loadingGps}
+            >
+              {loadingGps
+                ? <ActivityIndicator size="small" color={c.accent} />
+                : <Text style={{ fontSize: 18 }}>📍</Text>
+              }
+            </TouchableOpacity>
+          </>
+        )}
       </Animated.View>
       <FeurModal visible={feurVisible} onClose={() => setFeurVisible(false)} />
     </View>
@@ -1657,13 +1709,25 @@ function AppInner() {
   const snapToRef = useRef(snapTo);
   snapToRef.current = snapTo;
 
+  // Ferme uniquement le volet des horaires : la vue de l'arrêt (poteaux
+  // compris) reste affichée, avec son nom à la place de la barre de
+  // recherche, jusqu'à ce qu'on quitte explicitement via quitterVueArret.
   const fermerPanel = useCallback(() => {
     linesAbortRef.current?.abort();
     setPanelIsOpen(false);
-    snapTo('hidden', () => { setGareActuelle(null); setPanelLines(null); });
+    snapTo('hidden');
   }, [snapTo]);
   const fermerPanelRef = useRef(fermerPanel);
   fermerPanelRef.current = fermerPanel;
+
+  // Quitte complètement la vue de l'arrêt : ferme le volet, efface les
+  // poteaux/pin de la carte et fait réapparaître la barre de recherche.
+  const quitterVueArret = useCallback(() => {
+    linesAbortRef.current?.abort();
+    setPanelIsOpen(false);
+    snapTo('hidden', () => { setGareActuelle(null); setPanelLines(null); });
+    mapRef.current?.clearActiveStation();
+  }, [snapTo]);
 
 
   // Logique de drag partagée entre la poignée (toujours active) et la zone de
@@ -1822,26 +1886,51 @@ function AppInner() {
     }
 
     if (dejaOuverte) {
-      const url = `${APP_URL}?selectionned_stop_id=${id}&selectionned_stop_name=${encodeURIComponent(label)}&t=${Date.now()}`;
-      webViewRef.current?.injectJavaScript(`window.location.href = "${url}"; true;`);
-    } else {
-      setPanelLines(null);
-      linesAbortRef.current?.abort();
-      const ctrl = new AbortController();
-      linesAbortRef.current = ctrl;
-      linesForArea(id, ctrl.signal)
-        .then(lines => { if (!ctrl.signal.aborted) setPanelLines(lines); })
-        .catch(() => setPanelLines([]));
+      // Même station déjà ouverte (ex: on reclique un autre poteau du même
+      // arrêt) : rien à faire, les horaires natifs se rafraîchissent déjà
+      // tout seuls, pas besoin de retoucher au zoom ni au contenu.
+      return;
     }
 
-    coordGare(id)
-      .then(coord => {
-        if (coord) {
-          mapRef.current?.flyTo(coord.lat, coord.lon);
-          mapRef.current?.showStation(id, coord.lat, coord.lon, label);
+    setPanelLines(null);
+    linesAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    linesAbortRef.current = ctrl;
+
+    // Les horaires (chips de lignes du panneau) ne dépendent pas des poteaux
+    // de bus : on ne les fait plus attendre sur cette recherche, plus lente
+    // sur les grosses stations (traitement par lots, voir stopPointsForArea).
+    linesForArea(id, ctrl.signal)
+      .then(lines => {
+        if (ctrl.signal.aborted) return;
+        setPanelLines(lines);
+
+        // Le bus est déjà détaillé sur ses poteaux physiques dispersés (voir
+        // stopPointsForArea) — le remettre ici en plus, avec parfois 20+
+        // lignes, rendrait l'encadré principal illisible. Le tram, comme
+        // RER/Métro/Train/Câble/Fluvial, reste un point unique bien
+        // identifié : il reste dans l'encadré principal.
+        const groupes = new Map<string, { mode: string; lines: { code: string; color: string; textColor: string }[] }>();
+        for (const l of lines) {
+          if (l.mode === 'BUS') continue;
+          if (!groupes.has(l.mode)) groupes.set(l.mode, { mode: l.mode, lines: [] });
+          groupes.get(l.mode)!.lines.push({ code: l.code, color: l.color, textColor: l.textColor });
         }
+        const modeGroups = Array.from(groupes.values());
+
+        coordGare(id).catch(() => null).then(coord => {
+          if (ctrl.signal.aborted || !coord) return;
+          const main = { lat: coord.lat, lon: coord.lon, modeGroups };
+          // Zoom immédiat sur le point principal, sans attendre les poteaux
+          // de bus (recherche par lots, plus lente sur les grosses stations).
+          mapRef.current?.showStopCluster(id, label, main, []);
+          stopPointsForArea(id, ctrl.signal).catch(() => []).then(points => {
+            if (ctrl.signal.aborted || points.length === 0) return;
+            mapRef.current?.showStopCluster(id, label, main, points);
+          });
+        });
       })
-      .catch(e => logger.warn(`coord ${id}: ${e?.message}`));
+      .catch(() => setPanelLines([]));
   }, [gareActuelle, APP_URL, snapTo]);
 
   const selectionnerDepuisFavoris = useCallback((id: string, label: string) => {
@@ -1921,6 +2010,8 @@ function AppInner() {
         activeTab={activeTab}
         mapRef={mapRef}
         panelOpen={panelIsOpen}
+        gareActuelle={gareActuelle ? { id: gareActuelle.id, label: gareActuelle.label } : null}
+        onQuitterVueArret={quitterVueArret}
       />
 
       {/* Zone de fermeture des tiroirs (sans voile) */}
@@ -2183,6 +2274,13 @@ const styles = StyleSheet.create({
     borderRadius: 16, maxHeight: 220,
     zIndex: 999, elevation: 10,
     shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, overflow: 'hidden',
+  },
+  gpsStatusPill: {
+    position: 'absolute', width: '88%', alignSelf: 'center',
+    borderRadius: 16, borderWidth: 1,
+    paddingVertical: 14, paddingHorizontal: 16,
+    zIndex: 999, elevation: 10,
+    shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10,
   },
   searchResultRow: {
     flexDirection: 'row', alignItems: 'center',
