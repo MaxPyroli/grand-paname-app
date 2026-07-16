@@ -21,6 +21,11 @@ type Depart = {
 type DestGroupe = {
   destination: string;
   departs: Depart[];
+  // Vrai quand l'unique départ affiché est au-delà du seuil "proche"
+  // (62 min / 122 min Noctilien) : on préfère alors afficher son heure
+  // ("Premier départ : hh:mm") plutôt qu'un compte à rebours du genre
+  // "174 min", peu lisible pour un départ aussi lointain.
+  premierLointain?: boolean;
 };
 
 type DepartAvecDest = {
@@ -335,10 +340,10 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     const mode: string = modeDepuisCommercialMode(line.commercial_mode?.id || '');
     const dest: string = (d.display_informations?.direction || route.name || '?').replace(/\s*\([^)]+\)$/, '');
 
-    // Les Noctiliens sont peu fréquents : un 3e départ réel tombe facilement
-    // au-delà de 2h, il ne faut pas l'étiqueter "Terminé" pour autant.
-    const isNocti = mode === 'BUS' && isNaN(Number(code[0]));
-    const valTri = computeValTri(dateStr, isNocti ? 180 : 120);
+    // Aucun départ de bus à plus de 3h ne doit être affiché (RER/Train
+    // gardent leur seuil de 2h) — au-delà, le calcul est cappé (valTri=3000)
+    // et donc exclu partout en aval.
+    const valTri = computeValTri(dateStr, mode === 'BUS' ? 180 : 120);
     if (valTri < -5) continue;
 
     const lineKey = `${code}|${color}`;
@@ -360,16 +365,23 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
       continue;
     }
 
-    const isNocti = entry.mode === 'BUS' && isNaN(Number(entry.code[0]));
+    const destinationIsNocti = entry.mode === 'BUS' && isNaN(Number(entry.code[0]));
     const destinations: DestGroupe[] = [];
     for (const [destination, departs] of entry.dests) {
-      const sorted = departs.sort((a, b) => a.valTri - b.valTri);
+      // Un départ cappé (valTri >= 3000, à plus de 3h) ne veut pas dire
+      // "service terminé" — juste qu'il est trop lointain pour être montré.
+      const reels = departs.filter(d => d.valTri < 3000).sort((a, b) => a.valTri - b.valTri);
       const filtered: Depart[] = [];
-      for (let i = 0; i < sorted.length && filtered.length < 3; i++) {
-        if (i > 0 && !isNocti && sorted[i].valTri > 62) break;
-        filtered.push(sorted[i]);
+      // Une fois qu'un départ est déjà affiché, les suivants n'intéressent
+      // plus au-delà de 62 min (2h pour les Noctiliens, plus espacés).
+      const seuilSuivant = destinationIsNocti ? 122 : 62;
+      for (let i = 0; i < reels.length && filtered.length < 3; i++) {
+        if (i > 0 && reels[i].valTri > seuilSuivant) break;
+        filtered.push(reels[i]);
       }
-      destinations.push({ destination, departs: filtered });
+      if (filtered.length === 0) continue;
+      const premierLointain = filtered.length === 1 && filtered[0].valTri > 62;
+      destinations.push({ destination, departs: filtered, premierLointain });
     }
     destinations.sort((a, b) => (a.departs[0]?.valTri ?? 9999) - (b.departs[0]?.valTri ?? 9999));
 
@@ -414,7 +426,7 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
 
   const toutTermine = ligne.directions
     ? ligne.directions.every(d => d.items.length === 0)
-    : ligne.destinations.every(d => (d.departs[0]?.valTri ?? 0) >= 3000);
+    : ligne.destinations.every(d => d.departs.length === 0);
 
   return (
     <Animated.View style={[s.carte, {
@@ -455,14 +467,20 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
           ligne.destinations.map((dest, di) => (
             <View key={di} style={s.destRow}>
               <Text style={[s.destTexte, { color: c.text }]} numberOfLines={1} ellipsizeMode="tail">{dest.destination}</Text>
-              <View style={s.departsRow}>
-                {dest.departs.map((dep, i) => (
-                  <View key={i} style={s.departItem}>
-                    <Text style={[s.tempsTexte, { color: dep.couleurTemps }]}>{dep.affichage}</Text>
-                    <Text style={[s.heureTexte, { color: c.textSub }]}>{dep.heure}</Text>
-                  </View>
-                ))}
-              </View>
+              {dest.departs.length === 0 ? (
+                <Text style={[s.destTexte, { color: c.textSub }]} numberOfLines={1}>😴 Terminé</Text>
+              ) : dest.premierLointain ? (
+                <Text style={[s.destTexte, { color: c.textSub }]} numberOfLines={1}>Premier départ : {dest.departs[0].heure}</Text>
+              ) : (
+                <View style={s.departsRow}>
+                  {dest.departs.map((dep, i) => (
+                    <View key={i} style={s.departItem}>
+                      <Text style={[s.tempsTexte, { color: dep.couleurTemps }]}>{dep.affichage}</Text>
+                      <Text style={[s.heureTexte, { color: c.textSub }]}>{dep.heure}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           ))
         )}
@@ -548,7 +566,7 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
     fetchLignes(stopId, stopName, ctrl.signal)
       .then(l => {
         terminatedBusCodes.current = new Set(
-          l.filter(x => x.mode === 'BUS' && x.destinations.every(d => (d.departs[0]?.valTri ?? 0) >= 3000))
+          l.filter(x => x.mode === 'BUS' && x.destinations.every(d => d.departs.length === 0))
            .map(x => x.code)
         );
         const filtered = l.filter(x => x.mode !== 'BUS' || !terminatedBusCodes.current.has(x.code));

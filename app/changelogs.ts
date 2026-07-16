@@ -12,6 +12,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
     content: `**🛠️ Corrections**
 * Correction de tracés manquants sur la carte (métro 1, métro 13, métro 14, funiculaire de Montmartre).
 * Suppression de l'autorisation d'accès au micro, qui restait, dans certains cas, visible dans les paramètres malgré sa non-utilisation.
+* Correction d'un bug d'affichage des horaires de bus qui pouvait afficher "Terminé" à côté d'un horaire bien réel mais lointain.
 `,
   },
   {
