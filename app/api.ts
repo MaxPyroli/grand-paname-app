@@ -314,3 +314,26 @@ export async function coordPoteau(stopAreaId: string, mode: string = 'CABLE'): P
   const lon = coords.reduce((s: number, c: any) => s + parseFloat(c.lon), 0) / coords.length;
   return { lat, lon };
 }
+
+export type StationExit = { id: string; number: number; name: string; lat: number; lon: number };
+
+// Les sorties numérotées (ex: "sortie 9 pl. H. Frenay" à Gare de Lyon) ne
+// viennent pas de Navitia mais du référentiel ouvert IDFM dédié ("Accès"),
+// interrogé par proximité géographique autour de la station plutôt que par
+// un identifiant (le zdaid de ce jeu de données ne correspond pas à l'id de
+// stop_area utilisé par Navitia).
+export async function stationExits(lat: number, lon: number, radius = 200): Promise<StationExit[]> {
+  const url = `https://data.iledefrance-mobilites.fr/api/records/1.0/search/?dataset=acces&geofilter.distance=${lat},${lon},${radius}&rows=50`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  const exits: StationExit[] = [];
+  for (const rec of data?.records || []) {
+    const f = rec.fields || {};
+    const number = parseInt(f.accshortname, 10);
+    const coord = f.accgeopoint;
+    if (isNaN(number) || !coord || coord.length < 2) continue;
+    exits.push({ id: f.accid || rec.recordid, number, name: f.accname || '', lat: coord[0], lon: coord[1] });
+  }
+  return exits.sort((a, b) => a.number - b.number);
+}

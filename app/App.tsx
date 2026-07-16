@@ -20,7 +20,7 @@ import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS, ChangelogEntry } from './changelogs';
 import { WHATSNEW } from './whatsnew';
-import { searchGares, nearbyGares, coordGare, coordPoteau, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode, stopPointsForArea } from './api';
+import { searchGares, nearbyGares, coordGare, coordPoteau, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode, stopPointsForArea, stationExits } from './api';
 import { GHOST_STOP_ID, GHOST_STOP_LABEL, GHOST_STOP_NAME, GHOST_CHIPS, GHOST_STOP_COORD } from './ghostStop';
 import { logger, LogEntry } from './logger';
 import { Image as ExpoImage } from 'expo-image';
@@ -1939,9 +1939,12 @@ function AppInner() {
           // fois sur le point seul, puis une seconde fois — en dézoomant —
           // pour englober les poteaux, ce qui donne un aller-retour visible).
           mapRef.current?.showStopCluster(id, label, main, [], false);
-          stopPointsForArea(id, ctrl.signal).catch(() => []).then(points => {
+          Promise.all([
+            stopPointsForArea(id, ctrl.signal).catch(() => []),
+            stationExits(coord.lat, coord.lon).catch(() => []),
+          ]).then(([points, exits]) => {
             if (ctrl.signal.aborted) return;
-            mapRef.current?.showStopCluster(id, label, main, points, true);
+            mapRef.current?.showStopCluster(id, label, main, points, true, exits);
           });
         });
       })

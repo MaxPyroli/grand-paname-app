@@ -262,6 +262,24 @@ function getMapHTML(isDark: boolean) {
     return L.divIcon({className:'',html:html,iconSize:[wZoneClic,h+8],iconAnchor:[wZoneClic/2,h+7]});
   }
 
+  // Sortie numérotée d'une station (ex: "sortie 9, pl. H. Frenay" à Gare de
+  // Lyon) — un simple rond bleu foncé fixe, indépendant du thème clair/sombre
+  // (contrairement aux badges de ligne, sa couleur ne doit pas changer).
+  function exitIcon(number,name){
+    var SZ=22;
+    var tail='<div style="position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);width:0;height:0;'
+      +'border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid #0a0082"></div>';
+    // Nom masqué par défaut, affiché au tap (voir showStopCluster).
+    var label='<div class="exit-label" style="position:absolute;left:50%;bottom:'+(SZ+10)+'px;transform:translateX(-50%);'
+      +'background:#0a0082;color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;'
+      +'white-space:nowrap;display:none;box-shadow:0 1px 5px rgba(0,0,0,0.35)">'+(name||'')+'</div>';
+    var html='<div style="position:absolute;left:50%;top:0;transform:translateX(-50%);'
+      +'width:'+SZ+'px;height:'+SZ+'px;border-radius:50%;background:#0a0082;color:#fff;'
+      +'font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;'
+      +'border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.35)">'+number+tail+label+'</div>';
+    return L.divIcon({className:'',html:html,iconSize:[SZ,SZ+8],iconAnchor:[SZ/2,SZ+7]});
+  }
+
   // Icône du point principal de la station : réutilise exactement le même
   // encadré "n-wrap" que les pastilles de mode déjà visibles de loin sur la
   // carte, en ajoutant les codes de ligne (même taille que le symbole) juste
@@ -307,7 +325,7 @@ function getMapHTML(isDark: boolean) {
   // avec ses propres lignes — puis ajuste le zoom pour tous les montrer.
   // Utile pour les stations où les arrêts de bus sont dispersés à des
   // endroits différents.
-  function showStopCluster(id,label,main,points,moveCamera){
+  function showStopCluster(id,label,main,points,moveCamera,exits){
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
     activeMarkerId=id;
@@ -333,6 +351,21 @@ function getMapHTML(isDark: boolean) {
         .addTo(map).on('click',onClickMarker);
       stationMarkers.push(m);
       allPts.push([p.lat,p.lon]);
+    });
+    // Les sorties sont purement informatives : on ne les inclut pas dans le
+    // calcul du zoom (allPts), sinon une sortie éloignée forcerait un
+    // dézoom inutile sur toute la station.
+    (exits||[]).forEach(function(e){
+      var m=L.marker([e.lat,e.lon],{icon:exitIcon(e.number,e.name),zIndexOffset:3500})
+        .addTo(map)
+        .on('click',function(ev){
+          ev.originalEvent.stopPropagation();
+          var el=m.getElement();
+          var lbl=el&&el.querySelector('.exit-label');
+          if(!lbl) return;
+          lbl.style.display = lbl.style.display==='block' ? 'none' : 'block';
+        });
+      stationMarkers.push(m);
     });
     if(!allPts.length||moveCamera===false){ return; }
 
@@ -545,7 +578,8 @@ export type MapWebViewRef = {
     id: string, label: string,
     main: { lat: number; lon: number; modeGroups: Array<{ mode: string; lines: Array<{ code: string; color: string; textColor: string }> }> } | null,
     points: Array<{ lat: number; lon: number; lines: Array<{ code: string; color: string; textColor: string }> }>,
-    moveCamera?: boolean
+    moveCamera?: boolean,
+    exits?: Array<{ number: number; name: string; lat: number; lon: number }>
   ) => void;
   setTransportData: (data: { stops: any[]; lines: any[] }) => void;
   setNearbyStops: (stops: NearbyStopMarker[]) => void;
@@ -595,8 +629,8 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
     showStation: (id, lat, lon, label) => {
       wvRef.current?.injectJavaScript(`showStation(${JSON.stringify(id)},${lat},${lon},${JSON.stringify(label??id)});true;`);
     },
-    showStopCluster: (id, label, main, points, moveCamera) => {
-      wvRef.current?.injectJavaScript(`showStopCluster(${JSON.stringify(id)},${JSON.stringify(label)},${JSON.stringify(main)},${JSON.stringify(points)},${moveCamera === false ? 'false' : 'true'});true;`);
+    showStopCluster: (id, label, main, points, moveCamera, exits) => {
+      wvRef.current?.injectJavaScript(`showStopCluster(${JSON.stringify(id)},${JSON.stringify(label)},${JSON.stringify(main)},${JSON.stringify(points)},${moveCamera === false ? 'false' : 'true'},${JSON.stringify(exits || [])});true;`);
     },
     setTransportData: (data) => {
       wvRef.current?.injectJavaScript(`setTransportData(${JSON.stringify(data)});true;`);
