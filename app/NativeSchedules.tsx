@@ -315,7 +315,11 @@ const GHOST_LIGNES_BASE: LigneGroupe[] = [
 
 async function fetchDepartures(url: string, signal: AbortSignal): Promise<any[]> {
   const r = await fetch(url, { headers: { apiKey: NAVITIA_KEY }, signal });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  // Navitia renvoie un vrai HTTP 404 (avec un corps JSON valide, departures:[])
+  // quand il ne trouve strictement aucun départ pour la fenêtre demandée —
+  // ce n'est pas une vraie erreur, juste "aucun résultat", donc on ne le
+  // traite pas comme un échec.
+  if (!r.ok && r.status !== 404) throw new Error(`HTTP ${r.status}`);
   const data = await r.json();
   return data?.departures || [];
 }

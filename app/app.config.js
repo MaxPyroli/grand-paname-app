@@ -22,7 +22,6 @@ export default {
     name: IS_DEV ? 'Grand Paname Dev' : 'Grand Paname',
     slug: 'grand-paname',
     version: '3.1.3',
-    orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
@@ -75,6 +74,7 @@ export default {
           recordAudioAndroid: false,
         },
       ],
+      './plugins/withRemoveMicPermission',
       [
         'expo-build-properties',
         {

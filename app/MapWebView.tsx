@@ -307,7 +307,7 @@ function getMapHTML(isDark: boolean) {
   // avec ses propres lignes — puis ajuste le zoom pour tous les montrer.
   // Utile pour les stations où les arrêts de bus sont dispersés à des
   // endroits différents.
-  function showStopCluster(id,label,main,points){
+  function showStopCluster(id,label,main,points,moveCamera){
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
     activeMarkerId=id;
@@ -334,7 +334,7 @@ function getMapHTML(isDark: boolean) {
       stationMarkers.push(m);
       allPts.push([p.lat,p.lon]);
     });
-    if(!allPts.length){ return; }
+    if(!allPts.length||moveCamera===false){ return; }
 
     // Marge généreuse : les encadrés de lignes prennent de la place, surtout
     // quand tout est concentré sur un seul point. Le zoom s'adapte à la
@@ -441,7 +441,7 @@ function getMapHTML(isDark: boolean) {
       var isPoint=s.id&&s.id.indexOf('stop_point:')===0;
       var visibleModes=(s.modes||[]).filter(function(m){
         if((MODE_MIN_ZOOM[m]||15)>z)return false;
-        if(isPoint) return m==='BUS'||m==='FLUVIAL';
+        if(isPoint) return m==='BUS'||m==='FLUVIAL'||m==='CABLE';
         return m!=='BUS'&&m!=='FLUVIAL';
       });
       if(!visibleModes.length)return;
@@ -544,7 +544,8 @@ export type MapWebViewRef = {
   showStopCluster: (
     id: string, label: string,
     main: { lat: number; lon: number; modeGroups: Array<{ mode: string; lines: Array<{ code: string; color: string; textColor: string }> }> } | null,
-    points: Array<{ lat: number; lon: number; lines: Array<{ code: string; color: string; textColor: string }> }>
+    points: Array<{ lat: number; lon: number; lines: Array<{ code: string; color: string; textColor: string }> }>,
+    moveCamera?: boolean
   ) => void;
   setTransportData: (data: { stops: any[]; lines: any[] }) => void;
   setNearbyStops: (stops: NearbyStopMarker[]) => void;
@@ -594,8 +595,8 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
     showStation: (id, lat, lon, label) => {
       wvRef.current?.injectJavaScript(`showStation(${JSON.stringify(id)},${lat},${lon},${JSON.stringify(label??id)});true;`);
     },
-    showStopCluster: (id, label, main, points) => {
-      wvRef.current?.injectJavaScript(`showStopCluster(${JSON.stringify(id)},${JSON.stringify(label)},${JSON.stringify(main)},${JSON.stringify(points)});true;`);
+    showStopCluster: (id, label, main, points, moveCamera) => {
+      wvRef.current?.injectJavaScript(`showStopCluster(${JSON.stringify(id)},${JSON.stringify(label)},${JSON.stringify(main)},${JSON.stringify(points)},${moveCamera === false ? 'false' : 'true'});true;`);
     },
     setTransportData: (data) => {
       wvRef.current?.injectJavaScript(`setTransportData(${JSON.stringify(data)});true;`);

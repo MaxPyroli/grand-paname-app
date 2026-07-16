@@ -20,7 +20,7 @@ import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS, ChangelogEntry } from './changelogs';
 import { WHATSNEW } from './whatsnew';
-import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode, stopPointsForArea } from './api';
+import { searchGares, nearbyGares, coordGare, coordPoteau, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode, stopPointsForArea } from './api';
 import { GHOST_STOP_ID, GHOST_STOP_LABEL, GHOST_STOP_NAME, GHOST_CHIPS, GHOST_STOP_COORD } from './ghostStop';
 import { logger, LogEntry } from './logger';
 import { Image as ExpoImage } from 'expo-image';
@@ -1136,7 +1136,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
               onPress={() => onGareChoisie(gareActuelle.id, gareActuelle.label)}
             >
               <Text
-                style={[styles.searchInput, { backgroundColor: c.bgSubtle, color: c.text, textAlignVertical: 'center', fontFamily: 'GrandParis-Medium' }]}
+                style={[styles.searchInput, { backgroundColor: c.pillCenter, color: c.text, textAlignVertical: 'center', fontFamily: 'GrandParis-Medium', borderWidth: 1, borderColor: c.accent }]}
                 numberOfLines={1}
               >
                 {gareActuelle.label.split('(')[0].trim()}
@@ -1918,15 +1918,30 @@ function AppInner() {
         }
         const modeGroups = Array.from(groupes.values());
 
-        coordGare(id).catch(() => null).then(coord => {
+        // Le stop_area d'un câble/funiculaire isolé (ex: funiculaire de
+        // Montmartre) a parfois une coordonnée décalée par rapport au vrai
+        // poteau — on préfère alors la position du poteau physique. Mais
+        // quand le câble est en correspondance avec un mode lourd (ex: le
+        // métro 8 à Pointe du Lac), on garde la coordonnée du pôle pour que
+        // l'étiquette reste groupée et cohérente avec ce mode lourd.
+        const aDuCable = modeGroups.some(g => g.mode === 'CABLE');
+        const aUnModeLourd = modeGroups.some(g => g.mode === 'RER' || g.mode === 'TRAIN' || g.mode === 'METRO' || g.mode === 'TRAM');
+        const coordPromise = aDuCable && !aUnModeLourd
+          ? coordPoteau(id).then(c => c ?? coordGare(id))
+          : coordGare(id);
+
+        coordPromise.catch(() => null).then(coord => {
           if (ctrl.signal.aborted || !coord) return;
           const main = { lat: coord.lat, lon: coord.lon, modeGroups };
-          // Zoom immédiat sur le point principal, sans attendre les poteaux
-          // de bus (recherche par lots, plus lente sur les grosses stations).
-          mapRef.current?.showStopCluster(id, label, main, []);
+          // Affiche le point principal tout de suite, mais sans bouger la
+          // caméra : le zoom attend les poteaux de bus pour n'animer qu'une
+          // seule fois vers le cadrage final (sinon on zoome une première
+          // fois sur le point seul, puis une seconde fois — en dézoomant —
+          // pour englober les poteaux, ce qui donne un aller-retour visible).
+          mapRef.current?.showStopCluster(id, label, main, [], false);
           stopPointsForArea(id, ctrl.signal).catch(() => []).then(points => {
-            if (ctrl.signal.aborted || points.length === 0) return;
-            mapRef.current?.showStopCluster(id, label, main, points);
+            if (ctrl.signal.aborted) return;
+            mapRef.current?.showStopCluster(id, label, main, points, true);
           });
         });
       })

@@ -121,6 +121,8 @@ export async function regionWideRailStops(signal?: AbortSignal): Promise<NearbyS
   return Array.from(byId.values());
 }
 
+const HEAVY_MODES = new Set(['RER', 'TRAIN', 'METRO', 'TRAM']);
+
 export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: AbortSignal, distance = 1000): Promise<NearbyStop[]> {
   const count = Math.min(Math.ceil(distance / 15), 500);
 
@@ -132,34 +134,67 @@ export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: A
 
   const results: NearbyStop[] = [];
 
-  // Bus/fluvial stop_points — precise poteau location
+  // Stop_areas ayant un mode lourd (RER/Train/Métro/Tram) — un câble en
+  // correspondance sur l'un d'eux (ex: métro 8 + C1 à Pointe du Lac) reste
+  // affiché groupé avec ce mode lourd plutôt qu'en poteau séparé.
+  const heavyAreaIds = new Set<string>();
+  for (const p of areaData?.places_nearby || []) {
+    const sa = p.stop_area;
+    if (!sa) continue;
+    const modes = modesDepuisPhysicalModes(sa.physical_modes);
+    if (modes.some(m => HEAVY_MODES.has(m))) heavyAreaIds.add(sa.id);
+  }
+
+  // Bus/fluvial stop_points — position exacte de chaque poteau, affichés
+  // individuellement. Câble/funiculaire isolé (pas de mode lourd co-localisé) —
+  // même position exacte, mais regroupée/moyennée par stop_area, car une
+  // télécabine a souvent 2 poteaux distincts très proches (ex: câble C1).
+  const cableParArea = new Map<string, { lat: number; lon: number }[]>();
+  const cableInfo = new Map<string, { label: string; firstId: string }>();
   for (const p of pointData?.places_nearby || []) {
     if (!p.stop_point) continue;
     const sp = p.stop_point;
     const coord = sp.coord;
     if (!coord?.lat || !coord?.lon) continue;
     const modes = modesDepuisPhysicalModes(sp.physical_modes);
-    if (!modes.includes('BUS') && !modes.includes('FLUVIAL')) continue;
     const stopAreaId = sp.stop_area?.id ?? sp.id;
     const ville = villeDepuisRegions(sp.administrative_regions || []);
+    const label = ville ? `${sp.name} (${ville})` : sp.name;
+
+    if (modes.includes('CABLE') && !heavyAreaIds.has(stopAreaId)) {
+      if (!cableParArea.has(stopAreaId)) cableParArea.set(stopAreaId, []);
+      cableParArea.get(stopAreaId)!.push({ lat: parseFloat(coord.lat), lon: parseFloat(coord.lon) });
+      if (!cableInfo.has(stopAreaId)) cableInfo.set(stopAreaId, { label, firstId: sp.id });
+      continue;
+    }
+
+    if (!modes.includes('BUS') && !modes.includes('FLUVIAL')) continue;
     results.push({
       id: sp.id,
       stop_area_id: stopAreaId,
-      label: ville ? `${sp.name} (${ville})` : sp.name,
+      label,
       lat: parseFloat(coord.lat),
       lon: parseFloat(coord.lon),
       modes,
     });
   }
+  for (const [stopAreaId, coords] of cableParArea) {
+    const info = cableInfo.get(stopAreaId)!;
+    const cLat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+    const cLon = coords.reduce((s, c) => s + c.lon, 0) / coords.length;
+    results.push({ id: info.firstId, stop_area_id: stopAreaId, label: info.label, lat: cLat, lon: cLon, modes: ['CABLE'] });
+  }
 
-  // Non-bus stop_areas (RER, Métro, Tram, Train, Câble…)
+  // Non-bus stop_areas (RER, Métro, Tram, Train, câble en correspondance…) —
+  // le câble isolé est géré au-dessus via ses stop_points, moyennés.
   for (const p of areaData?.places_nearby || []) {
     if (!p.stop_area) continue;
     const sa = p.stop_area;
     const coord = sa.coord;
     if (!coord?.lat || !coord?.lon) continue;
     const modes = modesDepuisPhysicalModes(sa.physical_modes);
-    if (modes.every(m => m === 'BUS' || m === 'AUTRE')) continue;
+    const isCableIsole = modes.includes('CABLE') && !modes.some(m => HEAVY_MODES.has(m));
+    if (modes.every(m => m === 'BUS' || m === 'AUTRE') || isCableIsole) continue;
     const ville = villeDepuisRegions(sa.administrative_regions || []);
     results.push({
       id: sa.id,
@@ -255,4 +290,27 @@ export async function coordGare(stopId: string): Promise<{ lat: number; lon: num
   }
   logger.warn(`coord ${stopId} → aucune coordonnée`);
   return null;
+}
+
+// Pour certaines petites stations (câble, funiculaire...), la coordonnée du
+// stop_area lui-même peut être décalée par rapport au vrai poteau physique
+// (visible sur la carte : l'icône ne tombe pas exactement sur le rail/câble).
+// Le stop_point, lui, correspond à la position réelle du quai — mais un
+// stop_area peut regrouper plusieurs poteaux de modes différents (ex: le
+// funiculaire ET un arrêt de bus voisin dans le même pôle), donc on cible
+// précisément ceux desservis par une ligne du mode demandé. Certaines
+// stations (télécabines à 2 voies comme le câble C1) ont 2 poteaux distincts
+// très proches : on prend leur moyenne pour n'afficher qu'un seul point.
+export async function coordPoteau(stopAreaId: string, mode: string = 'CABLE'): Promise<{ lat: number; lon: number } | null> {
+  const data = await navitia(`stop_areas/${stopAreaId}/stop_points?count=20&depth=3`);
+  const points = data?.stop_points || [];
+  const matches = points.filter((sp: any) =>
+    (sp.lines || []).some((l: any) => modeDepuisCommercialMode(l.commercial_mode?.id || '') === mode)
+  );
+  const cibles = matches.length > 0 ? matches : points.slice(0, 1);
+  const coords = cibles.map((sp: any) => sp.coord).filter(Boolean);
+  if (coords.length === 0) return null;
+  const lat = coords.reduce((s: number, c: any) => s + parseFloat(c.lat), 0) / coords.length;
+  const lon = coords.reduce((s: number, c: any) => s + parseFloat(c.lon), 0) / coords.length;
+  return { lat, lon };
 }
