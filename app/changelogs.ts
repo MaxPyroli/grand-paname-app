@@ -10,7 +10,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
     version: '3.1.3',
     date: '15 juillet 2026',
     content: `**🛠️ Corrections**
-* Correction de petits tracés manquants sur la carte (métro 1, métro 13, métro 14, funiculaire de Montmartre).
+* Correction de tracés manquants sur la carte (métro 1, métro 13, métro 14, funiculaire de Montmartre).
 * Suppression de l'autorisation d'accès au micro, qui restait, dans certains cas, visible dans les paramètres malgré sa non-utilisation.
 `,
   },
