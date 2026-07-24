@@ -9,6 +9,11 @@ import { GEOGRAPHIE_RER, TOPOLOGIE_LIGNES, normaliserGare } from './lignesData';
 import { GHOST_STOP_ID } from './ghostStop';
 import { MODE_ICONS } from './modeIcons';
 
+// Codes à une lettre RER/Transilien connus (utilisé pour repérer les bus de
+// substitution, qui reprennent le même code que la ligne lourde remplacée).
+const RAIL_CODES = new Set(Object.keys(GEOGRAPHIE_RER));
+const RER_LETTERS = new Set(['A', 'B', 'C', 'D', 'E']);
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type Depart = {
@@ -41,6 +46,10 @@ type LigneGroupe = {
   mode: string;
   directions?: DirectionGroupe[];
   destinations: DestGroupe[];
+  // Bus de remplacement d'une ligne RER/Train (même code, ex: "D" pour le
+  // RER D) — affiché comme une carte bus à part entière, distincte de la
+  // carte RER/Train (voir RAIL_CODES).
+  isSubstitution?: boolean;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -346,7 +355,7 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     departures.push(d);
   }
 
-  const lignesMap = new Map<string, { code: string; color: string; textColor: string; mode: string; dests: Map<string, Depart[]> }>();
+  const lignesMap = new Map<string, { code: string; color: string; textColor: string; mode: string; isSubstitution: boolean; dests: Map<string, Depart[]> }>();
 
   for (const d of departures) {
     const info = d.stop_date_time;
@@ -362,14 +371,24 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     const mode: string = modeDepuisCommercialMode(line.commercial_mode?.id || '');
     const dest: string = (d.display_informations?.direction || route.name || '?').replace(/\s*\([^)]+\)$/, '');
 
-    // Les Noctiliens sont peu fréquents : un 3e départ réel tombe facilement
-    // au-delà de 2h, il ne faut pas l'étiqueter "Terminé" pour autant.
-    const isNocti = mode === 'BUS' && isNaN(Number(code[0]));
-    const valTri = computeValTri(dateStr, isNocti ? 180 : 120);
+    // Bus de substitution RER/Train (ex: ligne "D" en remplacement du RER D) :
+    // reprend le code à une lettre de la ligne lourde qu'il remplace. On le
+    // garde comme carte bus à part (voir isSubstitution plus bas), séparée
+    // de la carte RER/Train grâce à la clé incluant le mode.
+    const isSubstitution = mode === 'BUS' && RAIL_CODES.has(code);
+
+    // Les Noctiliens et les bus de substitution sont peu fréquents : un
+    // départ réel tombe facilement au-delà de 2h, il ne faut pas l'étiqueter
+    // "Terminé" pour autant (ça affichait un vrai horaire du lendemain à
+    // côté du mot "Terminé", contradictoire). Noctilien détecté via le
+    // préfixe "N" + chiffres (N01, N153...) pour ne pas mordre sur les bus
+    // de substitution comme la ligne "D" (remplacement RER D).
+    const isNocti = mode === 'BUS' && /^N\d/.test(code);
+    const valTri = computeValTri(dateStr, (isNocti || isSubstitution) ? 720 : 120);
     if (valTri < -5) continue;
 
-    const lineKey = `${code}|${color}`;
-    if (!lignesMap.has(lineKey)) lignesMap.set(lineKey, { code, color, textColor, mode, dests: new Map() });
+    const lineKey = `${code}|${color}|${mode}`;
+    if (!lignesMap.has(lineKey)) lignesMap.set(lineKey, { code, color, textColor, mode, isSubstitution, dests: new Map() });
     const entry = lignesMap.get(lineKey)!;
     if (!entry.dests.has(dest)) entry.dests.set(dest, []);
 
@@ -387,7 +406,18 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
       continue;
     }
 
-    const isNocti = entry.mode === 'BUS' && isNaN(Number(entry.code[0]));
+    if (entry.isSubstitution) {
+      const destinations: DestGroupe[] = [];
+      for (const [destination, departs] of entry.dests) {
+        const sorted = departs.sort((a, b) => a.valTri - b.valTri);
+        destinations.push({ destination, departs: sorted.slice(0, 3) });
+      }
+      destinations.sort((a, b) => (a.departs[0]?.valTri ?? 9999) - (b.departs[0]?.valTri ?? 9999));
+      lignes.push({ key, code: entry.code, color: entry.color, textColor: entry.textColor, mode: entry.mode, destinations, isSubstitution: true });
+      continue;
+    }
+
+    const isNocti = entry.mode === 'BUS' && /^N\d/.test(entry.code);
     const destinations: DestGroupe[] = [];
     for (const [destination, departs] of entry.dests) {
       const sorted = departs.sort((a, b) => a.valTri - b.valTri);
@@ -406,6 +436,24 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
       : destinations;
 
     lignes.push({ key, code: entry.code, color: entry.color, textColor: entry.textColor, mode: entry.mode, destinations: finalDests });
+  }
+
+  // Un bus de substitution ne doit jamais remplacer la carte RER/Train de la
+  // ligne qu'il dessert : si aucun départ réel de cette ligne lourde n'est
+  // remonté (service entièrement basculé sur le bus), on affiche quand même
+  // sa carte, en "service terminé", à côté de la carte bus.
+  const codesRailPresents = new Set(lignes.filter(l => l.mode === 'RER' || l.mode === 'TRAIN').map(l => l.code));
+  for (const ligne of lignes.filter(l => l.isSubstitution)) {
+    if (codesRailPresents.has(ligne.code)) continue;
+    codesRailPresents.add(ligne.code);
+    lignes.push({
+      key: `${ligne.code}|rail-placeholder`,
+      code: ligne.code,
+      color: ligne.color,
+      textColor: ligne.textColor,
+      mode: RER_LETTERS.has(ligne.code) ? 'RER' : 'TRAIN',
+      destinations: [],
+    });
   }
 
   return lignes.sort(comparerLignesParMode);
@@ -457,6 +505,9 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
         <Text style={[s.badgeTexte, { color: fg }]} numberOfLines={1}>{ligne.code}</Text>
       </View>
       <View style={{ flex: 1, gap: 6 }}>
+        {ligne.isSubstitution ? (
+          <Text style={{ fontSize: 11, fontWeight: '700', color: c.textSub }}>🚌 BUS DE REMPLACEMENT</Text>
+        ) : null}
         {toutTermine ? (
           <Text style={[s.destTexte, { color: c.textSub, textAlign: 'left', paddingTop: 4 }]}>😴 Service terminé</Text>
         ) : ligne.directions ? (
@@ -500,11 +551,11 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
-type Props = { stopId: string; stopName?: string; refreshKey?: number; onAtTopChange?: (atTop: boolean) => void; nativeGesture?: NativeGesture };
+type Props = { stopId: string; stopName?: string; onAtTopChange?: (atTop: boolean) => void; nativeGesture?: NativeGesture };
 export type SchedulesRef = { scrollTo: (code: string) => void };
 
 const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules(
-  { stopId, stopName = '', refreshKey, onAtTopChange, nativeGesture },
+  { stopId, stopName = '', onAtTopChange, nativeGesture },
   ref,
 ) {
   const c = useColors();
@@ -587,7 +638,7 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
         }
       })
       .catch(e => { if (e.name !== 'AbortError') setErreur(e.message); });
-  }, [stopId, stopName, refreshKey]);
+  }, [stopId, stopName]);
 
   useEffect(() => {
     charger();

@@ -7,6 +7,25 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.2.0',
+    date: '24 juillet 2026',
+    content: `**🚀 Nouveautés**
+* Les arrêts ont maintenant un affichage plus complet ! Ils affichent désormais sur la carte toutes les lignes, et leur point d'arrêt précis pour les bus ! Retrouvez également l'affichage des différents accès aux stations.
+
+**🛠️ Améliorations et Corrections**
+* Ajout d'un tutoriel à la première ouverture de l'application.
+* Changement de l'affichage de recherche d'un arrêt.
+* Affichage des destinations désormais sur 2 lignes lorsque c'est nécessaire.
+* Ajout d'un bouton pour recentrer la vue sur l'arrêt sélectionné.
+* Améliorations visuelles sur l'en-tête de votre arrêt.
+* Les bus de substitution s'accompagnent désormais d'un message les différenciant.
+* Correction d'un bug d'affichage de la ville d'un arrêt dans les favoris.
+* Correction d'un bug d'affichage des lignes de train.
+* Correction d'un bug d'affichage des RER/Trains quand ceux-ci étaient remplacés par leurs satanés bus de substitution.
+
+Bon voyage !`,
+  },
+  {
     version: '3.1.3',
     date: '13 juillet 2026',
     content: `**🛠️ Améliorations et Corrections**
