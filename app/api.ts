@@ -46,9 +46,9 @@ export async function searchGares(q: string, signal?: AbortSignal): Promise<Sear
   return results;
 }
 
-export async function nearbyGares(lat: number, lon: number, signal?: AbortSignal): Promise<SearchResult[]> {
+export async function nearbyGares(lat: number, lon: number, signal?: AbortSignal, distance = 1500): Promise<SearchResult[]> {
   const data = await navitia(
-    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=1500&count=60`,
+    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=${distance}&count=60`,
     signal
   );
   const results: SearchResult[] = [];
@@ -121,6 +121,8 @@ export async function regionWideRailStops(signal?: AbortSignal): Promise<NearbyS
   return Array.from(byId.values());
 }
 
+const HEAVY_MODES = new Set(['RER', 'TRAIN', 'METRO', 'TRAM']);
+
 export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: AbortSignal, distance = 1000): Promise<NearbyStop[]> {
   const count = Math.min(Math.ceil(distance / 15), 500);
 
@@ -132,33 +134,67 @@ export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: A
 
   const results: NearbyStop[] = [];
 
-  // Bus/fluvial stop_points — precise poteau location
+  // Stop_areas ayant un mode lourd (RER/Train/Métro/Tram) — un câble en
+  // correspondance sur l'un d'eux (ex: métro 8 + C1 à Pointe du Lac) reste
+  // affiché groupé avec ce mode lourd plutôt qu'en poteau séparé.
+  const heavyAreaIds = new Set<string>();
+  for (const p of areaData?.places_nearby || []) {
+    const sa = p.stop_area;
+    if (!sa) continue;
+    const modes = modesDepuisPhysicalModes(sa.physical_modes);
+    if (modes.some(m => HEAVY_MODES.has(m))) heavyAreaIds.add(sa.id);
+  }
+
+  // Bus/fluvial stop_points — position exacte de chaque poteau, affichés
+  // individuellement. Câble/funiculaire isolé (pas de mode lourd co-localisé) —
+  // même position exacte, mais regroupée/moyennée par stop_area, car une
+  // télécabine a souvent 2 poteaux distincts très proches (ex: câble C1).
+  const cableParArea = new Map<string, { lat: number; lon: number }[]>();
+  const cableInfo = new Map<string, { label: string; firstId: string }>();
   for (const p of pointData?.places_nearby || []) {
     if (!p.stop_point) continue;
     const sp = p.stop_point;
     const coord = sp.coord;
     if (!coord?.lat || !coord?.lon) continue;
     const modes = modesDepuisPhysicalModes(sp.physical_modes);
-    if (!modes.includes('BUS') && !modes.includes('FLUVIAL')) continue;
     const stopAreaId = sp.stop_area?.id ?? sp.id;
+    const ville = villeDepuisRegions(sp.administrative_regions || []);
+    const label = ville ? `${sp.name} (${ville})` : sp.name;
+
+    if (modes.includes('CABLE') && !heavyAreaIds.has(stopAreaId)) {
+      if (!cableParArea.has(stopAreaId)) cableParArea.set(stopAreaId, []);
+      cableParArea.get(stopAreaId)!.push({ lat: parseFloat(coord.lat), lon: parseFloat(coord.lon) });
+      if (!cableInfo.has(stopAreaId)) cableInfo.set(stopAreaId, { label, firstId: sp.id });
+      continue;
+    }
+
+    if (!modes.includes('BUS') && !modes.includes('FLUVIAL')) continue;
     results.push({
       id: sp.id,
       stop_area_id: stopAreaId,
-      label: sp.name,
+      label,
       lat: parseFloat(coord.lat),
       lon: parseFloat(coord.lon),
       modes,
     });
   }
+  for (const [stopAreaId, coords] of cableParArea) {
+    const info = cableInfo.get(stopAreaId)!;
+    const cLat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+    const cLon = coords.reduce((s, c) => s + c.lon, 0) / coords.length;
+    results.push({ id: info.firstId, stop_area_id: stopAreaId, label: info.label, lat: cLat, lon: cLon, modes: ['CABLE'] });
+  }
 
-  // Non-bus stop_areas (RER, Métro, Tram, Train, Câble…)
+  // Non-bus stop_areas (RER, Métro, Tram, Train, câble en correspondance…) —
+  // le câble isolé est géré au-dessus via ses stop_points, moyennés.
   for (const p of areaData?.places_nearby || []) {
     if (!p.stop_area) continue;
     const sa = p.stop_area;
     const coord = sa.coord;
     if (!coord?.lat || !coord?.lon) continue;
     const modes = modesDepuisPhysicalModes(sa.physical_modes);
-    if (modes.every(m => m === 'BUS' || m === 'AUTRE')) continue;
+    const isCableIsole = modes.includes('CABLE') && !modes.some(m => HEAVY_MODES.has(m));
+    if (modes.every(m => m === 'BUS' || m === 'AUTRE') || isCableIsole) continue;
     const ville = villeDepuisRegions(sa.administrative_regions || []);
     results.push({
       id: sa.id,
@@ -200,24 +236,49 @@ export function comparerLignesParMode(a: { code: string; mode: string }, b: { co
   return a.code.localeCompare(b.code, undefined, { numeric: true });
 }
 
+function chipDepuisLigne(l: any): LineChip {
+  const color: string = l.color || '888888';
+  const r = parseInt(color.slice(0, 2), 16);
+  const g = parseInt(color.slice(2, 4), 16);
+  const b = parseInt(color.slice(4, 6), 16);
+  const textColor = l.text_color
+    ? `#${l.text_color}`
+    : (r * 299 + g * 587 + b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
+  return {
+    id: l.id || '',
+    code: l.code || l.name || '?',
+    color,
+    textColor,
+    mode: modeDepuisCommercialMode(l.commercial_mode?.id || ''),
+  };
+}
+
 export async function linesForArea(stopAreaId: string, signal?: AbortSignal): Promise<LineChip[]> {
-  const data = await navitia(`stop_areas/${stopAreaId}/lines`, signal);
-  return (data?.lines || []).map((l: any) => {
-    const color: string = l.color || '888888';
-    const r = parseInt(color.slice(0, 2), 16);
-    const g = parseInt(color.slice(2, 4), 16);
-    const b = parseInt(color.slice(4, 6), 16);
-    const textColor = l.text_color
-      ? `#${l.text_color}`
-      : (r * 299 + g * 587 + b * 114) / 1000 > 128 ? '#000000' : '#ffffff';
-    return {
-      id: l.id || '',
-      code: l.code || l.name || '?',
-      color,
-      textColor,
-      mode: modeDepuisCommercialMode(l.commercial_mode?.id || ''),
-    };
-  });
+  // Sans count explicite, Navitia plafonne à 25 lignes par page — les gros
+  // pôles (Châtelet, Gare de Lyon...) en ont davantage.
+  const data = await navitia(`stop_areas/${stopAreaId}/lines?count=100`, signal);
+  return (data?.lines || []).map(chipDepuisLigne).sort(comparerLignesParMode);
+}
+
+export type StopPointDetail = { id: string; lat: number; lon: number; lines: LineChip[] };
+
+// Les arrêts physiques (poteaux) de bus d'une station peuvent être dispersés
+// dans tout un quartier, chacun desservi par des lignes différentes.
+// depth=3 fait remonter directement les lignes de chaque poteau dans la
+// même réponse (un seul appel, pas un par poteau) — RER/Métro/Train/Tram/
+// Câble/Fluvial restent un point unique bien identifié, donc on ne garde
+// ici que les poteaux desservis par au moins une ligne de bus.
+export async function stopPointsForArea(stopAreaId: string, signal?: AbortSignal): Promise<StopPointDetail[]> {
+  const data = await navitia(`stop_areas/${stopAreaId}/stop_points?count=50&depth=3`, signal);
+  const points: StopPointDetail[] = (data?.stop_points || [])
+    .filter((sp: any) => sp.coord?.lat && sp.coord?.lon)
+    .map((sp: any) => ({
+      id: sp.id,
+      lat: parseFloat(sp.coord.lat),
+      lon: parseFloat(sp.coord.lon),
+      lines: (sp.lines || []).map(chipDepuisLigne).filter((l: LineChip) => l.mode === 'BUS').sort(comparerLignesParMode),
+    }));
+  return points.filter(p => p.lines.length > 0);
 }
 
 export async function coordGare(stopId: string): Promise<{ lat: number; lon: number } | null> {
@@ -229,4 +290,50 @@ export async function coordGare(stopId: string): Promise<{ lat: number; lon: num
   }
   logger.warn(`coord ${stopId} → aucune coordonnée`);
   return null;
+}
+
+// Pour certaines petites stations (câble, funiculaire...), la coordonnée du
+// stop_area lui-même peut être décalée par rapport au vrai poteau physique
+// (visible sur la carte : l'icône ne tombe pas exactement sur le rail/câble).
+// Le stop_point, lui, correspond à la position réelle du quai — mais un
+// stop_area peut regrouper plusieurs poteaux de modes différents (ex: le
+// funiculaire ET un arrêt de bus voisin dans le même pôle), donc on cible
+// précisément ceux desservis par une ligne du mode demandé. Certaines
+// stations (télécabines à 2 voies comme le câble C1) ont 2 poteaux distincts
+// très proches : on prend leur moyenne pour n'afficher qu'un seul point.
+export async function coordPoteau(stopAreaId: string, mode: string = 'CABLE'): Promise<{ lat: number; lon: number } | null> {
+  const data = await navitia(`stop_areas/${stopAreaId}/stop_points?count=20&depth=3`);
+  const points = data?.stop_points || [];
+  const matches = points.filter((sp: any) =>
+    (sp.lines || []).some((l: any) => modeDepuisCommercialMode(l.commercial_mode?.id || '') === mode)
+  );
+  const cibles = matches.length > 0 ? matches : points.slice(0, 1);
+  const coords = cibles.map((sp: any) => sp.coord).filter(Boolean);
+  if (coords.length === 0) return null;
+  const lat = coords.reduce((s: number, c: any) => s + parseFloat(c.lat), 0) / coords.length;
+  const lon = coords.reduce((s: number, c: any) => s + parseFloat(c.lon), 0) / coords.length;
+  return { lat, lon };
+}
+
+export type StationExit = { id: string; number: number; name: string; lat: number; lon: number };
+
+// Les sorties numérotées (ex: "sortie 9 pl. H. Frenay" à Gare de Lyon) ne
+// viennent pas de Navitia mais du référentiel ouvert IDFM dédié ("Accès"),
+// interrogé par proximité géographique autour de la station plutôt que par
+// un identifiant (le zdaid de ce jeu de données ne correspond pas à l'id de
+// stop_area utilisé par Navitia).
+export async function stationExits(lat: number, lon: number, radius = 200): Promise<StationExit[]> {
+  const url = `https://data.iledefrance-mobilites.fr/api/records/1.0/search/?dataset=acces&geofilter.distance=${lat},${lon},${radius}&rows=50`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  const exits: StationExit[] = [];
+  for (const rec of data?.records || []) {
+    const f = rec.fields || {};
+    const number = parseInt(f.accshortname, 10);
+    const coord = f.accgeopoint;
+    if (isNaN(number) || !coord || coord.length < 2) continue;
+    exits.push({ id: f.accid || rec.recordid, number, name: f.accname || '', lat: coord[0], lon: coord[1] });
+  }
+  return exits.sort((a, b) => a.number - b.number);
 }

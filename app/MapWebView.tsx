@@ -60,6 +60,13 @@ function getMapHTML(isDark: boolean) {
       width:24px;height:24px;
       filter:${isDark ? 'invert(1)' : 'none'};
     }
+    .map-tail{
+      position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);
+      width:0;height:0;pointer-events:none;
+      border-left:6px solid transparent;
+      border-right:6px solid transparent;
+      border-top:7px solid ${isDark ? '#010e26' : '#ffffff'};
+    }
     .leaflet-control-attribution{
       background:${isDark ? 'rgba(1,14,38,0.4)' : 'rgba(255,255,255,0.55)'}!important;
       box-shadow:none!important;
@@ -89,6 +96,8 @@ function getMapHTML(isDark: boolean) {
   var followMode = false;
   var stationMarkers = [];
   var activeMarkerId = null;
+  var _lastMain = null;
+  var _lastPoints = [];
   var transportLines = [];
   var transportStops = [];
   var nearbyStopMarkers = [];
@@ -190,6 +199,7 @@ function getMapHTML(isDark: boolean) {
     activeMarkerId=null;
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
+    if(_hiddenNearbyId!==null){ _hiddenNearbyId=null; _renderNearbyStops(); }
   }
 
   function pinIcon(){
@@ -213,10 +223,12 @@ function getMapHTML(isDark: boolean) {
         );
       });
     stationMarkers.push(m);
+    _lastMain={lat:lat,lon:lon,modeGroups:null};
+    _lastPoints=[];
   }
 
-  function flyToStation(lat,lon){
-    var zoom=15;
+  function flyToStation(lat,lon,zoom){
+    zoom=zoom||15;
     // Décale le centre vers le bas pour que la gare apparaisse dans le tiers supérieur,
     // visible au-dessus du panneau des horaires qui couvre le bas de l'écran.
     var offset=map.getSize().y*0.22;
@@ -228,6 +240,192 @@ function getMapHTML(isDark: boolean) {
     var dist=curPt.distanceTo(tgtPt);
     if(dist<3 && Math.abs(map.getZoom()-zoom)<0.05) return;
     map.flyTo(shifted,zoom,{animate:true,duration:0.9});
+  }
+
+  function stopPointIcon(lines){
+    var items=(lines&&lines.length?lines:[{code:'?',color:'888888',textColor:'#fff'}]);
+    var H=22;
+    var badges=items.map(function(l){
+      return '<div style="min-width:'+H+'px;height:'+H+'px;background:#'+l.color+';color:'+l.textColor+';'
+        +'font-size:11px;font-weight:800;border-radius:5px;padding:0 4px;box-sizing:border-box;'
+        +'display:flex;align-items:center;justify-content:center;white-space:nowrap">'+l.code+'</div>';
+    }).join('');
+    var pad=4,gap=4;
+    // On ne peut pas mesurer le texte rendu à l'avance en JS, donc plutôt que
+    // d'essayer (encore) de deviner la largeur exacte, le badge se centre
+    // lui-même via position absolute + translateX(-50%) : peu importe sa
+    // largeur réelle, il reste pile centré sur le point de la carte.
+    var html='<div class="sp-badge" style="position:absolute;left:50%;top:0;transform:translateX(-50%);'
+      +'background:#fff;border:1px solid rgba(0,0,0,0.15);border-radius:8px;'
+      +'padding:'+pad+'px;box-shadow:0 1px 5px rgba(0,0,0,0.3);display:flex;align-items:center;'
+      +'gap:'+gap+'px;width:max-content">'+badges+'<div class="map-tail"></div></div>';
+    var h=H+pad*2;
+    var wZoneClic=pad*2+items.length*(H+16)+(items.length-1)*gap;
+    // La pointe du triangle (7px de haut, collée au bas du badge) doit
+    // tomber pile sur le point d'ancrage.
+    return L.divIcon({className:'',html:html,iconSize:[wZoneClic,h+8],iconAnchor:[wZoneClic/2,h+7]});
+  }
+
+  // Sortie numérotée d'une station (ex: "sortie 9, pl. H. Frenay" à Gare de
+  // Lyon) — un simple rond bleu foncé fixe, indépendant du thème clair/sombre
+  // (contrairement aux badges de ligne, sa couleur ne doit pas changer).
+  // Le rond et la pointe sont dessinés comme un seul tracé SVG (au lieu d'un
+  // cercle CSS + triangle CSS séparés) pour que le contour blanc reste
+  // continu tout autour, y compris sur la pointe — avec deux formes CSS
+  // distinctes, le triangle masquait le bas du contour du cercle.
+  var EXIT_W=32, EXIT_H=32;
+  function exitIcon(number,name){
+    var label='<div class="exit-label" style="position:absolute;left:50%;bottom:'+(EXIT_H+10)+'px;transform:translateX(-50%);'
+      +'background:#0a0082;color:#fff;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;'
+      +'white-space:nowrap;display:none;box-shadow:0 1px 5px rgba(0,0,0,0.35)">'+(name||'')+'</div>';
+    var svg='<svg width="'+EXIT_W+'" height="'+EXIT_H+'" viewBox="0 0 32 32" '
+      +'style="position:absolute;left:0;top:0;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4))">'
+      +'<path d="M20.65,22.97 A11,11 0 1,0 11.35,22.97 L16,32 Z" fill="#0a0082" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
+      +'<text x="16" y="17" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">'+number+'</text>'
+      +'</svg>';
+    var html='<div style="position:absolute;left:50%;top:0;transform:translateX(-50%);'
+      +'width:'+EXIT_W+'px;height:'+EXIT_H+'px">'+svg+label+'</div>';
+    return L.divIcon({className:'',html:html,iconSize:[EXIT_W,EXIT_H],iconAnchor:[EXIT_W/2,EXIT_H]});
+  }
+
+  // Icône du point principal de la station : réutilise exactement le même
+  // encadré "n-wrap" que les pastilles de mode déjà visibles de loin sur la
+  // carte, en ajoutant les codes de ligne (même taille que le symbole) juste
+  // en dessous de chaque mode non-bus (RER, Métro, Train, Tram...). Ces
+  // modes-là n'ont pas besoin qu'on aille chercher leurs poteaux physiques
+  // (contrairement au bus, dispersé, géré à part).
+  function mainStationIcon(modeGroups){
+    if(!modeGroups||!modeGroups.length){ return pinIcon(); }
+    var SZ=22;
+    var maxLines=1;
+    modeGroups.forEach(function(g){ var n=(g.lines||[]).length; if(n>maxLines)maxLines=n; });
+    var cells=modeGroups.map(function(g){
+      var icon=NEARBY_ICONS[g.mode]||NEARBY_ICONS['BUS'];
+      var codes=(g.lines||[]).map(function(l){
+        return '<div style="min-width:'+SZ+'px;height:'+SZ+'px;background:#'+l.color+';color:'+l.textColor+';'
+          +'font-size:11px;font-weight:800;border-radius:5px;padding:0 3px;box-sizing:border-box;'
+          +'display:flex;align-items:center;justify-content:center;white-space:nowrap;margin-top:3px">'+l.code+'</div>';
+      }).join('');
+      return '<div style="display:flex;flex-direction:column;align-items:center">'
+        +'<img class="n-icon" src="'+icon+'" style="width:'+SZ+'px;height:'+SZ+'px"/>'
+        +codes
+        +'</div>';
+    }).join('<div style="width:8px"></div>');
+    var pad=6;
+    var h=SZ+maxLines*(SZ+3)+pad*2;
+    // Rayon fixe : le calculer à partir de la hauteur (qui grandit avec le
+    // nombre de lignes empilées) rendait l'encadré de plus en plus rond
+    // jusqu'à couper les coins sur les stations avec beaucoup de lignes.
+    var br=14;
+    // Comme pour les poteaux : le bloc se centre lui-même (position
+    // absolute + translateX), pas besoin d'estimer sa largeur exacte.
+    var html='<div class="n-wrap" style="position:absolute;left:50%;top:0;transform:translateX(-50%);'
+      +'display:flex;align-items:flex-start;justify-content:center;padding:'+pad+'px;'
+      +'border-radius:'+br+'px;width:max-content">'+cells+'<div class="map-tail"></div></div>';
+    var wZoneClic=modeGroups.length*(SZ+16)+pad*2;
+    // La pointe du triangle (7px de haut, collée au bas du bloc) doit
+    // tomber pile sur le point d'ancrage.
+    return L.divIcon({className:'',html:html,iconSize:[wZoneClic,h+8],iconAnchor:[wZoneClic/2,h+7]});
+  }
+
+  // Affiche le point principal de la station (RER/Métro/Train/Tram... avec
+  // leurs lignes) et, s'ils existent, chaque arrêt physique (poteau) de bus
+  // avec ses propres lignes — puis ajuste le zoom pour tous les montrer.
+  // Utile pour les stations où les arrêts de bus sont dispersés à des
+  // endroits différents.
+  function showStopCluster(id,label,main,points,moveCamera,exits){
+    stationMarkers.forEach(function(m){map.removeLayer(m);});
+    stationMarkers=[];
+    activeMarkerId=id;
+    // Évite la superposition avec la pastille "arrêts à proximité" déjà
+    // affichée au même endroit (visible dès le zoom large).
+    _hiddenNearbyId=id;
+    _renderNearbyStops();
+
+    function onClickMarker(e){
+      e.originalEvent.stopPropagation();
+      window.ReactNativeWebView.postMessage(JSON.stringify({type:'stationSelected',id:id,label:label||id}));
+    }
+
+    var allPts=[];
+    if(main){
+      var mm=L.marker([main.lat,main.lon],{icon:mainStationIcon(main.modeGroups),zIndexOffset:3000})
+        .addTo(map).on('click',onClickMarker);
+      stationMarkers.push(mm);
+      allPts.push([main.lat,main.lon]);
+    }
+    (points||[]).forEach(function(p){
+      var m=L.marker([p.lat,p.lon],{icon:stopPointIcon(p.lines),zIndexOffset:3000})
+        .addTo(map).on('click',onClickMarker);
+      stationMarkers.push(m);
+      allPts.push([p.lat,p.lon]);
+    });
+    // Les sorties sont purement informatives : on ne les inclut pas dans le
+    // calcul du zoom (allPts), sinon une sortie éloignée forcerait un
+    // dézoom inutile sur toute la station.
+    // Une seule bulle de nom de sortie visible à la fois : cliquer sur une
+    // sortie referme celle éventuellement ouverte sur une autre.
+    var exitLabels=[];
+    (exits||[]).forEach(function(e){
+      var m=L.marker([e.lat,e.lon],{icon:exitIcon(e.number,e.name),zIndexOffset:3500})
+        .addTo(map)
+        .on('click',function(ev){
+          ev.originalEvent.stopPropagation();
+          var el=m.getElement();
+          var lbl=el&&el.querySelector('.exit-label');
+          if(!lbl) return;
+          var willShow=lbl.style.display!=='block';
+          exitLabels.forEach(function(other){ if(other!==lbl) other.style.display='none'; });
+          lbl.style.display = willShow ? 'block' : 'none';
+        });
+      stationMarkers.push(m);
+      var elNow=m.getElement();
+      var lblNow=elNow&&elNow.querySelector('.exit-label');
+      if(lblNow) exitLabels.push(lblNow);
+    });
+    // Mémorisé pour pouvoir recadrer plus tard sans tout redemander (bouton
+    // de recentrage manuel, voir recenterActiveStation).
+    _lastMain=main;
+    _lastPoints=points||[];
+
+    if(!allPts.length||moveCamera===false){ return; }
+    _flyToCluster(allPts,main);
+  }
+
+  // Marge généreuse : les encadrés de lignes prennent de la place, surtout
+  // quand tout est concentré sur un seul point. Le zoom s'adapte à la
+  // taille réelle de l'encadré principal (nb de modes, lignes empilées)
+  // plutôt qu'une valeur fixe — une petite station RER seule n'a pas
+  // besoin d'être aussi dézoomée qu'un gros pôle multimodal.
+  function _flyToCluster(allPts,main){
+    if(allPts.length===1){
+      var zoom=15;
+      if(main&&main.modeGroups&&main.modeGroups.length){
+        var nGroups=main.modeGroups.length;
+        var maxL=1;
+        main.modeGroups.forEach(function(g){ var n=(g.lines||[]).length; if(n>maxL)maxL=n; });
+        zoom=15-Math.min(1.5,(nGroups-1)*0.35+(maxL-1)*0.25);
+      }
+      flyToStation(allPts[0][0],allPts[0][1],zoom);
+      return;
+    }
+    var bounds=L.latLngBounds(allPts);
+    var h=map.getSize().y;
+    map.flyToBounds(bounds,{
+      paddingTopLeft:[65,85],
+      paddingBottomRight:[65,Math.round(h*0.52)],
+      animate:true,duration:0.9,
+    });
+  }
+
+  // Recentre la vue sur la station actuellement affichée dans le panneau,
+  // sans rien redemander au backend (bouton "localiser" du panneau horaires).
+  function recenterActiveStation(){
+    var allPts=[];
+    if(_lastMain) allPts.push([_lastMain.lat,_lastMain.lon]);
+    (_lastPoints||[]).forEach(function(p){ allPts.push([p.lat,p.lon]); });
+    if(!allPts.length) return;
+    _flyToCluster(allPts,_lastMain);
   }
 
   function setTransportData(data){
@@ -271,8 +469,12 @@ function getMapHTML(isDark: boolean) {
         + '.s-dot.active{background:#fff!important}'
         + '.n-icon{filter:invert(1)!important}'
         + '.n-wrap{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
+        + '.sp-badge{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
+        + '.map-tail{border-top-color:#010e26!important}'
       : '.n-icon{filter:none!important}'
-        + '.n-wrap{background:#ffffff!important;border-color:rgba(0,0,0,0.12)!important}';
+        + '.n-wrap{background:#ffffff!important;border-color:rgba(0,0,0,0.12)!important}'
+        + '.sp-badge{background:#ffffff!important;border-color:rgba(0,0,0,0.12)!important}'
+        + '.map-tail{border-top-color:#ffffff!important}';
     var attr=document.querySelector('.leaflet-control-attribution');
     if(attr){
       attr.style.background = isDark ? 'rgba(1,14,38,0.4)' : 'rgba(255,255,255,0.55)';
@@ -287,6 +489,7 @@ function getMapHTML(isDark: boolean) {
   var MODE_ICON_SIZE={RER:24,TRAIN:24,METRO:20,TRAM:18,CABLE:18,BUS:14,FLUVIAL:16,AUTRE:14};
   var MODE_ZINDEX={RER:790,TRAIN:770,METRO:750,TRAM:730,CABLE:710,FLUVIAL:690,BUS:670,AUTRE:650};
   var _allNearbyStops=[];
+  var _hiddenNearbyId=null;
 
   function _minZoomForStop(s){
     var min=99;
@@ -300,11 +503,12 @@ function getMapHTML(isDark: boolean) {
     var z=map.getZoom();
     _allNearbyStops.forEach(function(s){
       if(s.lat==null||s.lon==null)return;
+      if(_hiddenNearbyId!==null&&(s.id===_hiddenNearbyId||s.stop_area_id===_hiddenNearbyId))return;
       if(_minZoomForStop(s)>z)return;
       var isPoint=s.id&&s.id.indexOf('stop_point:')===0;
       var visibleModes=(s.modes||[]).filter(function(m){
         if((MODE_MIN_ZOOM[m]||15)>z)return false;
-        if(isPoint) return m==='BUS'||m==='FLUVIAL';
+        if(isPoint) return m==='BUS'||m==='FLUVIAL'||m==='CABLE';
         return m!=='BUS'&&m!=='FLUVIAL';
       });
       if(!visibleModes.length)return;
@@ -353,7 +557,10 @@ function getMapHTML(isDark: boolean) {
 
   map.on('zoomend',function(){ _renderNearbyStops(); });
   map.on('click',function(){
-    clearActiveStation();
+    // On ne vide plus les poteaux ici : un tap sur la carte ne fait que
+    // refermer le volet des horaires côté RN (fermerPanel), la vue de
+    // l'arrêt (poteaux compris) doit rester tant qu'on ne quitte pas
+    // explicitement (clearActiveStation appelé depuis quitterVueArret).
     window.ReactNativeWebView.postMessage(JSON.stringify({type:'mapTapped'}));
   });
 
@@ -401,8 +608,16 @@ export type MapWebViewRef = {
   setTheme: (isDark: boolean) => void;
   flyTo: (lat: number, lon: number) => void;
   showStation: (id: string, lat: number, lon: number, label?: string) => void;
+  showStopCluster: (
+    id: string, label: string,
+    main: { lat: number; lon: number; modeGroups: Array<{ mode: string; lines: Array<{ code: string; color: string; textColor: string }> }> } | null,
+    points: Array<{ lat: number; lon: number; lines: Array<{ code: string; color: string; textColor: string }> }>,
+    moveCamera?: boolean,
+    exits?: Array<{ number: number; name: string; lat: number; lon: number }>
+  ) => void;
   setTransportData: (data: { stops: any[]; lines: any[] }) => void;
   setNearbyStops: (stops: NearbyStopMarker[]) => void;
+  recenterActiveStation: () => void;
 };
 
 type Props = {
@@ -448,6 +663,12 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
     },
     showStation: (id, lat, lon, label) => {
       wvRef.current?.injectJavaScript(`showStation(${JSON.stringify(id)},${lat},${lon},${JSON.stringify(label??id)});true;`);
+    },
+    showStopCluster: (id, label, main, points, moveCamera, exits) => {
+      wvRef.current?.injectJavaScript(`showStopCluster(${JSON.stringify(id)},${JSON.stringify(label)},${JSON.stringify(main)},${JSON.stringify(points)},${moveCamera === false ? 'false' : 'true'},${JSON.stringify(exits || [])});true;`);
+    },
+    recenterActiveStation: () => {
+      wvRef.current?.injectJavaScript(`recenterActiveStation();true;`);
     },
     setTransportData: (data) => {
       wvRef.current?.injectJavaScript(`setTransportData(${JSON.stringify(data)});true;`);

@@ -21,7 +21,7 @@ export default {
   expo: {
     name: IS_DEV ? 'Grand Paname Dev' : 'Grand Paname',
     slug: 'grand-paname',
-    version: '3.1.3',
+    version: '3.2.0',
     icon: './assets/icon.png',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
@@ -40,7 +40,7 @@ export default {
       },
     },
     android: {
-      versionCode: 30103,
+      versionCode: 30200,
       // google-services.json est gitignore (pas commité) donc EAS Build ne le
       // voit pas nativement — on le fournit via une variable d'environnement
       // EAS de type "fichier" (GOOGLE_SERVICES_JSON), qui pointe vers un
@@ -80,6 +80,8 @@ export default {
         {
           android: {
             enableMultiDex: true,
+            enableProguardInReleaseBuilds: true,
+            enableShrinkResourcesInReleaseBuilds: true,
           },
         },
       ],

@@ -16,11 +16,12 @@ import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS, ChangelogEntry } from './changelogs';
 import { WHATSNEW } from './whatsnew';
-import { searchGares, nearbyGares, coordGare, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode } from './api';
+import { searchGares, nearbyGares, coordGare, coordPoteau, isNetworkError, nearbyStopsWithCoords, regionWideRailStops, NearbyStop, linesForArea, LineChip, comparerLignesParMode, stopPointsForArea, stationExits } from './api';
 import { GHOST_STOP_ID, GHOST_STOP_LABEL, GHOST_STOP_NAME, GHOST_CHIPS, GHOST_STOP_COORD } from './ghostStop';
 import { logger, LogEntry } from './logger';
 import { Image as ExpoImage } from 'expo-image';
@@ -169,6 +170,8 @@ type AccueilProps = {
   panelOpen: boolean;
   updateDownloadingBg: boolean;
   showDebugOverlay: boolean;
+  gareActuelle: { id: string; label: string } | null;
+  onQuitterVueArret: () => void;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -249,7 +252,7 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
-function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, showDebugOverlay, setShowDebugOverlay, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void }) {
+function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, showDebugOverlay, setShowDebugOverlay, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void }) {
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -378,7 +381,7 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
   }, [pref]);
 
   const LIENS = [
-    { icon: '💬', label: 'Communauté WhatsApp', url: 'https://whatsapp.com/channel/0029VbCSkQt5vKA7MojdZH3N' },
+    { icon: '💬', label: 'Chaîne WhatsApp', url: 'https://whatsapp.com/channel/0029VbCSkQt5vKA7MojdZH3N' },
     { icon: '🐛', label: 'Signaler un bug',      url: 'https://tally.so/r/A7qJxe' },
     { icon: '✉️',  label: 'Contact',              url: 'mailto:contact@grandpaname.fun' },
   ];
@@ -665,6 +668,14 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                   <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
                   <TouchableOpacity
                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                    onPress={() => { onClose(); setTimeout(onReplayOnboarding, 200); }}
+                  >
+                    <Text style={[styles.settingsRowLabel, { color: c.text }]}>Rejouer le tutoriel</Text>
+                    <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
+                  </TouchableOpacity>
+                  <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                     onPress={() => { onClose(); setTimeout(onTestUpdateModal, 200); }}
                   >
                     <View style={{ flex: 1 }}>
@@ -759,11 +770,12 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
   const [loadingGps, setLoadingGps] = useState(false);
+  const [gpsSearchStatus, setGpsSearchStatus] = useState<string | null>(null);
   const [followingLocation, setFollowingLocation] = useState(false);
   const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
   const headingWatchRef = useRef<Location.LocationSubscription | null>(null);
@@ -883,6 +895,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
     setSearchQuery('');
     setSearchResults([]);
     setIsSearching(false);
+    setGpsSearchStatus(null);
   };
 
   useEffect(() => {
@@ -944,8 +957,24 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       setFollowingLocation(true);
       const controller = new AbortController();
       searchAbortRef.current = controller;
-      const results = await nearbyGares(lat, lon, controller.signal);
-      setSearchResults(results.length > 0 ? results : [{ id: 'vide', label: 'Aucun arrêt dans un rayon de 1.5km 😕' }]);
+
+      const attendre = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+      let results = await nearbyGares(lat, lon, controller.signal, 1500);
+      if (results.length === 0) {
+        setGpsSearchStatus('🔍 Rien trouvé... on cherche un peu plus loin (5 km)');
+        [results] = await Promise.all([nearbyGares(lat, lon, controller.signal, 5000), attendre(2200)]);
+      }
+      if (results.length === 0) {
+        setGpsSearchStatus('🔍 Toujours rien... on cherche vers perpette. (15 km)');
+        [results] = await Promise.all([nearbyGares(lat, lon, controller.signal, 15000), attendre(2200)]);
+      }
+      if (results.length > 0) {
+        setGpsSearchStatus(null);
+        setSearchResults(results);
+      } else {
+        setGpsSearchStatus("🫥 Aucun arrêt trouvé, même en cherchant loin. Vous êtes vraiment au milieu de nulle part !");
+      }
 
       if (!locationWatchRef.current) {
         locationWatchRef.current = await Location.watchPositionAsync(
@@ -969,6 +998,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       if (e?.name === 'AbortError') return;
       logger.error(`nearby: ${e?.message}`);
       const msg = isNetworkError(e) ? '📵 Pas de connexion internet' : '⚠️ Impossible de géolocaliser ou joindre le serveur';
+      setGpsSearchStatus(null);
       setSearchResults([{ id: 'erreur', label: msg }]);
     } finally { setLoadingGps(false); setIsSearching(false); }
   };
@@ -1061,6 +1091,15 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         />
       )}
 
+      {/* Statut de la recherche GPS par paliers, au-dessus de la barre de recherche */}
+      {gpsSearchStatus && (
+        <Animated.View style={[styles.gpsStatusPill, { bottom: resultsBottom, backgroundColor: c.bgFloat, borderColor: c.borderCard }]}>
+          <Text style={{ fontSize: 14, fontFamily: 'GrandParis-Medium', color: c.text, textAlign: 'center' }}>
+            {gpsSearchStatus}
+          </Text>
+        </Animated.View>
+      )}
+
       {/* Résultats au-dessus de la barre de recherche */}
       {showResults && (
         <Animated.View style={[styles.searchResultsContainer, { bottom: resultsBottom, backgroundColor: c.bg }]}>
@@ -1073,7 +1112,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
               <View style={[styles.searchResultRow, { borderBottomColor: c.border }]}>
                 <TouchableOpacity
                   style={{ flex: 1, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                  onPress={() => { if (item.id !== 'erreur' && item.id !== 'vide') choisirGare(item.id, item.label); }}
+                  onPress={() => { if (!['erreur', 'vide'].includes(item.id)) choisirGare(item.id, item.label); }}
                 >
                   <Text style={[styles.searchResultText, { color: c.text, flex: 1 }]}>{item.label}</Text>
                   {item.distance != null && (
@@ -1084,7 +1123,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
                     </View>
                   )}
                 </TouchableOpacity>
-                {item.id !== 'erreur' && item.id !== 'vide' && (
+                {!['erreur', 'vide'].includes(item.id) && (
                   <TouchableOpacity style={styles.etoileAction} onPress={() => onBasculerFavori(item)}>
                     <Text style={{ fontSize: 22, color: estFavori(item.id) ? undefined : c.textSub }}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
                   </TouchableOpacity>
@@ -1096,37 +1135,59 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         </Animated.View>
       )}
 
-      {/* Barre de recherche flottante */}
+      {/* Barre de recherche flottante, ou nom de l'arrêt affiché tant qu'on
+          reste sur sa vue (poteaux compris), même horaires fermées */}
       <Animated.View style={[styles.bottomSearchBar, { bottom: searchBarBottom, backgroundColor: c.bgFloat }]}>
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={[styles.searchInput, { backgroundColor: c.bgSubtle, color: c.text }]}
-            placeholder="Rechercher un arrêt..."
-            value={searchQuery}
-            onChangeText={rechercherGare}
-            onFocus={onClosePanel}
-            placeholderTextColor={c.textSub}
-            autoCorrect={false}
-          />
-          {isSearching && (
-            <ActivityIndicator style={{ position: 'absolute', right: 12 }} size="small" color={c.accent} />
-          )}
-          {searchQuery.length > 0 && !isSearching && (
-            <TouchableOpacity style={{ position: 'absolute', right: 12 }} onPress={fermerRecherche}>
-              <Text style={{ fontSize: 15, color: c.textSub, fontWeight: '600' }}>✕</Text>
+        {gareActuelle ? (
+          <>
+            <TouchableOpacity
+              style={styles.searchContainer}
+              onPress={() => onGareChoisie(gareActuelle.id, gareActuelle.label)}
+            >
+              <Text
+                style={[styles.searchInput, { backgroundColor: c.pillCenter, color: c.text, textAlignVertical: 'center', fontFamily: 'GrandParis-Medium', borderWidth: 1, borderColor: c.accent }]}
+                numberOfLines={1}
+              >
+                {gareActuelle.label.split('(')[0].trim()}
+              </Text>
             </TouchableOpacity>
-          )}
-        </View>
-        <TouchableOpacity
-          style={[styles.boutonGpsBarre, { backgroundColor: followingLocation ? c.pillCenter : c.bgSubtle }]}
-          onPress={declarerClicGpsNatif}
-          disabled={loadingGps}
-        >
-          {loadingGps
-            ? <ActivityIndicator size="small" color={c.accent} />
-            : <Text style={{ fontSize: 18 }}>📍</Text>
-          }
-        </TouchableOpacity>
+            <TouchableOpacity style={[styles.boutonGpsBarre, { backgroundColor: c.bgSubtle }]} onPress={onQuitterVueArret}>
+              <Text style={{ fontSize: 18, color: c.textSub, fontWeight: '600' }}>✕</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={[styles.searchInput, { backgroundColor: c.bgSubtle, color: c.text }]}
+                placeholder="Rechercher un arrêt..."
+                value={searchQuery}
+                onChangeText={rechercherGare}
+                onFocus={onClosePanel}
+                placeholderTextColor={c.textSub}
+                autoCorrect={false}
+              />
+              {isSearching && (
+                <ActivityIndicator style={{ position: 'absolute', right: 12 }} size="small" color={c.accent} />
+              )}
+              {searchQuery.length > 0 && !isSearching && (
+                <TouchableOpacity style={{ position: 'absolute', right: 12 }} onPress={fermerRecherche}>
+                  <Text style={{ fontSize: 15, color: c.textSub, fontWeight: '600' }}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[styles.boutonGpsBarre, { backgroundColor: followingLocation ? c.pillCenter : c.bgSubtle }]}
+              onPress={declarerClicGpsNatif}
+              disabled={loadingGps}
+            >
+              {loadingGps
+                ? <ActivityIndicator size="small" color={c.accent} />
+                : <Text style={{ fontSize: 18 }}>📍</Text>
+              }
+            </TouchableOpacity>
+          </>
+        )}
       </Animated.View>
       <FeurModal visible={feurVisible} onClose={() => setFeurVisible(false)} />
     </View>
@@ -1292,76 +1353,322 @@ function AssistantScreen() {
   );
 }
 
+// ─── MOTEUR COMMUN AUX MODALES-CARTES CENTRÉES ─────────────────────────────
+// "Quoi de neuf", mise à jour disponible, visite guidée... partagent toutes
+// le même mécanisme (Modal plein écran, fond sombre, carte qui apparaît en
+// fondu + léger zoom ressort). Un seul hook + deux composants réutilisés
+// partout, pour ne pas réimplémenter (et re-casser, comme ça a été le cas
+// sur la visite guidée) ce mécanisme à chaque nouvelle modale.
+function useModalCardAnim(visible: boolean) {
+  const anim = useRef(new Animated.Value(0)).current;
+  // `mounted` reste true pendant l'animation de fermeture (visible passe à
+  // false immédiatement côté parent, mais on ne démonte qu'une fois l'anim
+  // terminée) — sinon `anim` reste bloqué à sa valeur finale et la prochaine
+  // ouverture ne rejoue plus rien visuellement.
+  const [mounted, setMounted] = useState(visible);
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      // Timing + easing plutôt qu'un spring : un spring anime aussi l'opacité
+      // (pas seulement l'échelle) puisque les deux partagent la même valeur
+      // `anim`, et le léger rebond d'un spring sur une opacité (qui doit
+      // rester bornée 0→1) lit comme un raté plutôt qu'un effet voulu. Le
+      // easing "back" garde un petit effet ressort uniquement sur le zoom,
+      // sans that à-coup.
+      Animated.timing(anim, { toValue: 1, duration: 280, easing: Easing.out(Easing.back(1.4)), useNativeDriver: true }).start();
+    } else if (mounted) {
+      Animated.timing(anim, { toValue: 0, duration: 200, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(() => setMounted(false));
+    }
+  }, [visible]);
+  return { anim, mounted };
+}
+
+// Pas de <Modal> ici : sur Android, une Modal s'ouvre dans une fenêtre native
+// séparée de l'activité principale — un BlurView posé dedans ne peut flouter
+// que ce qu'il y a DANS cette fenêtre (donc rien de l'app réelle derrière).
+// Comme on veut le flou sur la carte elle-même (glassmorphism), pas sur tout
+// le fond de l'app, il faut que la carte partage la même fenêtre que le reste
+// de l'UI — un simple calque superposé, comme le panneau gare ou les tiroirs.
+function ModalBackdrop({ mounted, anim, onRequestClose, fullBleed, children }: {
+  mounted: boolean;
+  anim: Animated.Value;
+  onRequestClose?: () => void;
+  // Pas de padding/centrage : le contenu (ex: l'écran d'accueil du tuto, en
+  // glassmorphism plein écran) remplit tout l'espace au lieu d'être une
+  // carte flottante avec de la marge autour.
+  fullBleed?: boolean;
+  children: React.ReactNode;
+}) {
+  if (!mounted) return null;
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 20000, elevation: 20 }]}>
+      {/* Léger voile (pas de flou) juste pour la lisibilité — le fond de
+          l'app reste net. */}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.15)', opacity: anim }]} />
+      {/* Le tap en dehors de la carte ne ferme la modale que si onRequestClose
+          est fourni (WhatsNew, mise à jour) — sinon (visite guidée) on bloque
+          quand même les taps vers ce qu'il y a derrière, sans rien fermer. */}
+      {onRequestClose ? (
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onRequestClose} />
+      ) : (
+        <View style={StyleSheet.absoluteFill} />
+      )}
+      <Animated.View
+        pointerEvents="box-none"
+        style={fullBleed ? { flex: 1, opacity: anim } : { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, opacity: anim }}
+      >
+        {children}
+      </Animated.View>
+    </View>
+  );
+}
+
+// La carte standard (titre/texte/boutons) posée sur le fond flouté — vrai
+// effet "glassmorphism" : son propre flou (pas juste une teinte translucide
+// qui laisse deviner le flou du fond derrière), et une fine bordure claire
+// façon reflet de verre. Pas de voile de couleur en plus par-dessus : la prop
+// `tint` du BlurView applique déjà elle-même un voile assez marqué en interne
+// (~55% de blanc/noir à intensity=70) — en superposer un second rendait la
+// carte quasi opaque.
+function ModalCard({ anim, style, containerStyle, pulseKey, children }: {
+  anim: Animated.Value; style?: object; containerStyle?: object;
+  // Change de valeur (ex: le numéro d'étape d'un carrousel) → petit pulse de
+  // zoom sur CETTE carte, sans toucher à `anim` (qui pilote aussi l'opacité
+  // du fond derrière) : juste une deuxième interpolation combinée dans le
+  // même tableau `transform`, pas une deuxième Animated.View imbriquée.
+  pulseKey?: string | number;
+  children: React.ReactNode;
+}) {
+  const { isDark } = useContext(ThemeContext);
+  const pulse = useRef(new Animated.Value(1)).current;
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (pulseKey === undefined) return;
+    if (firstRender.current) { firstRender.current = false; return; }
+    pulse.setValue(0.95);
+    Animated.timing(pulse, { toValue: 1, duration: 260, easing: Easing.out(Easing.back(1.6)), useNativeDriver: true }).start();
+  }, [pulseKey]);
+
+  return (
+    <Animated.View style={[{
+      width: '100%', maxWidth: 420, borderRadius: 18,
+      overflow: 'hidden',
+      borderWidth: 1.5, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.55)',
+      transform: [
+        { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) },
+        { scale: pulse },
+      ],
+    }, containerStyle]}>
+      <BlurView intensity={45} tint={isDark ? 'dark' : 'light'} experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
+      <View style={[{ padding: 22, gap: 14 }, style]}>
+        {children}
+      </View>
+    </Animated.View>
+  );
+}
+
+// Bouton standard des modales-cartes : même gabarit partout (padding, rayon,
+// hauteur minimale garantie) — seule la couleur et la largeur changent d'un
+// appel à l'autre. La minHeight est ce qui évite qu'un bouton avec juste une
+// icône (le retour) se retrouve plus bas qu'un bouton avec du texte (ce qui
+// arrivait quand chaque bouton fixait sa propre hauteur via le padding +
+// contenu, sans hauteur commune imposée).
+function ModalButton({ onPress, backgroundColor, style, children }: {
+  onPress: () => void;
+  backgroundColor: string;
+  style?: object;
+  children: React.ReactNode;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={[{
+        backgroundColor, borderRadius: 30, paddingVertical: 14, minHeight: 48,
+        alignItems: 'center', justifyContent: 'center',
+      }, style]}
+    >
+      {children}
+    </TouchableOpacity>
+  );
+}
+
 // ─── MODALE "QUOI DE NEUF" ───────────────────────────────────────────────────
 function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean; onClose: () => void; onOpenChangelog: () => void }) {
   const c = useColors();
-  const anim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(anim, { toValue: 1, useNativeDriver: true, tension: 70, friction: 14 }).start();
-    }
-  }, [visible]);
+  const { anim, mounted } = useModalCardAnim(visible);
+  const entry = WHATSNEW.find(e => e.version === APP_VERSION);
 
   const handleClose = () => {
     Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(onClose);
   };
 
-  const entry = WHATSNEW.find(e => e.version === APP_VERSION);
-
-  if (!visible || !entry) return null;
+  if (!mounted || !entry) return null;
 
   const Feature = ({ emoji, title, description }: { emoji: string; title: string; description: string }) => (
     <View style={{ borderRadius: 10, borderWidth: 1, borderColor: c.accent, backgroundColor: c.bgCard, padding: 12, gap: 4 }}>
       <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 14, color: c.text }}>{emoji}  {title}</Text>
-      <Text style={{ fontFamily: 'GrandParis-Light', fontSize: 13, color: c.textSub, lineHeight: 19 }}>{description}</Text>
+      <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 13, color: c.text, lineHeight: 19 }}>{description}</Text>
     </View>
   );
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={handleClose} statusBarTranslucent>
-      <Animated.View style={{
-        flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
-        justifyContent: 'center', alignItems: 'center', padding: 24,
-        opacity: anim,
-      }}>
-        <Animated.View style={{
-          width: '100%', borderRadius: 18,
-          backgroundColor: c.bgCard, borderWidth: 1, borderColor: c.borderCard,
-          padding: 24, gap: 16,
-          transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
-        }}>
-          <View style={{ gap: 8 }}>
-            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>✨ Quoi de neuf ?</Text>
-            <View style={{ backgroundColor: c.accent, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' }}>
-              <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 11, color: '#fff', letterSpacing: 0.5 }}>v{APP_VERSION}</Text>
-            </View>
+    <ModalBackdrop mounted={mounted} anim={anim} onRequestClose={handleClose}>
+      <ModalCard anim={anim} style={{ padding: 24, gap: 16 }}>
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>✨ Quoi de neuf ?</Text>
+          <View style={{ backgroundColor: c.accent, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' }}>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 11, color: '#fff', letterSpacing: 0.5 }}>v{APP_VERSION}</Text>
           </View>
+        </View>
 
-          <View style={{ gap: 10 }}>
-            {entry.features.map((f, i) => (
-              <Feature key={i} emoji={f.emoji} title={f.title} description={f.description} />
-            ))}
-          </View>
+        <View style={{ gap: 10 }}>
+          {entry.features.map((f, i) => (
+            <Feature key={i} emoji={f.emoji} title={f.title} description={f.description} />
+          ))}
+        </View>
 
-          {entry.footer && (
-            <Text style={{ fontFamily: 'GrandParis-Light', fontSize: 12, color: c.textSub, textAlign: 'center', lineHeight: 18 }}>
-              {entry.footer + '\n'}
-              <Text onPress={() => { handleClose(); setTimeout(onOpenChangelog, 300); }} style={{ color: c.accent }}>
-                Voir l'historique des versions →
-              </Text>
+        {entry.footer && (
+          <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 12, color: c.textSub, textAlign: 'center', lineHeight: 18 }}>
+            {entry.footer + '\n'}
+            <Text onPress={() => { handleClose(); setTimeout(onOpenChangelog, 300); }} style={{ color: c.accent }}>
+              Voir l'historique des versions →
             </Text>
-          )}
+          </Text>
+        )}
 
-          <TouchableOpacity
-            onPress={handleClose}
-            style={{ backgroundColor: c.accent, borderRadius: 30, paddingVertical: 14, alignItems: 'center' }}
+        <ModalButton onPress={handleClose} backgroundColor={c.accent}>
+          <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>C'est parti !</Text>
+        </ModalButton>
+      </ModalCard>
+    </ModalBackdrop>
+  );
+}
+
+// ─── VISITE GUIDÉE (premier lancement) ─────────────────────────────────────
+// Cartes centrées façon "Quoi de neuf", sans halo positionné sur un élément
+// réel : une première version pointait la barre de recherche / la carte /
+// l'onglet favoris via measureInWindow(), mais ces coordonnées se sont
+// révélées peu fiables d'un appareil à l'autre (encoche, barre de statut,
+// gestes de nav...), avec un halo qui se retrouvait décalé du vrai élément.
+// Une carte centrée ne dépend d'aucune mesure et s'affiche donc correctement
+// partout.
+type TourStep = { key: string; emoji: string; title: string; text: string };
+
+function OnboardingTour({ visible, steps, onFinish }: { visible: boolean; steps: TourStep[]; onFinish: () => void }) {
+  const c = useColors();
+  const { anim, mounted } = useModalCardAnim(visible);
+  // Rebond du logo/emoji à chaque étape — seule Animated.View imbriquée dans
+  // la carte, et seulement sur le petit logo/emoji (jamais sur un conteneur
+  // qui porte aussi le fond/les boutons, contrairement à la version d'avant
+  // qui rendait la carte translucide sur certains appareils).
+  const logoBounce = useRef(new Animated.Value(1)).current;
+  const [stepIndex, setStepIndex] = useState(0);
+
+  useEffect(() => { if (visible) setStepIndex(0); }, [visible]);
+
+  // Rebond du logo/emoji à chaque étape (le pulse de la carte elle-même est
+  // géré par ModalCard via pulseKey, sans toucher à `anim` — un reset de
+  // `anim` ici perturbait aussi l'opacité du fond, partagée avec la carte).
+  useEffect(() => {
+    if (!mounted || stepIndex === 0) return;
+    logoBounce.setValue(0.5);
+    Animated.timing(logoBounce, { toValue: 1, duration: 260, easing: Easing.out(Easing.back(1.6)), useNativeDriver: true }).start();
+  }, [stepIndex]);
+
+  if (!mounted) return null;
+  const step = steps[stepIndex];
+  const isFirst = stepIndex === 0;
+  const isLast = stepIndex === steps.length - 1;
+
+  const finir = () => {
+    Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(onFinish);
+  };
+  const suivant = () => {
+    if (isLast) { finir(); return; }
+    setStepIndex(i => i + 1);
+  };
+  const precedent = () => setStepIndex(i => Math.max(0, i - 1));
+
+  const dots = (
+    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+      {steps.map((s, i) => (
+        <View key={s.key} style={{
+          width: i === stepIndex ? 18 : 6, height: 6, borderRadius: 3,
+          backgroundColor: i === stepIndex ? c.accent : c.borderCard,
+        }} />
+      ))}
+    </View>
+  );
+
+  // Pas de onRequestClose : impossible de fermer la visite guidée en tapant
+  // en dehors — voir aussi le BackHandler central dans AppInner qui neutralise
+  // aussi le bouton retour matériel pendant le tuto.
+  return (
+    <ModalBackdrop mounted={mounted} anim={anim} fullBleed={isFirst}>
+      {isFirst ? (
+        // Écran d'accueil : un fond glassmorphique plein écran (contrairement
+        // aux étapes suivantes, dont la carte ne fait que la taille de son
+        // contenu) pour bien détacher le texte du fond réel derrière, quel
+        // qu'il soit.
+        <ModalCard
+          anim={anim}
+          pulseKey={stepIndex}
+          containerStyle={{ flex: 1, width: '100%', maxWidth: '100%', borderRadius: 0, borderWidth: 0 }}
+          style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 22, padding: 32 }}
+        >
+          <LinearGradient
+            colors={[c.accent, '#7c3aed']}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={{
+              width: 108, height: 108, borderRadius: 30,
+              alignItems: 'center', justifyContent: 'center',
+              shadowColor: c.accent, shadowOpacity: 0.6, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 14,
+            }}
           >
-            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>C'est parti !</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </Animated.View>
-    </Modal>
+            <View style={{ width: 84, height: 84, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+              <Animated.Image source={require('./assets/icon.png')} style={{ width: 66, height: 66, borderRadius: 14 }} resizeMode="contain" />
+            </View>
+          </LinearGradient>
+
+          <View style={{ alignItems: 'center', gap: 8 }}>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 28, color: c.text, textAlign: 'center' }}>{step.title}</Text>
+            <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 15, color: c.text, textAlign: 'center', lineHeight: 21, maxWidth: 300 }}>
+              {step.text}
+            </Text>
+          </View>
+
+          {dots}
+
+          <ModalButton onPress={suivant} backgroundColor={c.accent} style={{ paddingHorizontal: 52 }}>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>Suivant</Text>
+          </ModalButton>
+        </ModalCard>
+      ) : (
+        <ModalCard anim={anim} pulseKey={stepIndex}>
+          <Animated.Text style={{ fontSize: 40, transform: [{ scale: logoBounce }] }}>{step.emoji}</Animated.Text>
+          <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 19, color: c.text, marginTop: 12 }}>{step.title}</Text>
+          <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 14, color: c.text, lineHeight: 20, marginTop: 6 }}>{step.text}</Text>
+
+          <View style={{ marginTop: 2 }}>{dots}</View>
+
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+            <ModalButton onPress={precedent} backgroundColor="#fff" style={{ width: 48 }}>
+              {/* Chevron (deux traits en "L" pivoté) plutôt qu'un triangle
+                  plein ou un caractère "‹", qui n'est jamais bien centré
+                  selon la police/le rendu. */}
+              <View style={{
+                width: 10, height: 10, marginLeft: 3,
+                borderLeftWidth: 2.5, borderBottomWidth: 2.5, borderColor: '#25303b',
+                transform: [{ rotate: '45deg' }],
+              }} />
+            </ModalButton>
+            <ModalButton onPress={suivant} backgroundColor={c.accent} style={{ flex: 1 }}>
+              <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>{isLast ? "C'est parti !" : 'Suivant'}</Text>
+            </ModalButton>
+          </View>
+        </ModalCard>
+      )}
+    </ModalBackdrop>
   );
 }
 
@@ -1373,71 +1680,40 @@ function UpdateModal({ visible, mode, onAccept, onDismiss }: {
   onDismiss: () => void;
 }) {
   const c = useColors();
-  const anim = useRef(new Animated.Value(0)).current;
-  // `mounted` reste true pendant l'animation de fermeture (visible passe à
-  // false immédiatement côté parent, mais on ne démonte qu'une fois l'anim
-  // terminée) — sinon `anim` reste bloqué à sa valeur finale (1) et la
-  // prochaine ouverture ne rejoue plus rien visuellement.
-  const [mounted, setMounted] = useState(visible);
+  const { anim, mounted } = useModalCardAnim(visible);
   // `displayedMode` ne se met à jour que quand la modale est (re)ouverte —
   // si on suivait `mode` directement, un changement de mode simultané à la
   // fermeture (ready -> prompt reset) ferait flasher le mauvais contenu
   // pendant les ~180ms de l'animation de fermeture.
   const [displayedMode, setDisplayedMode] = useState(mode);
-
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      setDisplayedMode(mode);
-      Animated.spring(anim, { toValue: 1, useNativeDriver: true, tension: 70, friction: 14 }).start();
-    } else if (mounted) {
-      Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(() => setMounted(false));
-    }
-  }, [visible]);
+  useEffect(() => { if (visible) setDisplayedMode(mode); }, [visible]);
 
   if (!mounted) return null;
   const ready = displayedMode === 'ready';
 
   return (
-    <Modal visible={mounted} transparent animationType="none" statusBarTranslucent>
-      <Animated.View style={{
-        flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
-        justifyContent: 'center', alignItems: 'center', padding: 24,
-        opacity: anim,
-      }}>
-        <Animated.View style={{
-          width: '100%', borderRadius: 18,
-          backgroundColor: c.bgCard, borderWidth: 1, borderColor: c.borderCard,
-          padding: 24, gap: 16,
-          transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
-        }}>
-          <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>
-            {ready ? '✅ Mise à jour prête' : '⬆️ Mise à jour disponible'}
-          </Text>
+    <ModalBackdrop mounted={mounted} anim={anim}>
+      <ModalCard anim={anim} style={{ padding: 24, gap: 16 }}>
+        <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>
+          {ready ? '✅ Mise à jour prête' : '⬆️ Mise à jour disponible'}
+        </Text>
 
-          <Text style={{ fontFamily: 'GrandParis-Light', fontSize: 13, color: c.textSub, lineHeight: 19 }}>
-            {ready
-              ? "Le téléchargement est terminé. Redémarre l'app pour l'installer."
-              : "Une nouvelle version de Grand Paname est disponible sur le Play Store. Tu veux l'installer maintenant ?"}
-          </Text>
+        <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 13, color: c.text, lineHeight: 19 }}>
+          {ready
+            ? "Le téléchargement est terminé. Redémarre l'app pour l'installer."
+            : "Une nouvelle version de Grand Paname est disponible sur le Play Store. Tu veux l'installer maintenant ?"}
+        </Text>
 
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <TouchableOpacity
-              onPress={onDismiss}
-              style={{ flex: 1, borderRadius: 30, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: c.borderCard }}
-            >
-              <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: c.textSub }}>Plus tard</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={onAccept}
-              style={{ flex: 1, backgroundColor: c.accent, borderRadius: 30, paddingVertical: 14, alignItems: 'center' }}
-            >
-              <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>{ready ? 'Redémarrer' : 'Mettre à jour'}</Text>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-      </Animated.View>
-    </Modal>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <ModalButton onPress={onDismiss} backgroundColor="transparent" style={{ flex: 1, borderWidth: 1, borderColor: c.borderCard }}>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: c.textSub }}>Plus tard</Text>
+          </ModalButton>
+          <ModalButton onPress={onAccept} backgroundColor={c.accent} style={{ flex: 1 }}>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>{ready ? 'Redémarrer' : 'Mettre à jour'}</Text>
+          </ModalButton>
+        </View>
+      </ModalCard>
+    </ModalBackdrop>
   );
 }
 
@@ -1456,16 +1732,29 @@ function AppInner() {
   const [panelIsOpen, setPanelIsOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [nativeSchedules, setNativeSchedules] = useState(true);
   useEffect(() => { AsyncStorage.getItem('@gp_native_schedules').then(v => { if (v === '0') setNativeSchedules(false); }); }, []);
   const [showDebugOverlay, setShowDebugOverlay] = useState(false);
   useEffect(() => { AsyncStorage.getItem('@gp_debug_overlay').then(v => { if (v === '1') setShowDebugOverlay(true); }); }, []);
   useEffect(() => {
-    AsyncStorage.getItem('@gp_last_seen_version').then(v => {
-      if (v !== APP_VERSION) {
-        setShowWhatsNew(true);
+    AsyncStorage.getItem('@gp_onboarding_seen').then(seen => {
+      if (seen !== '1') {
+        // Premier lancement : la visite guidée remplace "Quoi de neuf" (rien
+        // de "nouveau" à raconter à quelqu'un qui découvre l'app), et on
+        // marque aussi la version courante comme vue pour ne pas enchaîner
+        // avec cette modale juste après.
+        setShowOnboarding(true);
+        AsyncStorage.setItem('@gp_onboarding_seen', '1').catch(() => {});
         AsyncStorage.setItem('@gp_last_seen_version', APP_VERSION).catch(() => {});
+        return;
       }
+      AsyncStorage.getItem('@gp_last_seen_version').then(v => {
+        if (v !== APP_VERSION) {
+          setShowWhatsNew(true);
+          AsyncStorage.setItem('@gp_last_seen_version', APP_VERSION).catch(() => {});
+        }
+      });
     });
   }, []);
   useEffect(() => { registerForPushNotificationsAsync(); }, []);
@@ -1581,7 +1870,6 @@ function AppInner() {
     setUpdateReady(false);
     setFakeUpdateTest(false);
   };
-  const [nativeRefreshKey, setNativeRefreshKey] = useState(0);
   const nativeSchedulesRef = useRef<SchedulesRef>(null);
   const [svLayout, setSvLayout] = useState(0);
   const [panelLines, setPanelLines] = useState<LineChip[] | null>(null);
@@ -1602,6 +1890,12 @@ function AppInner() {
     }
     return items;
   }, [panelLines]);
+  // Icône du mode dominant affichée dans l'en-tête du panneau (premier
+  // groupe de la liste déjà triée par comparerLignesParMode).
+  const headerModeIcon = useMemo(() => {
+    const first = panelLineItems.find((i): i is { type: 'mode'; mode: string } => i.type === 'mode');
+    return first ? (MODE_ICONS[first.mode] ?? MODE_ICONS['BUS']) : null;
+  }, [panelLineItems]);
   const webViewRef = useRef<WebView>(null);
   const mapRef = useRef<MapWebViewRef | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
@@ -1657,13 +1951,25 @@ function AppInner() {
   const snapToRef = useRef(snapTo);
   snapToRef.current = snapTo;
 
+  // Ferme uniquement le volet des horaires : la vue de l'arrêt (poteaux
+  // compris) reste affichée, avec son nom à la place de la barre de
+  // recherche, jusqu'à ce qu'on quitte explicitement via quitterVueArret.
   const fermerPanel = useCallback(() => {
     linesAbortRef.current?.abort();
     setPanelIsOpen(false);
-    snapTo('hidden', () => { setGareActuelle(null); setPanelLines(null); });
+    snapTo('hidden');
   }, [snapTo]);
   const fermerPanelRef = useRef(fermerPanel);
   fermerPanelRef.current = fermerPanel;
+
+  // Quitte complètement la vue de l'arrêt : ferme le volet, efface les
+  // poteaux/pin de la carte et fait réapparaître la barre de recherche.
+  const quitterVueArret = useCallback(() => {
+    linesAbortRef.current?.abort();
+    setPanelIsOpen(false);
+    snapTo('hidden', () => { setGareActuelle(null); setPanelLines(null); });
+    mapRef.current?.clearActiveStation();
+  }, [snapTo]);
 
 
   // Logique de drag partagée entre la poignée (toujours active) et la zone de
@@ -1741,10 +2047,11 @@ function AppInner() {
 
   // ── Données ──────────────────────────────────────────────────────────────
   const [fontsLoaded] = useFonts({
-    'GrandParis-Light':  require('./assets/GrandParis-Light.otf'),
-    'GrandParis':        require('./assets/GrandParis.otf'),
-    'GrandParis-Medium': require('./assets/GrandParis-Medium.otf'),
-    'GrandParis-Bold':   require('./assets/GrandParis-Bold.otf'),
+    'GrandParis-Light':   require('./assets/GrandParis-Light.otf'),
+    'GrandParis':         require('./assets/GrandParis.otf'),
+    'GrandParis-Regular': require('./assets/GrandParis-Regular.otf'),
+    'GrandParis-Medium':  require('./assets/GrandParis-Medium.otf'),
+    'GrandParis-Bold':    require('./assets/GrandParis-Bold.otf'),
   });
 
   const { width: screenWidth } = Dimensions.get('window');
@@ -1822,36 +2129,75 @@ function AppInner() {
     }
 
     if (dejaOuverte) {
-      const url = `${APP_URL}?selectionned_stop_id=${id}&selectionned_stop_name=${encodeURIComponent(label)}&t=${Date.now()}`;
-      webViewRef.current?.injectJavaScript(`window.location.href = "${url}"; true;`);
-    } else {
-      setPanelLines(null);
-      linesAbortRef.current?.abort();
-      const ctrl = new AbortController();
-      linesAbortRef.current = ctrl;
-      linesForArea(id, ctrl.signal)
-        .then(lines => { if (!ctrl.signal.aborted) setPanelLines(lines); })
-        .catch(() => setPanelLines([]));
+      // Même station déjà ouverte (ex: on reclique un autre poteau du même
+      // arrêt) : rien à faire, les horaires natifs se rafraîchissent déjà
+      // tout seuls, pas besoin de retoucher au zoom ni au contenu.
+      return;
     }
 
-    coordGare(id)
-      .then(coord => {
-        if (coord) {
-          mapRef.current?.flyTo(coord.lat, coord.lon);
-          mapRef.current?.showStation(id, coord.lat, coord.lon, label);
+    setPanelLines(null);
+    linesAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    linesAbortRef.current = ctrl;
+
+    // Les horaires (chips de lignes du panneau) ne dépendent pas des poteaux
+    // de bus : on ne les fait plus attendre sur cette recherche, plus lente
+    // sur les grosses stations (traitement par lots, voir stopPointsForArea).
+    linesForArea(id, ctrl.signal)
+      .then(lines => {
+        if (ctrl.signal.aborted) return;
+        setPanelLines(lines);
+
+        // Le bus est déjà détaillé sur ses poteaux physiques dispersés (voir
+        // stopPointsForArea) — le remettre ici en plus, avec parfois 20+
+        // lignes, rendrait l'encadré principal illisible. Le tram, comme
+        // RER/Métro/Train/Câble/Fluvial, reste un point unique bien
+        // identifié : il reste dans l'encadré principal.
+        const groupes = new Map<string, { mode: string; lines: { code: string; color: string; textColor: string }[] }>();
+        for (const l of lines) {
+          if (l.mode === 'BUS') continue;
+          if (!groupes.has(l.mode)) groupes.set(l.mode, { mode: l.mode, lines: [] });
+          groupes.get(l.mode)!.lines.push({ code: l.code, color: l.color, textColor: l.textColor });
         }
+        const modeGroups = Array.from(groupes.values());
+
+        // Le stop_area d'un câble/funiculaire isolé (ex: funiculaire de
+        // Montmartre) a parfois une coordonnée décalée par rapport au vrai
+        // poteau — on préfère alors la position du poteau physique. Mais
+        // quand le câble est en correspondance avec un mode lourd (ex: le
+        // métro 8 à Pointe du Lac), on garde la coordonnée du pôle pour que
+        // l'étiquette reste groupée et cohérente avec ce mode lourd.
+        const aDuCable = modeGroups.some(g => g.mode === 'CABLE');
+        const aUnModeLourd = modeGroups.some(g => g.mode === 'RER' || g.mode === 'TRAIN' || g.mode === 'METRO' || g.mode === 'TRAM');
+        const coordPromise = aDuCable && !aUnModeLourd
+          ? coordPoteau(id).then(c => c ?? coordGare(id))
+          : coordGare(id);
+
+        coordPromise.catch(() => null).then(coord => {
+          if (ctrl.signal.aborted || !coord) return;
+          const main = { lat: coord.lat, lon: coord.lon, modeGroups };
+          // Affiche le point principal tout de suite, mais sans bouger la
+          // caméra : le zoom attend les poteaux de bus pour n'animer qu'une
+          // seule fois vers le cadrage final (sinon on zoome une première
+          // fois sur le point seul, puis une seconde fois — en dézoomant —
+          // pour englober les poteaux, ce qui donne un aller-retour visible).
+          mapRef.current?.showStopCluster(id, label, main, [], false);
+          Promise.all([
+            stopPointsForArea(id, ctrl.signal).catch(() => []),
+            stationExits(coord.lat, coord.lon).catch(() => []),
+          ]).then(([points, exits]) => {
+            if (ctrl.signal.aborted) return;
+            mapRef.current?.showStopCluster(id, label, main, points, true, exits);
+          });
+        });
       })
-      .catch(e => logger.warn(`coord ${id}: ${e?.message}`));
+      .catch(() => setPanelLines([]));
   }, [gareActuelle, APP_URL, snapTo]);
 
   const selectionnerDepuisFavoris = useCallback((id: string, label: string) => {
     setActiveTab('accueil');
     setTimeout(() => ouvrirGare(id, label), 50);
   }, [ouvrirGare]);
-
-  const rechargerWebView = () => {
-    webViewRef.current?.injectJavaScript(`location.reload(); true;`);
-  };
 
 
   useEffect(() => {
@@ -1878,6 +2224,8 @@ function AppInner() {
   showSettingsRef.current = showSettings;
   const showWhatsNewRef = useRef(showWhatsNew);
   showWhatsNewRef.current = showWhatsNew;
+  const showOnboardingRef = useRef(showOnboarding);
+  showOnboardingRef.current = showOnboarding;
   const showUpdateModalRef = useRef(showUpdateModal);
   showUpdateModalRef.current = showUpdateModal;
   const panelIsOpenRef = useRef(panelIsOpen);
@@ -1888,6 +2236,9 @@ function AppInner() {
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (showSettingsRef.current) { setShowSettings(false); return true; }
+      // On consomme l'événement (empêche de quitter l'app) sans fermer le
+      // tuto : impossible de le passer, y compris via le bouton retour.
+      if (showOnboardingRef.current) { return true; }
       if (showWhatsNewRef.current) { setShowWhatsNew(false); return true; }
       if (showUpdateModalRef.current) { handleUpdateDismiss(); return true; }
       if (panelIsOpenRef.current) { fermerPanelRef.current(); return true; }
@@ -1921,6 +2272,8 @@ function AppInner() {
         activeTab={activeTab}
         mapRef={mapRef}
         panelOpen={panelIsOpen}
+        gareActuelle={gareActuelle ? { id: gareActuelle.id, label: gareActuelle.label } : null}
+        onQuitterVueArret={quitterVueArret}
       />
 
       {/* Zone de fermeture des tiroirs (sans voile) */}
@@ -1994,14 +2347,25 @@ function AppInner() {
             <View style={styles.dragZone}>
               <View style={[styles.dragBar, { backgroundColor: c.dragBar }]} />
             </View>
-            <View style={[styles.sheetHeader, { borderBottomColor: c.border }]}>
-              <Text style={[styles.sheetTitreGare, { color: c.text }]} numberOfLines={1}>
+            <View style={styles.sheetHeader}>
+              <View style={[styles.sheetIconGare, { backgroundColor: c.iconGareBg }]}>
+                {headerModeIcon ? (
+                  <ExpoImage
+                    source={{ uri: headerModeIcon }}
+                    style={{ width: 20, height: 20, tintColor: isDark ? '#ddeeff' : '#25303b' }}
+                    contentFit="contain"
+                  />
+                ) : (
+                  <Text style={{ fontSize: 16 }}>🚏</Text>
+                )}
+              </View>
+              <Text style={[styles.sheetTitreGare, { color: c.text }]} numberOfLines={2}>
                 {gareActuelle?.label.split('(')[0].trim() || ''}
               </Text>
               <View style={styles.sheetActions}>
                 {!gareActuelle?.osmOnly && (
-                  <TouchableOpacity style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]} onPress={nativeSchedules ? () => setNativeRefreshKey(k => k + 1) : rechargerWebView}>
-                    <Text style={{ fontSize: 15 }}>🔄</Text>
+                  <TouchableOpacity style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]} onPress={() => mapRef.current?.recenterActiveStation()}>
+                    <Text style={{ fontSize: 15 }}>📍</Text>
                   </TouchableOpacity>
                 )}
                 {gareActuelle && !gareActuelle.osmOnly && (
@@ -2076,7 +2440,6 @@ function AppInner() {
                 ref={nativeSchedulesRef}
                 stopId={gareActuelle.id}
                 stopName={gareActuelle.id === GHOST_STOP_ID ? GHOST_STOP_NAME : gareActuelle.label.split('(')[0].trim()}
-                refreshKey={nativeRefreshKey}
                 onAtTopChange={(atTop) => { scheduleAtTopRef.current = atTop; }}
                 nativeGesture={scheduleNativeGesture}
               />
@@ -2098,8 +2461,19 @@ function AppInner() {
       </View>
 
       {/* Modal paramètres */}
-      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_last_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} />
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_last_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
+      <OnboardingTour
+        visible={showOnboarding}
+        onFinish={() => setShowOnboarding(false)}
+        steps={[
+          { key: 'welcome', emoji: '👋', title: 'Bienvenue sur Grand Paname', text: "Naviguez le Grand Paris, tout simplement !\n Découvrez votre nouveau compagnon de transport en Île-de-France." },
+          { key: 'search', emoji: '🔎', title: 'Vos horaires en un clic !', text: "Tapez le nom d'un arrêt dans la barre de recherche pour accéder à tous ses horaires en un instant.\nVous pouvez également utiliser la géolocalisation pour trouver les arrêts à proximité." },
+          { key: 'map', emoji: '🗺️', title: 'Explorez la carte', text: 'Accédez au plan du réseau et cliquez directement sur un arrêt pour voir ses horaires, ligne par ligne.' },
+          { key: 'favoris', emoji: '⭐', title: 'Retrouve tes favoris', text: "Ajoute un arrêt en favori avec l'étoile dans son panneau d'horaires : il apparaîtra dans l'onglet Favoris pour un accès rapide." },
+          { key: 'wip', emoji: '🚧', title: 'Work in Progress', text: "L'application est encore en développement : certaines fonctionnalités sont en cours de construction.\nMerci pour votre patience et vos retours !" },
+        ]}
+      />
       <UpdateModal
         visible={showUpdateModal}
         mode={updateReady ? 'ready' : 'prompt'}
@@ -2184,6 +2558,13 @@ const styles = StyleSheet.create({
     zIndex: 999, elevation: 10,
     shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10, overflow: 'hidden',
   },
+  gpsStatusPill: {
+    position: 'absolute', width: '88%', alignSelf: 'center',
+    borderRadius: 16, borderWidth: 1,
+    paddingVertical: 14, paddingHorizontal: 16,
+    zIndex: 999, elevation: 10,
+    shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 10,
+  },
   searchResultRow: {
     flexDirection: 'row', alignItems: 'center',
     borderBottomWidth: 1, paddingHorizontal: 15,
@@ -2246,13 +2627,17 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15, shadowRadius: 16, elevation: 24,
   },
-  dragZone: { height: 30, alignItems: 'center', justifyContent: 'center' },
+  dragZone: { height: 26, alignItems: 'center', justifyContent: 'center' },
   dragBar: { width: 40, height: 4, borderRadius: 2 },
   sheetHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1,
+    paddingHorizontal: 16, paddingTop: 2, paddingBottom: 14,
   },
-  sheetTitreGare: { flex: 1, fontSize: 17, fontFamily: 'GrandParis-Bold', marginRight: 8 },
+  sheetIconGare: {
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center', marginRight: 10,
+  },
+  sheetTitreGare: { flex: 1, fontSize: 18, lineHeight: 21, fontFamily: 'GrandParis-Bold', letterSpacing: 0.1, marginRight: 8 },
   sheetActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   sheetBoutonAction: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   sheetBoutonFermer: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
