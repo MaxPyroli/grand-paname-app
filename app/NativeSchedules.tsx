@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, memo, startTransition, useRef, forwardRef, useImperativeHandle } from 'react';
-import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, ToastAndroid, Platform, Animated } from 'react-native';
-import { GestureDetector, ScrollView, type NativeGesture } from 'react-native-gesture-handler';
+import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, ToastAndroid, Platform, Animated, ScrollView } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { NAVITIA_BASE, NAVITIA_KEY } from './constants';
 import { useColors } from './theme';
@@ -380,7 +379,17 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     // reprend le code à une lettre de la ligne lourde qu'il remplace. On le
     // garde comme carte bus à part (voir isSubstitution plus bas), séparée
     // de la carte RER/Train grâce à la clé incluant le mode.
-    const isSubstitution = mode === 'BUS' && RAIL_CODES.has(code);
+    // Un simple code à une lettre ne suffit pas : certaines gares (ex: Massy)
+    // ont de vraies lignes de bus dont le code coïncide avec une lettre de
+    // RER/Transilien (A-E, H, J, K, L, N, P, R, U, V), sans aucun rapport
+    // avec un remplacement. On exige donc en plus que le réseau du départ
+    // évoque du rail (RER/Transilien/SNCF) — absent de la réponse pour un bus
+    // "normal" de la RATP/Transdev/etc. Si le champ réseau est manquant côté
+    // Navitia, on reste permissif (comportement d'avant) plutôt que de
+    // désactiver la détection silencieusement.
+    const network = String(d.display_informations?.network || line.network?.name || '');
+    const looksLikeRailNetwork = !network || /RER|Transilien|SNCF/i.test(network);
+    const isSubstitution = mode === 'BUS' && RAIL_CODES.has(code) && looksLikeRailNetwork;
 
     // Les Noctiliens et les bus de substitution sont peu fréquents : un
     // départ réel tombe facilement au-delà de 3h, il ne faut pas l'exclure
@@ -566,11 +575,11 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
-type Props = { stopId: string; stopName?: string; onAtTopChange?: (atTop: boolean) => void; nativeGesture?: NativeGesture };
+type Props = { stopId: string; stopName?: string };
 export type SchedulesRef = { scrollTo: (code: string) => void };
 
 const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules(
-  { stopId, stopName = '', onAtTopChange, nativeGesture },
+  { stopId, stopName = '' },
   ref,
 ) {
   const c = useColors();
@@ -582,17 +591,6 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
   const terminatedBusCodes = useRef<Set<string>>(new Set());
   const [highlightState, setHighlightState] = useState<{ code: string; tick: number } | null>(null);
   const toastCooldown = useRef(false);
-  const atTopRef = useRef(true);
-
-  const handleScroll = useCallback((e: { nativeEvent: { contentOffset: { y: number } } }) => {
-    const atTop = e.nativeEvent.contentOffset.y <= 2;
-    if (atTop !== atTopRef.current) {
-      atTopRef.current = atTop;
-      onAtTopChange?.(atTop);
-    }
-  }, [onAtTopChange]);
-
-  useEffect(() => { onAtTopChange?.(atTopRef.current); }, []);
 
   useImperativeHandle(ref, () => ({
     scrollTo: (code: string) => {
@@ -707,10 +705,8 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
       ref={scrollRef}
       style={{ flex: 1 }}
       contentContainerStyle={s.listContent}
-      onScroll={handleScroll}
-      scrollEventThrottle={16}
-      overScrollMode="never"
-      bounces={false}
+      overScrollMode="always"
+      bounces={true}
     >
       {renderItems.map((item, i) =>
         item.type === 'mode' ? (
@@ -731,10 +727,7 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
     </ScrollView>
   );
 
-  // GestureDetector expose le geste natif du scroll au parent (App.tsx), qui
-  // le compose avec le geste de drag du volet pour permettre de tirer le
-  // volet vers le bas depuis l'intérieur de la liste, une fois en haut.
-  return nativeGesture ? <GestureDetector gesture={nativeGesture}>{listView}</GestureDetector> : listView;
+  return listView;
 });
 
 export default memo(NativeSchedules);

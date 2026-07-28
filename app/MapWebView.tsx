@@ -84,6 +84,16 @@ function getMapHTML(isDark: boolean) {
 <script>
   var map = L.map('map',{zoomControl:false,attributionControl:false,zoomSnap:0.1,zoomDelta:0.5}).setView([48.8566,2.3522],11.5);
 
+  // Le setView initial ci-dessus déclenche lui-même un moveend (comportement
+  // Leaflet normal après un setView programmatique), ce qui lançait aussitôt
+  // la recherche des arrêts proches au chargement de l'app, avant même que
+  // l'utilisateur touche la carte. On attend donc un vrai geste utilisateur
+  // (zoomstart/dragstart) avant de laisser passer le premier viewportChanged
+  // — l'app démarre plus vite, sans requête réseau tant que la carte n'a pas
+  // été manipulée.
+  var _userInteracted=false;
+  map.on('zoomstart dragstart',function(){ _userInteracted=true; });
+
   window._tileLayer = L.tileLayer('${tileUrl}',{
     maxZoom:19, subdomains:'abcd'
   }).addTo(map);
@@ -98,9 +108,19 @@ function getMapHTML(isDark: boolean) {
   var activeMarkerId = null;
   var _lastMain = null;
   var _lastPoints = [];
+  var _lastExits = [];
   var transportLines = [];
   var transportStops = [];
-  var nearbyStopMarkers = [];
+  // id -> {marker, key} : la vue "arrêts à proximité" se reconstruisait en
+  // entier (removeLayer + recréation de tous les divIcon) à chaque zoomend,
+  // puis une seconde fois ~600ms plus tard au retour des données fraîches du
+  // backend (voir setNearbyStops/_vpTimer) — donc deux reconstructions
+  // complètes juste après chaque geste de zoom, pile quand la fluidité
+  // compte le plus. "key" résume tout ce qui influence l'icône (modes
+  // visibles + échelle) : un arrêt dont l'icône ne change pas entre deux
+  // rendus (cas courant : re-zoom léger, ou re-fetch avec les mêmes arrêts)
+  // garde son marker existant au lieu d'être supprimé/recréé.
+  var nearbyStopMarkerById = {};
 
   function userIcon(){
     return L.divIcon({
@@ -211,6 +231,13 @@ function getMapHTML(isDark: boolean) {
   }
 
   function showStation(id,lat,lon,label){
+    // Sélectionner une station doit couper le suivi GPS : sinon, le prochain
+    // point de position (toutes les 3s) recentre la carte sur l'utilisateur
+    // alors qu'il est en train de consulter un arrêt précis.
+    if(followMode){
+      followMode=false;
+      window.ReactNativeWebView.postMessage(JSON.stringify({type:'followModeExited'}));
+    }
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
     activeMarkerId=id;
@@ -225,6 +252,7 @@ function getMapHTML(isDark: boolean) {
     stationMarkers.push(m);
     _lastMain={lat:lat,lon:lon,modeGroups:null};
     _lastPoints=[];
+    _lastExits=[];
   }
 
   function flyToStation(lat,lon,zoom){
@@ -334,6 +362,13 @@ function getMapHTML(isDark: boolean) {
   // Utile pour les stations où les arrêts de bus sont dispersés à des
   // endroits différents.
   function showStopCluster(id,label,main,points,moveCamera,exits){
+    // Idem showStation : sélectionner une station coupe le suivi GPS, sinon
+    // la position revient recentrer la carte au prochain point pendant que
+    // l'utilisateur consulte un arrêt.
+    if(followMode){
+      followMode=false;
+      window.ReactNativeWebView.postMessage(JSON.stringify({type:'followModeExited'}));
+    }
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
     activeMarkerId=id;
@@ -360,9 +395,6 @@ function getMapHTML(isDark: boolean) {
       stationMarkers.push(m);
       allPts.push([p.lat,p.lon]);
     });
-    // Les sorties sont purement informatives : on ne les inclut pas dans le
-    // calcul du zoom (allPts), sinon une sortie éloignée forcerait un
-    // dézoom inutile sur toute la station.
     // Une seule bulle de nom de sortie visible à la fois : cliquer sur une
     // sortie referme celle éventuellement ouverte sur une autre.
     var exitLabels=[];
@@ -382,11 +414,15 @@ function getMapHTML(isDark: boolean) {
       var elNow=m.getElement();
       var lblNow=elNow&&elNow.querySelector('.exit-label');
       if(lblNow) exitLabels.push(lblNow);
+      // Incluses dans le calcul du zoom : la station doit être cadrée pour
+      // que toutes ses sorties restent visibles à l'écran.
+      allPts.push([e.lat,e.lon]);
     });
     // Mémorisé pour pouvoir recadrer plus tard sans tout redemander (bouton
     // de recentrage manuel, voir recenterActiveStation).
     _lastMain=main;
     _lastPoints=points||[];
+    _lastExits=exits||[];
 
     if(!allPts.length||moveCamera===false){ return; }
     _flyToCluster(allPts,main);
@@ -424,6 +460,7 @@ function getMapHTML(isDark: boolean) {
     var allPts=[];
     if(_lastMain) allPts.push([_lastMain.lat,_lastMain.lon]);
     (_lastPoints||[]).forEach(function(p){ allPts.push([p.lat,p.lon]); });
+    (_lastExits||[]).forEach(function(e){ allPts.push([e.lat,e.lon]); });
     if(!allPts.length) return;
     _flyToCluster(allPts,_lastMain);
   }
@@ -498,9 +535,8 @@ function getMapHTML(isDark: boolean) {
   }
 
   function _renderNearbyStops(){
-    nearbyStopMarkers.forEach(function(m){map.removeLayer(m);});
-    nearbyStopMarkers=[];
     var z=map.getZoom();
+    var seen={};
     _allNearbyStops.forEach(function(s){
       if(s.lat==null||s.lon==null)return;
       if(_hiddenNearbyId!==null&&(s.id===_hiddenNearbyId||s.stop_area_id===_hiddenNearbyId))return;
@@ -513,6 +549,18 @@ function getMapHTML(isDark: boolean) {
       });
       if(!visibleModes.length)return;
       var scale=z<12.5?0.62:z<13?0.72:z<13.5?0.80:z<14?0.88:z<15?0.96:z<16?1.05:z<17?1.2:1.4;
+
+      // Tout ce qui suit ne dépend que de "visibleModes" et "scale" — un
+      // arrêt dont l'icône serait identique au dernier rendu (id + clé
+      // inchangés) garde son marker existant plutôt que d'être détruit et
+      // reconstruit (removeLayer + nouveau divIcon HTML), ce qui est le vrai
+      // coût de cette fonction, appelée à chaque zoomend.
+      var key=visibleModes.join(',')+'|'+scale;
+      seen[s.id]=true;
+      var existing=nearbyStopMarkerById[s.id];
+      if(existing&&existing.key===key) return;
+      if(existing) map.removeLayer(existing.marker);
+
       var maxSz=0;
       visibleModes.forEach(function(m){ var s2=Math.round((MODE_ICON_SIZE[m]||14)*scale); if(s2>maxSz)maxSz=s2; });
       var sz=visibleModes.length>1?Math.max(maxSz-2,12):maxSz;
@@ -546,7 +594,16 @@ function getMapHTML(isDark: boolean) {
           e.originalEvent.stopPropagation();
           window.ReactNativeWebView.postMessage(JSON.stringify({type:'stationSelected',id:s.stop_area_id||s.id,label:s.label}));
         });
-      nearbyStopMarkers.push(m);
+      nearbyStopMarkerById[s.id]={marker:m,key:key};
+    });
+    // Les arrêts qui n'ont pas été vus cette passe (plus dans la liste, plus
+    // dans le champ de vue, ou masqués car station active) perdent leur
+    // marker existant.
+    Object.keys(nearbyStopMarkerById).forEach(function(id){
+      if(!seen[id]){
+        map.removeLayer(nearbyStopMarkerById[id].marker);
+        delete nearbyStopMarkerById[id];
+      }
     });
   }
 
@@ -555,7 +612,19 @@ function getMapHTML(isDark: boolean) {
     _renderNearbyStops();
   }
 
-  map.on('zoomend',function(){ _renderNearbyStops(); });
+  // Anti-rebond : sans lui, chaque zoomend (un par geste de pincement, donc
+  // plusieurs si on zoome vite plusieurs fois de suite) relançait aussitôt
+  // _renderNearbyStops, qui s'exécute sur le même thread JS que celui qui
+  // gère les gestes de la carte — les appels s'empilaient et bloquaient les
+  // gestes suivants le temps de les rattraper (le "ça se fige quelques
+  // secondes" en zoomant vite plusieurs fois). Ne garder que le dernier
+  // zoomend d'une rafale règle ça, sans revenir sur le diff par id déjà en
+  // place (qui réduit déjà le coût de chaque appel).
+  var _nearbyRenderTimer=null;
+  map.on('zoomend',function(){
+    clearTimeout(_nearbyRenderTimer);
+    _nearbyRenderTimer=setTimeout(_renderNearbyStops,120);
+  });
   map.on('click',function(){
     // On ne vide plus les poteaux ici : un tap sur la carte ne fait que
     // refermer le volet des horaires côté RN (fermerPanel), la vue de
@@ -566,6 +635,7 @@ function getMapHTML(isDark: boolean) {
 
   var _vpTimer=null;
   map.on('moveend zoomend',function(){
+    if(!_userInteracted) return;
     clearTimeout(_vpTimer);
     _vpTimer=setTimeout(function(){
       var c=map.getCenter();

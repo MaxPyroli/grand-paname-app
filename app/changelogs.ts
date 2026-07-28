@@ -7,8 +7,20 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.2.1',
+    date: '28 juillet 2026',
+    content: `**🛠️ Améliorations et Corrections**
+* Le comportement du volet des horaires a été revu pour rendre son utilisation plus fluide et agréable.
+* Correction d'un bug de zoom sur la position de l'utilisateur lors de l'affichage des horaires.
+* Correction d'un bug d'identification à tord d'un bus comme étant un bus de remplacement.
+* Ajustement du chargement des arrêts au démarrage de l'application.
+* Ajustement des fermetures automatiques des différents volets de l'application pour éviter les conflits d'affichage.
+
+Bon voyage !`,
+  },
+  {
     version: '3.2.0',
-    date: '24 juillet 2026',
+    date: '25 juillet 2026',
     content: `**🚀 Nouveautés**
 * Les arrêts ont maintenant un affichage plus complet ! Ils affichent désormais sur la carte toutes les lignes, et leur point d'arrêt précis pour les bus ! Retrouvez également l'affichage des différents accès aux stations.
 
@@ -22,6 +34,12 @@ export const CHANGELOGS: ChangelogEntry[] = [
 * Correction d'un bug d'affichage de la ville d'un arrêt dans les favoris.
 * Correction d'un bug d'affichage des lignes de train.
 * Correction d'un bug d'affichage des RER/Trains quand ceux-ci étaient remplacés par leurs satanés bus de substitution.
+* Correction de plusieurs bugs de défilement et de fermeture du volet des horaires (le geste de fermeture ne fonctionnait pas depuis les arrêts avec beaucoup de lignes).
+* Fondu en bas de la liste d'horaires renforcé pour bien masquer la coupure de la liste.
+* Les sorties d'une station sont désormais prises en compte pour cadrer le zoom sur celle-ci.
+* Le mode édition des favoris ne reste plus actif par erreur après avoir refermé puis rouvert l'onglet Favoris.
+* Revu le fonctionnement de "Quoi de neuf" pour qu'il s'affiche de façon plus fiable.
+* L'application reste verrouillée en portrait sur téléphone (toujours flexible sur tablette/pliable).
 
 Bon voyage !`,
   },

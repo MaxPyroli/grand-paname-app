@@ -12,6 +12,24 @@ export type WhatsNewEntry = {
 
 export const WHATSNEW: WhatsNewEntry[] = [
   {
+    version: '3.2.0',
+    features: [
+      {
+        emoji: '🗺️',
+        title: 'Affichage des arrêts en un coup d\'œil',
+        description:
+          "La carte affiche maintenant toutes les lignes d'un arrêt, le point d'arrêt précis pour les bus, et les différents accès (sorties) d'une station.",
+      },
+      {
+        emoji: '👋',
+        title: 'Tutoriel de bienvenue',
+        description:
+          "Un petit tour guidé s'affiche au premier lancement pour découvrir l'app : recherche, carte, favoris...",
+      },
+    ],
+    footer: "Plein d'autres corrections aussi (favoris, recherche, affichage des destinations...) — détails dans le changelog complet.",
+  },
+  {
     version: '3.1.2',
     features: [
       {

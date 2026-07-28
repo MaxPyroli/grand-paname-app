@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo, useContext } 
 import {
   StyleSheet, View, Text, TouchableOpacity, ActivityIndicator,
   FlatList, TextInput, Keyboard, Animated, Dimensions, Easing,
-  LayoutChangeEvent, Platform, PanResponder, ToastAndroid, NativeModules,
+  LayoutChangeEvent, Platform, ToastAndroid, NativeModules,
   Modal, Linking, ScrollView, BackHandler,
 } from 'react-native';
 import { ThemeContext, ThemeProvider, useColors } from './theme';
@@ -17,6 +17,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS, ChangelogEntry } from './changelogs';
@@ -30,6 +31,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useAudioPlayer } from 'expo-audio';
 import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 import { registerForPushNotificationsAsync } from './notifications';
 // Import de type uniquement : pas de require() exécuté au chargement du bundle.
 // react-native-device-info (dépendance de cette lib) plante à l'évaluation de
@@ -130,10 +132,34 @@ const getWebviewDarkJS = (dark: boolean): string => {
   `})();true;`;
 };
 
-function FadeBottom({ color, height = 56 }: { color: string; height?: number }) {
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function FadeBottom({ color, height = 56, strong = false }: { color: string; height?: number; strong?: boolean }) {
+  // `strong` : un simple dégradé 2 points (transparent → couleur) reste très
+  // léger visuellement sur les premiers 50-60% (l'œil ne perçoit presque rien
+  // sous ~40% d'opacité) — le fondu paraît alors trop faible pour masquer une
+  // vraie coupure nette (ex: liste d'horaires coupée par le clip du panneau).
+  // Plusieurs paliers d'opacité rapprochés vers la fin donnent un fondu qui
+  // "prend" plus tôt et masque mieux la coupure.
+  // Le dernier palier est atteint avant la toute fin (0.88, pas 1) : une
+  // marge opaque pleine de quelques % en réserve, pour ne pas dépendre du
+  // pixel exact de la fin du dégradé — sur certains rendus, l'interpolation
+  // du tout dernier pixel d'un LinearGradient n'atteint pas une opacité
+  // parfaitement pleine, laissant filtrer un liseré d'un pixel du contenu
+  // masqué en dessous.
+  const colors = (strong
+    ? [hexToRgba(color, 0), hexToRgba(color, 0.4), hexToRgba(color, 0.75), hexToRgba(color, 0.93), color, color]
+    : ['transparent', color]) as [string, string, ...string[]];
+  const locations = (strong ? [0, 0.35, 0.6, 0.78, 0.88, 1] : undefined) as [number, number, ...number[]] | undefined;
   return (
     <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height }} pointerEvents="none">
-      <LinearGradient colors={['transparent', color]} style={{ flex: 1 }} />
+      <LinearGradient colors={colors} locations={locations} style={{ flex: 1 }} />
     </View>
   );
 }
@@ -156,6 +182,11 @@ type FavorisProps = {
   onSupprimerFavori: (gare: Gare) => void;
   onSelectionnerGare: (id: string, label: string) => void;
   onReordonnerFavoris: (from: number, to: number) => void;
+  // Le tiroir reste monté (juste translaté hors écran) quand on le ferme, pour
+  // éviter un remount coûteux à chaque ouverture — donc `editMode` doit être
+  // remis à zéro explicitement à la fermeture, sinon il persiste à la
+  // prochaine ouverture.
+  actif: boolean;
 };
 type AccueilProps = {
   onBasculerFavori: (gare: Gare) => void;
@@ -172,6 +203,7 @@ type AccueilProps = {
   showDebugOverlay: boolean;
   gareActuelle: { id: string; label: string } | null;
   onQuitterVueArret: () => void;
+  onRevenirAccueil: () => void;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -770,7 +802,7 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret, onRevenirAccueil }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -837,13 +869,23 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
   const vpAbortRef = useRef<AbortController | null>(null);
   const regionRailStopsRef = useRef<NearbyStop[]>([]);
-  useEffect(() => {
-    regionWideRailStops().then(stops => { regionRailStopsRef.current = stops; }).catch(() => {});
-  }, []);
+  // Lancé au premier changement de viewport (donc au premier vrai zoom/pan de
+  // l'utilisateur, voir _userInteracted dans MapWebView.tsx) plutôt qu'au
+  // montage : évite une requête réseau supplémentaire pendant le chargement
+  // initial de l'app, avant même que la carte ait été touchée.
+  const regionRailStopsFetchedRef = useRef(false);
   const [debugInfo, setDebugInfo] = useState({ zoom: 0, lat: 0, lon: 0 });
 
   const handleViewportChanged = useCallback(async (lat: number, lon: number, zoom: number, radius: number) => {
-    setDebugInfo({ zoom, lat, lon });
+    // Ne re-render tout AccueilScreen (recherche, résultats, bouton GPS...)
+    // que si l'overlay de debug est effectivement affiché — sinon ce
+    // setState tournait à chaque pan/zoom pour ne rafraîchir qu'un texte
+    // masqué, saccadant l'interaction avec la carte pour rien.
+    if (showDebugOverlay) setDebugInfo({ zoom, lat, lon });
+    if (!regionRailStopsFetchedRef.current) {
+      regionRailStopsFetchedRef.current = true;
+      regionWideRailStops().then(stops => { regionRailStopsRef.current = stops; }).catch(() => {});
+    }
     if (zoom < 11.5) { mapRef.current?.setNearbyStops([]); return; }
     vpAbortRef.current?.abort();
     vpAbortRef.current = new AbortController();
@@ -853,7 +895,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       const merged = stops.concat(regionRailStopsRef.current.filter(s => !ids.has(s.id)));
       mapRef.current?.setNearbyStops(merged);
     } catch {}
-  }, [mapRef]);
+  }, [mapRef, showDebugOverlay]);
 
   useEffect(() => {
     mapRef.current?.setTheme(isDark);
@@ -938,6 +980,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   };
 
   const declarerClicGpsNatif = async () => {
+    onRevenirAccueil();
     fermerRecherche();
     setIsSearching(true);
     try {
@@ -1199,9 +1242,10 @@ const FAV_ITEM_H = 72;
 const FAV_GAP    = 10;
 const FAV_SLOT_H = FAV_ITEM_H + FAV_GAP;
 
-function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReordonnerFavoris }: FavorisProps) {
+function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReordonnerFavoris, actif }: FavorisProps) {
   const c = useColors();
   const [editMode, setEditMode] = useState(false);
+  useEffect(() => { if (!actif) setEditMode(false); }, [actif]);
   const yMap = useRef(new Map<string, Animated.Value>()).current;
   const isAnimating = useRef(false);
 
@@ -1496,9 +1540,16 @@ function ModalButton({ onPress, backgroundColor, style, children }: {
 function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean; onClose: () => void; onOpenChangelog: () => void }) {
   const c = useColors();
   const { anim, mounted } = useModalCardAnim(visible);
-  const entry = WHATSNEW.find(e => e.version === APP_VERSION);
+  // Toujours la dernière entrée de la liste (WHATSNEW est trié du plus
+  // récent au plus ancien, comme CHANGELOGS) — pas un match exact sur
+  // APP_VERSION : sinon, dès qu'une version sort sans entrée whatsnew (ou que
+  // l'app a déjà avancé d'une version de plus entre-temps), la modale ne
+  // s'affiche jamais pour cette nouveauté, même si l'utilisateur ne l'a
+  // jamais vue.
+  const entry = WHATSNEW[0];
 
   const handleClose = () => {
+    if (entry) AsyncStorage.setItem('@gp_whatsnew_seen_version', entry.version).catch(() => {});
     Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(onClose);
   };
 
@@ -1517,7 +1568,7 @@ function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean
         <View style={{ gap: 8 }}>
           <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>✨ Quoi de neuf ?</Text>
           <View style={{ backgroundColor: c.accent, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' }}>
-            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 11, color: '#fff', letterSpacing: 0.5 }}>v{APP_VERSION}</Text>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 11, color: '#fff', letterSpacing: 0.5 }}>v{entry.version}</Text>
           </View>
         </View>
 
@@ -1717,11 +1768,38 @@ function UpdateModal({ visible, mode, onAccept, onDismiss }: {
   );
 }
 
+// L'app n'est pas prévue pour le paysage sur téléphone (rien dans l'UI n'est
+// pensé pour ça), mais Google Play exige depuis peu que les apps restent
+// flexibles en orientation sur grands écrans (tablettes/pliables) — d'où
+// l'absence de verrou statique dans app.config.js. Le compromis : verrouiller
+// le portrait uniquement quand l'écran est de taille "téléphone" (répliquant
+// le seuil sw600dp qu'utilise Android lui-même pour distinguer téléphone et
+// tablette), et laisser l'orientation libre au-delà. Recalculé à chaque
+// changement de dimensions pour suivre un pliable qu'on ouvre/referme.
+function useAdaptiveOrientationLock() {
+  useEffect(() => {
+    const appliquer = () => {
+      const { width, height } = Dimensions.get('screen');
+      const smallestWidthDp = Math.min(width, height);
+      const estTelephone = smallestWidthDp < 600;
+      if (estTelephone) {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      } else {
+        ScreenOrientation.unlockAsync().catch(() => {});
+      }
+    };
+    appliquer();
+    const sub = Dimensions.addEventListener('change', appliquer);
+    return () => sub.remove();
+  }, []);
+}
+
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 function AppInner() {
   const insets = useSafeAreaInsets();
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
+  useAdaptiveOrientationLock();
 
   const PANEL_H = SCREEN_H - insets.top;
 
@@ -1742,18 +1820,22 @@ function AppInner() {
       if (seen !== '1') {
         // Premier lancement : la visite guidée remplace "Quoi de neuf" (rien
         // de "nouveau" à raconter à quelqu'un qui découvre l'app), et on
-        // marque aussi la version courante comme vue pour ne pas enchaîner
-        // avec cette modale juste après.
+        // marque directement la dernière entrée whatsnew comme vue pour ne
+        // pas enchaîner avec cette modale juste après le tuto.
         setShowOnboarding(true);
         AsyncStorage.setItem('@gp_onboarding_seen', '1').catch(() => {});
-        AsyncStorage.setItem('@gp_last_seen_version', APP_VERSION).catch(() => {});
+        if (WHATSNEW[0]) AsyncStorage.setItem('@gp_whatsnew_seen_version', WHATSNEW[0].version).catch(() => {});
         return;
       }
-      AsyncStorage.getItem('@gp_last_seen_version').then(v => {
-        if (v !== APP_VERSION) {
-          setShowWhatsNew(true);
-          AsyncStorage.setItem('@gp_last_seen_version', APP_VERSION).catch(() => {});
-        }
+      // Pas de comparaison avec APP_VERSION : on affiche la dernière entrée
+      // whatsnew tant que l'utilisateur ne l'a pas vue, même s'il a depuis
+      // avancé d'une version de plus (ex: une version sort sans entrée
+      // whatsnew, puis on en ajoute une pour l'annoncer après coup — elle
+      // doit quand même s'afficher).
+      const latest = WHATSNEW[0];
+      if (!latest) return;
+      AsyncStorage.getItem('@gp_whatsnew_seen_version').then(v => {
+        if (v !== latest.version) setShowWhatsNew(true);
       });
     });
   }, []);
@@ -1871,7 +1953,7 @@ function AppInner() {
     setFakeUpdateTest(false);
   };
   const nativeSchedulesRef = useRef<SchedulesRef>(null);
-  const [svLayout, setSvLayout] = useState(0);
+  const svLayout = useSharedValue(0);
   const [panelLines, setPanelLines] = useState<LineChip[] | null>(null);
   const linesAbortRef = useRef<AbortController | null>(null);
 
@@ -1900,53 +1982,71 @@ function AppInner() {
   const mapRef = useRef<MapWebViewRef | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
 
-  // ── Panel animé ──────────────────────────────────────────────────────────
-  const snapRef = useRef({ hidden: PANEL_H, half: PANEL_H - SCREEN_H * 0.50, full: PANEL_H });
-  snapRef.current.hidden = PANEL_H;
-  snapRef.current.half   = PANEL_H - SCREEN_H * 0.50;
-  snapRef.current.full   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
-
-  const panelY      = useRef(new Animated.Value(PANEL_H)).current;
-  const panelSnap   = useRef<'hidden' | 'half' | 'full'>('hidden');
-
-  // Hauteur visible du contenu, dérivée en JS à partir de panelY (seule source
-  // de vérité, pilotée en natif) plutôt que via un second spring JS séparé —
-  // deux animations indépendantes avec la même physique peuvent diverger
-  // visuellement dès que le thread JS est occupé (rendu de la liste des
-  // horaires pendant le mouvement), d'où un décalage entre le volet et son
-  // contenu. En dérivant depuis panelY via un listener, il n'y a plus qu'une
-  // seule animation réelle : le contenu suit toujours exactement le volet.
-  const contentH = useRef(new Animated.Value(50)).current;
-  const svLayoutRef = useRef(0);
-  svLayoutRef.current = svLayout;
-
-  const updateContentH = useCallback((y: number) => {
-    const snapFull = snapRef.current.full;
-    const snapHalf = snapRef.current.half;
-    const sv = svLayoutRef.current;
-    if (sv <= 0 || snapFull >= snapHalf) { contentH.setValue(50); return; }
-    const t = Math.min(1, Math.max(0, (y - snapFull) / (snapHalf - snapFull)));
-    const hMin = Math.max(50, sv + NAV_BAR_HEIGHT + NAV_BAR_BOTTOM - snapHalf);
-    contentH.setValue(sv + t * (hMin - sv));
-  }, []);
-
-  const currentY    = useRef(PANEL_H);
-  const startY      = useRef(PANEL_H);
-
+  // ── Panel animé (Reanimated) ─────────────────────────────────────────────
+  // Tout ce qui pilote le volet vit désormais en shared values Reanimated
+  // (lues/écrites depuis des worklets qui tournent sur le thread UI), et non
+  // plus en Animated.Value + refs JS. C'est une contrainte de
+  // react-native-gesture-handler : un Gesture.Pan dont les callbacks
+  // tournent sur le thread JS (via .runOnJS(true)) désactive le geste natif
+  // du ScrollView de façon globale pendant qu'il est actif — documenté par
+  // l'équipe RNGH (issues #2622, #2170, #625) — quelle que soit la relation
+  // simultaneousWithExternalGesture déclarée. En gardant les callbacks comme
+  // de vrais worklets (thread UI), cette coexistence fonctionne correctement.
+  const snapHiddenSV = useSharedValue(PANEL_H);
+  const snapHalfSV   = useSharedValue(PANEL_H - SCREEN_H * 0.50);
+  const snapFullSV   = useSharedValue(headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H);
+  // Écrire dans une shared value pendant le rendu (plutôt que dans un effet)
+  // déclenche un warning Reanimated ("Writing to `value` during component
+  // render") et, vu la fréquence des re-rendus de cet écran, répète cette
+  // écriture bien plus souvent que nécessaire — potentiellement pendant
+  // qu'un geste de scroll est en cours. On ne met donc à jour que lorsque
+  // les valeurs sources changent réellement.
   useEffect(() => {
-    const id = panelY.addListener(({ value }) => { currentY.current = value; updateContentH(value); });
-    return () => panelY.removeListener(id);
-  }, [updateContentH]);
+    snapHiddenSV.value = PANEL_H;
+    snapHalfSV.value   = PANEL_H - SCREEN_H * 0.50;
+    snapFullSV.value   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
+  }, [PANEL_H, SCREEN_H, headerHeight, insets.top]);
+
+  const panelY      = useSharedValue(PANEL_H);
+  const panelSnapSV = useSharedValue<'hidden' | 'half' | 'full'>('hidden');
+  const dragStartY  = useSharedValue(PANEL_H);
+  const contentDragEngagedSV = useSharedValue(false);
+
+  // Hauteur visible du contenu, dérivée directement de panelY (seule source
+  // de vérité, pilotée sur le thread UI) plutôt que via un second spring
+  // séparé — deux animations indépendantes avec la même physique peuvent
+  // diverger visuellement dès que le thread JS est occupé (rendu de la
+  // liste des horaires pendant le mouvement), d'où un décalage entre le
+  // volet et son contenu. useDerivedValue recalcule automatiquement à
+  // chaque frame où panelY change : il n'y a plus qu'une seule animation
+  // réelle, le contenu suit toujours exactement le volet.
+  const contentH = useDerivedValue(() => {
+    const snapFull = snapFullSV.value;
+    const snapHalf = snapHalfSV.value;
+    const sv = svLayout.value;
+    if (sv <= 0 || snapFull >= snapHalf) return 50;
+    const t = Math.min(1, Math.max(0, (panelY.value - snapFull) / (snapHalf - snapFull)));
+    const hMin = Math.max(50, sv + NAV_BAR_HEIGHT + NAV_BAR_BOTTOM - snapHalf);
+    return sv + t * (hMin - sv);
+  });
+
+  const panelAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: panelY.value }],
+  }));
+  const contentAnimatedStyle = useAnimatedStyle(() => ({
+    height: contentH.value,
+  }));
 
   const snapTo = useCallback((snap: 'hidden' | 'half' | 'full', onDone?: () => void) => {
-    const to = snap === 'hidden' ? snapRef.current.hidden
-             : snap === 'half'   ? snapRef.current.half
-                                 : snapRef.current.full;
-    panelSnap.current = snap;
+    const to = snap === 'hidden' ? snapHiddenSV.value
+             : snap === 'half'   ? snapHalfSV.value
+                                 : snapFullSV.value;
+    panelSnapSV.value = snap;
 
-    Animated.spring(panelY, { toValue: to, useNativeDriver: true, tension: 68, friction: 13 })
-      .start(({ finished }) => { if (finished) onDone?.(); });
-  }, [panelY]);
+    panelY.value = withSpring(to, { damping: 15, stiffness: 120, mass: 0.5 }, (finished) => {
+      if (finished && onDone) runOnJS(onDone)();
+    });
+  }, [panelY, panelSnapSV, snapHiddenSV, snapHalfSV, snapFullSV]);
 
   const snapToRef = useRef(snapTo);
   snapToRef.current = snapTo;
@@ -1971,79 +2071,88 @@ function AppInner() {
     mapRef.current?.clearActiveStation();
   }, [snapTo]);
 
-
-  // Logique de drag partagée entre la poignée (toujours active) et la zone de
-  // contenu (active seulement quand la liste des horaires est tout en haut —
-  // cf. contentPanGesture plus bas), pour permettre de "tirer" le volet
-  // vers le bas depuis l'intérieur de la liste, comme un vrai bottom sheet.
-  const onDragGrant = useCallback(() => {
-    panelY.stopAnimation();
-    startY.current = currentY.current;
-  }, [panelY]);
-
-  const onDragMove = useCallback((_: any, g: { dy: number }) => {
-    const next = Math.max(snapRef.current.full - 30, Math.min(snapRef.current.hidden, startY.current + g.dy));
-    panelY.setValue(next);
-  }, [panelY]);
-
-  const onDragRelease = useCallback((_: any, g: { vy: number; dy: number }) => {
-    if (g.vy < -0.5 || g.dy < -60) {
+  // Appelé via runOnJS depuis les worklets onEnd des deux gestes (poignée et
+  // contenu) : décide, sur le thread JS, quel snap viser en fonction de la
+  // vitesse/distance du relâchement. Lit panelSnapSV.value directement (les
+  // shared values sont lisibles depuis n'importe quel thread).
+  const handleDragEnd = useCallback((vy: number, dy: number) => {
+    if (vy < -0.5 || dy < -60) {
       snapToRef.current('full');
-    } else if (g.vy > 0.5 || g.dy > 60) {
-      if (panelSnap.current === 'full') snapToRef.current('half');
+    } else if (vy > 0.5 || dy > 60) {
+      if (panelSnapSV.value === 'full') snapToRef.current('half');
       else fermerPanelRef.current();
     } else {
-      snapToRef.current(panelSnap.current);
+      snapToRef.current(panelSnapSV.value);
     }
-  }, []);
+  }, [panelSnapSV]);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 5 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderGrant: onDragGrant,
-      onPanResponderMove: onDragMove,
-      onPanResponderRelease: onDragRelease,
-    })
-  ).current;
-
-  // true quand la liste des horaires est tout en haut de son scroll — dans ce
-  // cas seulement, un tiré vers le bas doit être "capturé" par le volet plutôt
-  // que de rester un simple (non-)scroll de la liste.
+  // Les callbacks des deux gestes sont maintenant de vrais worklets (thread
+  // UI), pas des callbacks .runOnJS(true) (thread JS) : RNGH désactive
+  // sinon le geste natif du ScrollView de façon globale tant qu'un Pan est
+  // actif, peu importe simultaneousWithExternalGesture (bug documenté,
+  // issues RNGH #2622/#2170/#625 — testé, confirmé sur cette app). Seul
+  // handleDragEnd (qui décide du prochain snap et peut fermer le volet)
+  // repasse sur le thread JS via runOnJS, puisqu'il touche React state.
+  // TROUVÉ (après une longue série de fausses pistes sur l'en-tête,
+  // confirmé par test) : le vrai coupable était `Gesture.Native()` posé sur
+  // le ScrollView de la liste (composé via simultaneousWithExternalGesture
+  // avec nos Pan). Cette composition Native+Pan gèle le scroll natif au bout
+  // d'un moment — bug documenté de RNGH (issues #2622/#2170/#625). En
+  // retirant complètement ce wrapper (le ScrollView redevient 100% natif,
+  // sans aucune implication RNGH), le blocage disparaît.
   //
-  // Un PanResponder JS pur ne peut pas fiablement "voler" le geste à une
-  // ScrollView : celle-ci a son propre reconnaisseur de geste natif qui
-  // traite le toucher avant que la capture JS ait voix au chapitre. On passe
-  // donc par react-native-gesture-handler : `scheduleNativeGesture`
-  // représente le geste natif du scroll de la liste (attaché côté
-  // NativeSchedules), et `contentPanGesture` compose explicitement avec lui
-  // via simultaneousWithExternalGesture — les deux gestes coexistent
-  // réellement, et on ignore les mises à jour tant qu'on n'est pas en haut de
-  // la liste en train de tirer vers le bas.
-  const scheduleAtTopRef = useRef(true);
-  const scheduleNativeGesture = useMemo(() => Gesture.Native(), []);
-  const contentDragEngaged = useRef(false);
-
-  const contentPanGesture = useMemo(() =>
+  // Plus délicat : `contentPanGesture` gérait aussi le tiré-pour-agrandir
+  // depuis le titre/les pastilles, mais en étant attaché à TOUTE la zone
+  // (jusqu'à la liste elle-même) et activé seulement "liste tout en haut".
+  // Résultat : dès qu'on commençait à scroller depuis le haut de la liste
+  // (le cas le plus courant), ce geste le prenait pour un tiré-pour-agrandir
+  // au lieu de laisser le scroll natif agir. La liste elle-même ne doit donc
+  // plus jamais porter aucun Pan concurrent — seuls la poignée et le bloc
+  // titre/pastilles (jamais scrollables) restent glissables, sans condition
+  // sur la position de scroll : plus aucune zone d'ambiguïté possible.
+  const headerPanGesture = useMemo(() =>
     Gesture.Pan()
       .onBegin(() => {
-        contentDragEngaged.current = false;
+        'worklet';
+        panelY.value = panelY.value; // annule un spring en cours
+        dragStartY.value = panelY.value;
       })
       .onUpdate((e) => {
-        if (!scheduleAtTopRef.current || e.translationY <= 0) return;
-        if (!contentDragEngaged.current) {
-          contentDragEngaged.current = true;
-          onDragGrant();
-        }
-        onDragMove(null, { dy: e.translationY });
+        'worklet';
+        panelY.value = Math.max(snapFullSV.value - 30, Math.min(snapHiddenSV.value, dragStartY.value + e.translationY));
       })
       .onEnd((e) => {
-        if (!contentDragEngaged.current) return;
-        contentDragEngaged.current = false;
-        onDragRelease(null, { vy: e.velocityY / 1000, dy: e.translationY });
+        'worklet';
+        runOnJS(handleDragEnd)(e.velocityY / 1000, e.translationY);
       })
-      .simultaneousWithExternalGesture(scheduleNativeGesture)
-  , [scheduleNativeGesture, onDragGrant, onDragMove, onDragRelease]);
+      .activeOffsetY([-5, 5])
+      .failOffsetX([-15, 15])
+  , [handleDragEnd, panelY, dragStartY, snapFullSV, snapHiddenSV]);
+
+  const titleChipsPanGesture = useMemo(() =>
+    Gesture.Pan()
+      .onBegin(() => {
+        'worklet';
+        contentDragEngagedSV.value = false;
+      })
+      .onUpdate((e) => {
+        'worklet';
+        if (!contentDragEngagedSV.value) {
+          contentDragEngagedSV.value = true;
+          panelY.value = panelY.value; // annule un spring en cours
+          dragStartY.value = panelY.value;
+        }
+        panelY.value = Math.max(snapFullSV.value - 30, Math.min(snapHiddenSV.value, dragStartY.value + e.translationY));
+      })
+      .onEnd((e) => {
+        'worklet';
+        if (!contentDragEngagedSV.value) return;
+        contentDragEngagedSV.value = false;
+        runOnJS(handleDragEnd)(e.velocityY / 1000, e.translationY);
+      })
+      .activeOffsetY([-10, 10])
+      .failOffsetX([-20, 20])
+  , [handleDragEnd, panelY, dragStartY, snapFullSV, snapHiddenSV, contentDragEngagedSV]);
 
   // ── Données ──────────────────────────────────────────────────────────────
   const [fontsLoaded] = useFonts({
@@ -2114,7 +2223,7 @@ function AppInner() {
     setGareActuelle({ id, label, osmOnly: isOSM });
     setPanelIsOpen(true);
     setActiveTab('accueil');
-    if (panelSnap.current === 'hidden') snapTo('half');
+    if (panelSnapSV.value === 'hidden') snapTo('half');
 
     if (isOSM) {
       setPanelLines([]);
@@ -2203,6 +2312,11 @@ function AppInner() {
   useEffect(() => {
     const D = 300;
     if (activeTab === 'favoris') {
+      // Range le volet des horaires en arrière-plan (comme fermerPanel) sans
+      // quitter la vue de l'arrêt : la carte reste sur l'arrêt ouvert, avec
+      // son nom dans la barre de recherche, prêt à réafficher le volet en
+      // revenant sur l'onglet Accueil.
+      fermerPanel();
       Animated.parallel([
         Animated.timing(favSlideAnim,  { toValue: 0,           duration: D, useNativeDriver: true }),
         Animated.timing(asstSlideAnim, { toValue: screenWidth,  duration: D, useNativeDriver: true }),
@@ -2218,7 +2332,7 @@ function AppInner() {
         Animated.timing(asstSlideAnim, { toValue: screenWidth,  duration: D, useNativeDriver: true }),
       ]).start();
     }
-  }, [activeTab]);
+  }, [activeTab, fermerPanel]);
 
   const showSettingsRef = useRef(showSettings);
   showSettingsRef.current = showSettings;
@@ -2274,6 +2388,7 @@ function AppInner() {
         panelOpen={panelIsOpen}
         gareActuelle={gareActuelle ? { id: gareActuelle.id, label: gareActuelle.label } : null}
         onQuitterVueArret={quitterVueArret}
+        onRevenirAccueil={() => setActiveTab('accueil')}
       />
 
       {/* Zone de fermeture des tiroirs (sans voile) */}
@@ -2293,7 +2408,7 @@ function AppInner() {
             { top: tiroirTop, bottom: tiroirBottom, backgroundColor: c.bg, transform: [{ translateX: favSlideAnim }] }
           ]}>
             <View style={styles.cardContentWrapper}>
-              <FavorisScreen favoris={favoris} onSupprimerFavori={basculerFavori} onSelectionnerGare={selectionnerDepuisFavoris} onReordonnerFavoris={reordonnerFavoris} />
+              <FavorisScreen favoris={favoris} onSupprimerFavori={basculerFavori} onSelectionnerGare={selectionnerDepuisFavoris} onReordonnerFavoris={reordonnerFavoris} actif={activeTab === 'favoris'} />
             </View>
           </Animated.View>
           <Animated.View style={[
@@ -2341,12 +2456,16 @@ function AppInner() {
 
       {/* Panel gare : bottom sheet animé */}
       <View style={[StyleSheet.absoluteFill, { zIndex: 500, elevation: 0 }]} pointerEvents="box-none">
-        <Animated.View style={[styles.garePanel, { height: PANEL_H, backgroundColor: c.bg, transform: [{ translateY: panelY }], paddingBottom: NAV_BAR_HEIGHT + NAV_BAR_BOTTOM }]}>
+        <ReanimatedLib.View style={[styles.garePanel, { height: PANEL_H, backgroundColor: c.bg, paddingBottom: NAV_BAR_HEIGHT + NAV_BAR_BOTTOM }, panelAnimatedStyle]}>
 
-          <View {...panResponder.panHandlers}>
+          <GestureDetector gesture={headerPanGesture}>
             <View style={styles.dragZone}>
               <View style={[styles.dragBar, { backgroundColor: c.dragBar }]} />
             </View>
+          </GestureDetector>
+          <View style={{ flex: 1 }}>
+          <GestureDetector gesture={titleChipsPanGesture}>
+          <View>
             <View style={styles.sheetHeader}>
               <View style={[styles.sheetIconGare, { backgroundColor: c.iconGareBg }]}>
                 {headerModeIcon ? (
@@ -2381,53 +2500,57 @@ function AppInner() {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
 
-          {gareActuelle && (
-            <View style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }}>
-              {panelLines === null ? (
-                <View style={{ height: 38, justifyContent: 'center', paddingLeft: 16 }}>
-                  <ActivityIndicator size="small" color={c.accent} />
-                </View>
-              ) : panelLineItems.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' }}
-                >
-                  {panelLineItems.map((item, i) =>
-                    item.type === 'mode' ? (
-                      <ExpoImage
-                        key={`mode-${i}`}
-                        source={{ uri: MODE_ICONS[item.mode] ?? MODE_ICONS['BUS'] }}
-                        style={{
-                          width: 22, height: 22,
-                          marginRight: 4, marginLeft: i > 0 ? 6 : 0,
-                          tintColor: isDark ? '#ddeeff' : '#25303b',
-                        }}
-                        contentFit="contain"
-                      />
-                    ) : (
-                      <TouchableOpacity
-                        key={item.chip.id}
-                        onPress={() => nativeSchedulesRef.current?.scrollTo(item.chip.code)}
-                        style={{
-                          backgroundColor: '#' + item.chip.color,
-                          borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3,
-                          borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)', marginRight: 4,
-                        }}
-                      >
-                        <Text style={{ color: item.chip.textColor, fontSize: 12, fontFamily: 'GrandParis-Bold' }}>{item.chip.code}</Text>
-                      </TouchableOpacity>
-                    )
-                  )}
-                </ScrollView>
-              ) : null}
-            </View>
-          )}
-          <GestureDetector gesture={contentPanGesture}>
-          <View style={{ flex: 1 }} onLayout={e => setSvLayout(e.nativeEvent.layout.height)}>
-            <Animated.View style={{ height: contentH, overflow: 'hidden' }}>
+            {/* La barre de chips (lignes desservies) doit aussi permettre de
+                tirer le volet vers le bas — sinon on ne peut le faire que
+                depuis la poignée ou le titre, pas "de n'importe où" en haut
+                du panneau comme attendu d'un vrai bottom sheet. */}
+            {gareActuelle && (
+              <View style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }}>
+                {panelLines === null ? (
+                  <View style={{ height: 38, justifyContent: 'center', paddingLeft: 16 }}>
+                    <ActivityIndicator size="small" color={c.accent} />
+                  </View>
+                ) : panelLineItems.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' }}
+                  >
+                    {panelLineItems.map((item, i) =>
+                      item.type === 'mode' ? (
+                        <ExpoImage
+                          key={`mode-${i}`}
+                          source={{ uri: MODE_ICONS[item.mode] ?? MODE_ICONS['BUS'] }}
+                          style={{
+                            width: 22, height: 22,
+                            marginRight: 4, marginLeft: i > 0 ? 6 : 0,
+                            tintColor: isDark ? '#ddeeff' : '#25303b',
+                          }}
+                          contentFit="contain"
+                        />
+                      ) : (
+                        <TouchableOpacity
+                          key={item.chip.id}
+                          onPress={() => nativeSchedulesRef.current?.scrollTo(item.chip.code)}
+                          style={{
+                            backgroundColor: '#' + item.chip.color,
+                            borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3,
+                            borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)', marginRight: 4,
+                          }}
+                        >
+                          <Text style={{ color: item.chip.textColor, fontSize: 12, fontFamily: 'GrandParis-Bold' }}>{item.chip.code}</Text>
+                        </TouchableOpacity>
+                      )
+                    )}
+                  </ScrollView>
+                ) : null}
+              </View>
+            )}
+          </View>
+          </GestureDetector>
+          <View style={{ flex: 1 }} onLayout={e => { svLayout.value = e.nativeEvent.layout.height; }}>
+            <ReanimatedLib.View style={[{ overflow: 'hidden' }, contentAnimatedStyle]}>
             {gareActuelle?.osmOnly ? (
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
                 <Text style={{ fontSize: 28, marginBottom: 12 }}>🚏</Text>
@@ -2440,8 +2563,6 @@ function AppInner() {
                 ref={nativeSchedulesRef}
                 stopId={gareActuelle.id}
                 stopName={gareActuelle.id === GHOST_STOP_ID ? GHOST_STOP_NAME : gareActuelle.label.split('(')[0].trim()}
-                onAtTopChange={(atTop) => { scheduleAtTopRef.current = atTop; }}
-                nativeGesture={scheduleNativeGesture}
               />
             ) : gareActuelle ? (
               <WebView
@@ -2453,15 +2574,22 @@ function AppInner() {
                 injectedJavaScript={WEBVIEW_HIDE_JS + getWebviewDarkJS(isDark)}
               />
             ) : null}
-            </Animated.View>
+            {gareActuelle && !gareActuelle.osmOnly && (
+              // Le panneau clippe la liste des horaires via `overflow:hidden`
+              // (hauteur animée entre 'half' et 'full') — sans ce fondu, le
+              // dernier item visible était tranché net au lieu de disparaître
+              // progressivement.
+              <FadeBottom color={c.bg} height={72} strong />
+            )}
+            </ReanimatedLib.View>
           </View>
-          </GestureDetector>
+          </View>
 
-        </Animated.View>
+        </ReanimatedLib.View>
       </View>
 
       {/* Modal paramètres */}
-      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_last_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} />
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
       <OnboardingTour
         visible={showOnboarding}
