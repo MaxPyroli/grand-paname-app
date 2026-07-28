@@ -284,7 +284,7 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
-function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, showDebugOverlay, setShowDebugOverlay, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void }) {
+function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, showDebugOverlay, setShowDebugOverlay, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void }) {
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -689,6 +689,23 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                       }} />
                     </TouchableOpacity>
                   </View>
+                  {hasPendingUpdate && (
+                    <>
+                      <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
+                        onPress={() => { onClose(); setTimeout(onOpenPendingUpdate, 200); }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.settingsRowLabel, { color: c.text }]}>⬆️ Mettre à jour Grand Paname</Text>
+                          <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                            Une mise à jour est disponible, tu l'avais reportée
+                          </Text>
+                        </View>
+                        <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                   <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
                   <TouchableOpacity
                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
@@ -1850,6 +1867,11 @@ function AppInner() {
   const inAppUpdates = useRef<SpInAppUpdatesType | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);
+  // true dès qu'une vraie mise à jour (pas le test dev) a été détectée ou
+  // téléchargée, et reste vrai même après avoir tapé "Plus tard" — permet de
+  // la retrouver et la relancer depuis les Paramètres plutôt que d'attendre
+  // qu'elle se represente au prochain lancement de l'app.
+  const [hasPendingUpdate, setHasPendingUpdate] = useState(false);
   const [updateDownloadingBg, setUpdateDownloadingBg] = useState(false);
   const [fakeUpdateTest, setFakeUpdateTest] = useState(false);
   const fakeUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1871,7 +1893,7 @@ function AppInner() {
       // de version APP_VERSION (semver "3.1.1"), sinon la comparaison est absurde.
       inAppUpdates.current
         ?.checkNeedsUpdate({ curVersion: getBuildNumber() })
-        .then((result: { shouldUpdate: boolean }) => { if (result.shouldUpdate) setShowUpdateModal(true); })
+        .then((result: { shouldUpdate: boolean }) => { if (result.shouldUpdate) { setShowUpdateModal(true); setHasPendingUpdate(true); } })
         .catch((e: any) => logger.warn(`checkNeedsUpdate: ${e?.message}`));
     } catch (e: any) {
       logger.warn(`in-app-updates indisponible : ${e?.message}`);
@@ -1949,9 +1971,17 @@ function AppInner() {
     setUpdateDownloadingBg(false);
     if (fakeUpdateTimerRef.current) { clearTimeout(fakeUpdateTimerRef.current); fakeUpdateTimerRef.current = null; }
     setShowUpdateModal(false);
-    setUpdateReady(false);
-    setFakeUpdateTest(false);
+    // Pour une vraie mise à jour (pas le test dev), on garde `updateReady` et
+    // `hasPendingUpdate` intacts après "Plus tard" : la modale doit pouvoir
+    // se rouvrir dans le bon mode (prompt/ready) depuis les Paramètres, sans
+    // redemander le téléchargement s'il est déjà fait.
+    if (fakeUpdateTest) {
+      setUpdateReady(false);
+      setFakeUpdateTest(false);
+    }
   };
+
+  const handleOpenPendingUpdate = () => setShowUpdateModal(true);
   const nativeSchedulesRef = useRef<SchedulesRef>(null);
   const svLayout = useSharedValue(0);
   const [panelLines, setPanelLines] = useState<LineChip[] | null>(null);
@@ -2589,7 +2619,7 @@ function AppInner() {
       </View>
 
       {/* Modal paramètres */}
-      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} />
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
       <OnboardingTour
         visible={showOnboarding}

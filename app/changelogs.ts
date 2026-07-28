@@ -7,6 +7,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.2.2',
+    date: '28 juillet 2026',
+    content: `**🛠️ Améliorations et Corrections**
+* Quand une mise à jour est reportée ("Plus tard"), elle reste maintenant accessible depuis les Paramètres pour la lancer quand tu veux.
+
+Bon voyage !`,
+  },
+  {
     version: '3.2.1',
     date: '28 juillet 2026',
     content: `**🛠️ Améliorations et Corrections**
