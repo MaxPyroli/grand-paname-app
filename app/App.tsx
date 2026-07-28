@@ -33,6 +33,7 @@ import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 import { registerForPushNotificationsAsync } from './notifications';
+import { Icon, IconAccueilCouleur, IconFavorisCouleur, IconDiscussionCouleur, IconPositionCouleur } from './Icon';
 // Import de type uniquement : pas de require() exécuté au chargement du bundle.
 // react-native-device-info (dépendance de cette lib) plante à l'évaluation de
 // son module si le natif n'est pas lié (Expo Go, ou dev client pas encore
@@ -168,6 +169,50 @@ function FadeTop({ color, height = 56 }: { color: string; height?: number }) {
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height }} pointerEvents="none">
       <LinearGradient colors={[color, 'transparent']} style={{ flex: 1 }} />
     </View>
+  );
+}
+
+// Étoile favoris avec petit retour visuel à l'ajout (pas au retrait) : un
+// "pop" du trait + un halo jaune qui grossit et s'estompe, pour qu'ajouter
+// un favori se sente comme une vraie action plutôt qu'un simple changement
+// de couleur silencieux. Le halo est un cercle animé en opacité/échelle
+// (pas une ombre colorée `shadowColor`, ignorée par Android — seule
+// `elevation` compte côté Android, et elle ne prend pas de couleur).
+function FavoriStar({ active, onPress, size = 22, color }: { active: boolean; onPress: () => void; size?: number; color: string }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const glow = useRef(new Animated.Value(0)).current;
+  const prevActive = useRef(active);
+  useEffect(() => {
+    if (active && !prevActive.current) {
+      scale.setValue(1);
+      glow.setValue(0);
+      Animated.sequence([
+        Animated.spring(scale, { toValue: 1.3, useNativeDriver: true, friction: 3 }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 4 }),
+      ]).start();
+      Animated.timing(glow, { toValue: 1, duration: 450, useNativeDriver: true }).start(() => glow.setValue(0));
+    }
+    prevActive.current = active;
+  }, [active]);
+
+  const glowScale = glow.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.2] });
+  const glowOpacity = glow.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 0.55, 0] });
+
+  return (
+    <TouchableOpacity onPress={onPress} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+      <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', width: size, height: size, borderRadius: size / 2,
+            backgroundColor: '#F2B705', opacity: glowOpacity, transform: [{ scale: glowScale }],
+          }}
+        />
+        <Animated.View style={{ transform: [{ scale }] }}>
+          <Icon name="favoris" size={size} color={color} />
+        </Animated.View>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -583,7 +628,7 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
               }}
             >
               <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#f39c1225', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                <Text style={{ fontSize: 18 }}>⚙️</Text>
+                <Icon name="parametres" size={18} color="#f39c12" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.settingsRowLabel, { color: c.text }]}>Paramètres Avancés</Text>
@@ -1139,7 +1184,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         style={[styles.settingsBubble, { backgroundColor: c.bgFloat, top: insets.top + 12 }]}
         onPress={onOpenSettings}
       >
-        <Text style={{ fontSize: 18 }}>⚙️</Text>
+        <Icon name="parametres" size={18} color={c.text} />
       </TouchableOpacity>
 
       {/* Overlay transparent : tap sur la carte ferme la liste */}
@@ -1184,9 +1229,9 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
                   )}
                 </TouchableOpacity>
                 {!['erreur', 'vide'].includes(item.id) && (
-                  <TouchableOpacity style={styles.etoileAction} onPress={() => onBasculerFavori(item)}>
-                    <Text style={{ fontSize: 22, color: estFavori(item.id) ? undefined : c.textSub }}>{estFavori(item.id) ? '⭐' : '☆'}</Text>
-                  </TouchableOpacity>
+                  <View style={styles.etoileAction}>
+                    <FavoriStar active={estFavori(item.id)} onPress={() => onBasculerFavori(item)} size={22} color={estFavori(item.id) ? '#F2B705' : c.textSub} />
+                  </View>
                 )}
               </View>
             )}
@@ -1243,7 +1288,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
             >
               {loadingGps
                 ? <ActivityIndicator size="small" color={c.accent} />
-                : <Text style={{ fontSize: 18 }}>📍</Text>
+                : <IconPositionCouleur size={18} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
               }
             </TouchableOpacity>
           </>
@@ -1319,7 +1364,9 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
 
       {favoris.length === 0 ? (
         <View style={styles.etatVide}>
-          <Text style={styles.etatVideEmoji}>🔍</Text>
+          <View style={{ marginBottom: 14 }}>
+            <Icon name="recherche" size={44} color={c.textSub} />
+          </View>
           <Text style={[styles.etatVideTitre, { color: c.text }]}>Aucun favori pour l'instant</Text>
           <Text style={[styles.etatVideDesc, { color: c.textSub }]}>
             Recherchez une gare depuis l'accueil et appuyez sur l'étoile ☆ pour l'ajouter ici.
@@ -2466,19 +2513,25 @@ function AppInner() {
       <View style={[styles.floatingTabBar, { backgroundColor: c.bgFloat }]}>
         <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('favoris')}>
           <View style={[styles.tabPill, activeTab === 'favoris' && { backgroundColor: c.pillActive }]}>
-            <Text style={styles.tabIcon}>{activeTab === 'favoris' ? '❤️' : '🤍'}</Text>
+            {activeTab === 'favoris'
+              ? <IconFavorisCouleur size={20} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
+              : <Icon name="favoris" size={20} color={c.textTab} />}
           </View>
           <Text style={[styles.tabLabel, { color: activeTab === 'favoris' ? c.text : c.textTab }]}>Favoris</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('accueil')}>
           <View style={[styles.tabPill, styles.tabPillCenter, activeTab === 'accueil' && { backgroundColor: c.pillCenter }]}>
-            <Text style={[styles.tabIcon, { fontSize: 22 }]}>🚇</Text>
+            {activeTab === 'accueil'
+              ? <IconAccueilCouleur size={22} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
+              : <Icon name="accueil" size={22} color={c.textTab} />}
           </View>
           <Text style={[styles.tabLabel, { color: activeTab === 'accueil' ? c.text : c.textTab }]}>Accueil</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('assistant')}>
           <View style={[styles.tabPill, activeTab === 'assistant' && { backgroundColor: c.pillActive }]}>
-            <Text style={styles.tabIcon}>{activeTab === 'assistant' ? '🗯️' : '💭'}</Text>
+            {activeTab === 'assistant'
+              ? <IconDiscussionCouleur size={20} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
+              : <Icon name="discussion" size={20} color={c.textTab} />}
           </View>
           <Text style={[styles.tabLabel, { color: activeTab === 'assistant' ? c.text : c.textTab }]}>...</Text>
         </TouchableOpacity>
@@ -2514,16 +2567,18 @@ function AppInner() {
               <View style={styles.sheetActions}>
                 {!gareActuelle?.osmOnly && (
                   <TouchableOpacity style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]} onPress={() => mapRef.current?.recenterActiveStation()}>
-                    <Text style={{ fontSize: 15 }}>📍</Text>
+                    <IconPositionCouleur size={15} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
                   </TouchableOpacity>
                 )}
                 {gareActuelle && !gareActuelle.osmOnly && (
-                  <TouchableOpacity
-                    style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]}
-                    onPress={() => basculerFavori({ id: gareActuelle.id, label: gareActuelle.label })}
-                  >
-                    <Text style={{ fontSize: 15, color: estFavori(gareActuelle.id) ? undefined : c.textSub }}>{estFavori(gareActuelle.id) ? '⭐' : '☆'}</Text>
-                  </TouchableOpacity>
+                  <View style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]}>
+                    <FavoriStar
+                      active={estFavori(gareActuelle.id)}
+                      onPress={() => basculerFavori({ id: gareActuelle.id, label: gareActuelle.label })}
+                      size={15}
+                      color={estFavori(gareActuelle.id) ? '#F2B705' : c.textSub}
+                    />
+                  </View>
                 )}
                 <TouchableOpacity style={[styles.sheetBoutonFermer, { backgroundColor: c.btnBg }]} onPress={fermerPanel}>
                   <Text style={{ fontSize: 14, fontWeight: '700', color: c.textSub }}>✕</Text>

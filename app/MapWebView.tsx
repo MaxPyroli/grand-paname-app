@@ -2,6 +2,7 @@ import React, { useRef, useImperativeHandle, forwardRef, useState, useEffect } f
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { MODE_ICONS } from './modeIcons';
+import { GRANDPARIS_BOLD_BASE64 } from './assets/grandParisBoldBase64';
 
 function getMapHTML(isDark: boolean) {
   const iconsJson = JSON.stringify(MODE_ICONS);
@@ -17,6 +18,14 @@ function getMapHTML(isDark: boolean) {
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
+    /* Police embarquée en base64 (pas de fichier local accessible depuis la
+       WebView) pour que les indices de lignes matchent la police du reste de
+       l'app (GrandParis-Bold), au lieu de retomber sur la police système. */
+    @font-face{
+      font-family:"GrandParis";
+      font-weight:800;
+      src:url(data:font/otf;base64,${GRANDPARIS_BOLD_BASE64}) format("opentype");
+    }
     *{margin:0;padding:0;box-sizing:border-box}
     html,body,#map{height:100%;width:100%;background:${bg}}
     @keyframes pulse{
@@ -275,7 +284,7 @@ function getMapHTML(isDark: boolean) {
     var H=22;
     var badges=items.map(function(l){
       return '<div style="min-width:'+H+'px;height:'+H+'px;background:#'+l.color+';color:'+l.textColor+';'
-        +'font-size:11px;font-weight:800;border-radius:5px;padding:0 4px;box-sizing:border-box;'
+        +'font-family:GrandParis;font-size:11px;font-weight:800;border-radius:5px;padding:0 4px;box-sizing:border-box;'
         +'display:flex;align-items:center;justify-content:center;white-space:nowrap">'+l.code+'</div>';
     }).join('');
     var pad=4,gap=4;
@@ -331,7 +340,7 @@ function getMapHTML(isDark: boolean) {
       var icon=NEARBY_ICONS[g.mode]||NEARBY_ICONS['BUS'];
       var codes=(g.lines||[]).map(function(l){
         return '<div style="min-width:'+SZ+'px;height:'+SZ+'px;background:#'+l.color+';color:'+l.textColor+';'
-          +'font-size:11px;font-weight:800;border-radius:5px;padding:0 3px;box-sizing:border-box;'
+          +'font-family:GrandParis;font-size:11px;font-weight:800;border-radius:5px;padding:0 3px;box-sizing:border-box;'
           +'display:flex;align-items:center;justify-content:center;white-space:nowrap;margin-top:3px">'+l.code+'</div>';
       }).join('');
       return '<div style="display:flex;flex-direction:column;align-items:center">'
