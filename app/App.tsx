@@ -7,7 +7,6 @@ import {
 } from 'react-native';
 import { ThemeContext, ThemeProvider, useColors } from './theme';
 import type { ThemeColors, ThemePref } from './theme';
-import { useUIScale, rf } from './scale';
 import MapWebView, { MapWebViewRef } from './MapWebView';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -248,7 +247,6 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
 function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate }: { visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void }) {
   const c = useColors();
-  const styles = useAppStyles();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
   // Pas de <Modal> ici (voir le commentaire au-dessus de ModalBackdrop) :
@@ -770,7 +768,6 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
 
 // ─── EASTER EGG : FEUR ───────────────────────────────────────────────────────
 function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const styles = useAppStyles();
   const player = useVideoPlayer(require('./others/feur.mp4'), p => { p.loop = false; });
   useEffect(() => {
     if (visible) { player.currentTime = 0; player.play(); }
@@ -797,13 +794,8 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
 function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret, onRevenirAccueil }: AccueilProps) {
   const c = useColors();
-  const styles = useAppStyles();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
-  // Uniquement la pastille logo+titre (voir scale.ts pour pourquoi ce n'est
-  // pas généralisé) : élément simple, auto-dimensionné par son padding, pas
-  // de hauteur fixe qui pourrait couper son contenu si il grossit.
-  const titleScale = useUIScale();
   const [loadingGps, setLoadingGps] = useState(false);
   const [gpsSearchStatus, setGpsSearchStatus] = useState<string | null>(null);
   const [followingLocation, setFollowingLocation] = useState(false);
@@ -1110,9 +1102,9 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       >
         <Animated.Image
           source={require('./assets/icon.png')}
-          style={[styles.logoApp, { width: rf(28, titleScale), height: rf(28, titleScale), transform: [{ rotate: logoSpinDeg }] }]}
+          style={[styles.logoApp, { transform: [{ rotate: logoSpinDeg }] }]}
         />
-        <Text style={[styles.titreGrandPaname, { color: c.text, fontSize: rf(18, titleScale) }]}>Grand Paname</Text>
+        <Text style={[styles.titreGrandPaname, { color: c.text }]}>Grand Paname</Text>
       </View>
 
       {/* Bulle paramètres */}
@@ -1238,16 +1230,10 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 // ─── ÉCRAN FAVORIS ────────────────────────────────────────────────────────────
 const FAV_ITEM_H = 72;
 const FAV_GAP    = 10;
+const FAV_SLOT_H = FAV_ITEM_H + FAV_GAP;
 
 function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReordonnerFavoris, actif }: FavorisProps) {
   const c = useColors();
-  const styles = useAppStyles();
-  const scale = useUIScale();
-  // FAV_ITEM_H/FAV_GAP mis à l'échelle : le texte de la carte (voir plus
-  // bas) grossit un peu sur grand écran, donc la carte doit grossir avec
-  // lui — sinon son texte se retrouve coupé par la hauteur fixe.
-  const favItemH = rf(FAV_ITEM_H, scale);
-  const favSlotH = favItemH + rf(FAV_GAP, scale);
   const [editMode, setEditMode] = useState(false);
   useEffect(() => { if (!actif) setEditMode(false); }, [actif]);
   const yMap = useRef(new Map<string, Animated.Value>()).current;
@@ -1256,7 +1242,7 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
   const getY = (id: string): Animated.Value => {
     if (!yMap.has(id)) {
       const idx = favoris.findIndex(f => f.id === id);
-      yMap.set(id, new Animated.Value((idx >= 0 ? idx : favoris.length) * favSlotH));
+      yMap.set(id, new Animated.Value((idx >= 0 ? idx : favoris.length) * FAV_SLOT_H));
     }
     return yMap.get(id)!;
   };
@@ -1265,12 +1251,12 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
     if (isAnimating.current) return;
     favoris.forEach((f, i) => {
       const y = yMap.get(f.id);
-      if (y) y.setValue(i * favSlotH);
-      else yMap.set(f.id, new Animated.Value(i * favSlotH));
+      if (y) y.setValue(i * FAV_SLOT_H);
+      else yMap.set(f.id, new Animated.Value(i * FAV_SLOT_H));
     });
     const ids = new Set(favoris.map(f => f.id));
     yMap.forEach((_, id) => { if (!ids.has(id)) yMap.delete(id); });
-  }, [favoris, favSlotH]);
+  }, [favoris]);
 
   const handleReorder = (from: number, to: number) => {
     if (isAnimating.current || from < 0 || to < 0 || from >= favoris.length || to >= favoris.length) return;
@@ -1278,8 +1264,8 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
     const yB = getY(favoris[to].id);
     isAnimating.current = true;
     Animated.parallel([
-      Animated.timing(yA, { toValue: to   * favSlotH, duration: 260, useNativeDriver: true }),
-      Animated.timing(yB, { toValue: from * favSlotH, duration: 260, useNativeDriver: true }),
+      Animated.timing(yA, { toValue: to   * FAV_SLOT_H, duration: 260, useNativeDriver: true }),
+      Animated.timing(yB, { toValue: from * FAV_SLOT_H, duration: 260, useNativeDriver: true }),
     ]).start(() => {
       isAnimating.current = false;
       onReordonnerFavoris(from, to);
@@ -1317,11 +1303,11 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
       ) : (
         <View style={{ flex: 1 }}>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 28, paddingBottom: 60 }}>
-            <View style={{ height: favoris.length * favSlotH - rf(FAV_GAP, scale) }}>
+            <View style={{ height: favoris.length * FAV_SLOT_H - FAV_GAP }}>
               {favoris.map((item, index) => (
                 <Animated.View
                   key={item.id}
-                  style={{ position: 'absolute', left: 0, right: 0, height: favItemH, transform: [{ translateY: getY(item.id) }] }}
+                  style={{ position: 'absolute', left: 0, right: 0, height: FAV_ITEM_H, transform: [{ translateY: getY(item.id) }] }}
                 >
                   <TouchableOpacity
                     style={[styles.itemFavoriNatif, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}
@@ -1795,7 +1781,6 @@ function useAdaptiveOrientationLock() {
 function AppInner() {
   const insets = useSafeAreaInsets();
   const c = useColors();
-  const styles = useAppStyles();
   const { isDark } = useContext(ThemeContext);
   useAdaptiveOrientationLock();
 
@@ -2658,12 +2643,7 @@ export default function App() {
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
-// Fonction (pas une constante statique) : seules quelques entrées (voir
-// FavorisScreen/PanelHeader/PanelEmptyState) dépendent réellement de `s` —
-// le reste garde ses valeurs fixes. Après la tentative précédente (scaling
-// généralisé, abandonnée — voir scale.ts), on ne touche qu'aux endroits
-// vérifiés un par un pour ne pas re-désynchroniser texte et cadres.
-const makeStyles = (s: number) => StyleSheet.create({
+const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'transparent' },
 
   // Header flottant
@@ -2737,20 +2717,20 @@ const makeStyles = (s: number) => StyleSheet.create({
   etoileAction: { padding: 10 },
 
   // Tiroir
-  titreTiroir: { fontSize: rf(20, s), fontFamily: 'GrandParis-Bold', marginBottom: 4 },
-  sousTitreTiroir: { fontSize: rf(13, s), fontFamily: 'GrandParis-Light', marginBottom: 20 },
+  titreTiroir: { fontSize: 20, fontFamily: 'GrandParis-Bold', marginBottom: 4 },
+  sousTitreTiroir: { fontSize: 13, fontFamily: 'GrandParis-Light', marginBottom: 20 },
   etatVide: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, paddingBottom: 40 },
   etatVideEmoji: { fontSize: 44, marginBottom: 14 },
   etatVideTitre: { fontSize: 17, fontFamily: 'GrandParis-Bold', marginBottom: 8, textAlign: 'center' },
   etatVideDesc: { fontSize: 14, fontFamily: 'GrandParis-Light', textAlign: 'center', lineHeight: 22 },
   itemFavoriNatif: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 14, height: rf(FAV_ITEM_H, s), borderRadius: 14, borderWidth: 1,
+    paddingHorizontal: 14, height: FAV_ITEM_H, borderRadius: 14, borderWidth: 1,
     shadowColor: '#1a2a4a', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
   },
   alignementFavori: { flex: 1, flexDirection: 'column', justifyContent: 'center' },
-  texteNomGareFavori: { fontSize: rf(15, s), fontFamily: 'GrandParis-Medium' },
-  texteVilleFavori: { fontSize: rf(12, s), fontFamily: 'GrandParis-Light', marginTop: 2 },
+  texteNomGareFavori: { fontSize: 15, fontFamily: 'GrandParis-Medium' },
+  texteVilleFavori: { fontSize: 12, fontFamily: 'GrandParis-Light', marginTop: 2 },
   favorisTitreRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 },
   boutonSupprimer: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#e74c3c', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   boutonSupprimerTexte: { color: '#fff', fontSize: 11, fontWeight: 'bold' as const },
@@ -2877,8 +2857,3 @@ const makeStyles = (s: number) => StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
 });
-
-function useAppStyles() {
-  const scale = useUIScale();
-  return useMemo(() => makeStyles(scale), [scale]);
-}
