@@ -4,5 +4,6 @@
   },
   "search.exclude": {
     "**/node_modules": true
-  }
+  },
+  "typescript.tsc.autoDetect": "off"
 }

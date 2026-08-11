@@ -12,6 +12,18 @@ export type WhatsNewEntry = {
 
 export const WHATSNEW: WhatsNewEntry[] = [
   {
+    version: '3.3.0',
+    features: [
+      {
+        emoji: '🎨',
+        title: 'De vraies icônes partout',
+        description:
+          "Adieu les émojis approximatifs ! Toute l'interface passe à de vraies icônes originales, pour un rendu plus net et cohérent sur tous les écrans (barre de navigation, favoris, réglages, position, recherche...).",
+      },
+    ],
+    footer: "Aussi un nouvel onglet Info Trafic (contenu à venir) et plein de petites corrections — détails dans le changelog complet.",
+  },
+  {
     version: '3.2.0',
     features: [
       {

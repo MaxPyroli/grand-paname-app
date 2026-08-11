@@ -10,20 +10,14 @@ export const CHANGELOGS: ChangelogEntry[] = [
     version: '3.3.0',
     date: '11 août 2026',
     content: `**🚀 Nouveautés**
-* Toute l'interface passe des émojis à de vraies icônes, pour un rendu plus net et cohérent sur tous les écrans (barre de navigation, favoris, réglages, position, recherche...).
-* Petite animation à l'ajout d'un favori.
+* Toute l'interface passe de simples émojis à de vraies icônes originales, pour un rendu plus net et cohérent sur tous les écrans (barre de navigation, favoris, réglages, position, recherche...).
 
 **🛠️ Améliorations et Corrections**
-* Les indices de ligne sur la carte utilisent désormais la police de l'app plutôt que la police système, pour un rendu plus cohérent.
-* Mise à jour technique en profondeur des fondations de l'application, pour rester compatible avec les dernières versions d'Android et préparer les prochaines nouveautés.
-
-Bon voyage !`,
-  },
-  {
-    version: '3.2.2',
-    date: '28 juillet 2026',
-    content: `**🛠️ Améliorations et Corrections**
+* Nouvel onglet Info Trafic, pour bientôt suivre l'état du trafic en temps réel. Restez connectés 👀.
+* Petite animation ajoutée à l'ajout d'un favori.
 * Quand une mise à jour est reportée ("Plus tard"), elle reste maintenant accessible depuis les Paramètres pour la lancer quand tu veux.
+* Correction d'un bug qui affichait une mauvais police d'écriture pour les indices de ligne sur la carte.
+* Mise à jour technique en profondeur des fondations de l'application, pour rester compatible avec les dernières versions d'Android et préparer les prochaines nouveautés.
 
 Bon voyage !`,
   },

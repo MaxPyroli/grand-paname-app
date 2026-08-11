@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo, useContext } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo, useContext, createContext } from 'react';
 import {
   StyleSheet, View, Text, TouchableOpacity, ActivityIndicator,
   FlatList, TextInput, Keyboard, Animated, Dimensions, Easing,
@@ -15,7 +15,7 @@ import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
+import { BlurView, BlurTargetView } from 'expo-blur';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Clipboard from 'expo-clipboard';
 import transportData from './assets/transport-data.json';
@@ -1383,6 +1383,16 @@ function useModalCardAnim(visible: boolean) {
   return { anim, mounted };
 }
 
+// Depuis expo-blur 55+, le flou "dimezisBlurView" sur Android n'opère plus
+// automatiquement sur tout ce qu'il y a derrière : il faut désigner
+// explicitement la vue à flouter via un <BlurTargetView> + une ref passée en
+// `blurTarget`, sinon le flou retombe silencieusement sur "none" (aucun
+// voile flouté, juste le fond net). Ce contexte porte cette ref depuis la
+// racine (voir App(), qui enveloppe tout le contenu visible derrière les
+// modales dans un <BlurTargetView>) jusqu'à ModalCard, sans la faire
+// traverser WhatsNewModal/OnboardingTour/UpdateModal en props.
+const BlurTargetContext = createContext<React.RefObject<View | null> | null>(null);
+
 // Pas de <Modal> ici : sur Android, une Modal s'ouvre dans une fenêtre native
 // séparée de l'activité principale — un BlurView posé dedans ne peut flouter
 // que ce qu'il y a DANS cette fenêtre (donc rien de l'app réelle derrière).
@@ -1440,6 +1450,7 @@ function ModalCard({ anim, style, containerStyle, pulseKey, children }: {
   children: React.ReactNode;
 }) {
   const { isDark } = useContext(ThemeContext);
+  const blurTargetRef = useContext(BlurTargetContext);
   const pulse = useRef(new Animated.Value(1)).current;
   const firstRender = useRef(true);
   useEffect(() => {
@@ -1459,7 +1470,7 @@ function ModalCard({ anim, style, containerStyle, pulseKey, children }: {
         { scale: pulse },
       ],
     }, containerStyle]}>
-      <BlurView intensity={45} tint={isDark ? 'dark' : 'light'} experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
+      <BlurView intensity={45} tint={isDark ? 'dark' : 'light'} blurMethod="dimezisBlurView" blurTarget={blurTargetRef ?? undefined} style={StyleSheet.absoluteFill} />
       <View style={[{ padding: 22, gap: 14 }, style]}>
         {children}
       </View>
@@ -1959,6 +1970,7 @@ function AppInner() {
     return first ? (MODE_ICONS[first.mode] ?? MODE_ICONS['BUS']) : null;
   }, [panelLineItems]);
   const mapRef = useRef<MapWebViewRef | null>(null);
+  const blurTargetRef = useRef<View | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
 
   // ── Panel animé (Reanimated) ─────────────────────────────────────────────
@@ -2344,6 +2356,12 @@ function AppInner() {
           edge obligatoire), ces props n'existent plus. */}
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
+      {/* Fournit blurTargetRef à ModalCard (voir BlurTargetContext) — tout le
+          contenu qui doit apparaître flouté derrière une modale doit vivre
+          DANS ce BlurTargetView, donc AVANT les modales elles-mêmes. */}
+      <BlurTargetContext.Provider value={blurTargetRef}>
+      <BlurTargetView ref={blurTargetRef} style={{ flex: 1 }}>
+
       <AccueilScreen
         onBasculerFavori={basculerFavori}
         estFavori={estFavori}
@@ -2558,6 +2576,8 @@ function AppInner() {
         </ReanimatedLib.View>
       </View>
 
+      </BlurTargetView>
+
       {/* Modal paramètres */}
       <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
@@ -2579,6 +2599,7 @@ function AppInner() {
         onDismiss={handleUpdateDismiss}
       />
 
+      </BlurTargetContext.Provider>
     </SafeAreaView>
   );
 }
