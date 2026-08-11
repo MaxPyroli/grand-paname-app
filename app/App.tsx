@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { ThemeContext, ThemeProvider, useColors } from './theme';
 import type { ThemeColors, ThemePref } from './theme';
+import { useIsWideLayout } from './responsive';
 import MapWebView, { MapWebViewRef } from './MapWebView';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -48,6 +49,16 @@ const NAV_BAR_BOTTOM = 16;
 const NAV_BAR_HEIGHT = 58;
 const SEARCH_BAR_HEIGHT = 52;
 const SEARCH_BAR_BOTTOM = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 10;
+// En layout large, le tiroir permanent est plus étroit que sur téléphone
+// (420, voir sideCard) — il reste affiché en continu plutôt que de passage,
+// autant laisser plus de place visible à la carte derrière lui.
+const WIDE_PANEL_WIDTH = 340;
+// La carte reste toujours plein écran (voir AccueilScreen) — cette valeur
+// ne sert qu'à confiner les CONTRÔLES flottants (recherche, barre de nav...)
+// à la zone non recouverte par le tiroir, pour qu'ils ne s'affichent pas
+// par-dessus lui (zIndex plus élevé). Largeur du tiroir + sa marge au bord
+// (12) + un espace avant les contrôles (12).
+const WIDE_PANEL_INSET = WIDE_PANEL_WIDTH + 24;
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace('#', '');
@@ -165,6 +176,15 @@ type AccueilProps = {
   gareActuelle: { id: string; label: string } | null;
   onQuitterVueArret: () => void;
   onRevenirAccueil: () => void;
+  // Sur écran large (voir responsive.ts), le tiroir Favoris/Trafic ouvert
+  // reste affiché en permanence et recouvre la carte (comme sur téléphone,
+  // elle ne se redimensionne plus) — ces valeurs animées servent à confiner
+  // les contrôles flottants (header, réglages, recherche) à la zone non
+  // recouverte, avec un glissement en douceur plutôt qu'un saut (voir
+  // navLeftInsetAnim/navRightInsetAnim dans AppInner, même mécanisme que la
+  // barre de nav).
+  mapLeftInset: Animated.Value;
+  mapRightInset: Animated.Value;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -792,7 +812,7 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret, onRevenirAccueil }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret, onRevenirAccueil, mapLeftInset, mapRightInset }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -1042,6 +1062,13 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
   return (
     <View style={styles.container}>
+      {/* La carte reste TOUJOURS plein écran, même quand un tiroir permanent
+          est ouvert (écran large, voir responsive.ts) — le tiroir (opaque)
+          la recouvre juste visuellement, comme sur téléphone. Redimensionner
+          son conteneur pour "faire de la place" forçait Leaflet à recharger
+          les tuiles de la zone révélée à chaque ouverture/fermeture (délai
+          visible), en plus d'avoir vraisemblablement déclenché le bug de
+          panneau vide après rotation — approche abandonnée. */}
       <MapWebView
         ref={mapRef}
         isDark={isDark}
@@ -1054,6 +1081,15 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
           mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
         }}
       />
+
+      {/* Enveloppe dédiée aux contrôles flottants (en-tête, pastille
+          réglages, barre de recherche, résultats...) — eux continuent de se
+          confiner à la zone non recouverte par le tiroir permanent, pour ne
+          pas s'afficher par-dessus (ils ont un zIndex plus élevé). Comme ils
+          utilisent tous `position:'absolute'`, ils se positionnent par
+          rapport au parent direct — les enfermer ici suffit à les confiner
+          sans recalculer leurs marges un par un. */}
+      <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, left: mapLeftInset, right: mapRightInset }}>
 
       {/* Overlay d'infos de debug (mode dev) */}
       {showDebugOverlay && (
@@ -1221,6 +1257,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
             </TouchableOpacity>
           </>
         )}
+      </Animated.View>
       </Animated.View>
       <FeurModal visible={feurVisible} onClose={() => setFeurVisible(false)} />
     </View>
@@ -1751,29 +1788,16 @@ function UpdateModal({ visible, mode, onAccept, onDismiss }: {
   );
 }
 
-// L'app n'est pas prévue pour le paysage sur téléphone (rien dans l'UI n'est
-// pensé pour ça), mais Google Play exige depuis peu que les apps restent
-// flexibles en orientation sur grands écrans (tablettes/pliables) — d'où
-// l'absence de verrou statique dans app.config.js. Le compromis : verrouiller
-// le portrait uniquement quand l'écran est de taille "téléphone" (répliquant
-// le seuil sw600dp qu'utilise Android lui-même pour distinguer téléphone et
-// tablette), et laisser l'orientation libre au-delà. Recalculé à chaque
-// changement de dimensions pour suivre un pliable qu'on ouvre/referme.
+// Orientation libre partout, y compris sur téléphone : le paysage y est
+// désormais un vrai mode supporté (panneau Favoris/Trafic permanent, voir
+// responsive.ts), pas juste toléré. Ça correspond aussi à ce qu'exige
+// Google Play sur les grands écrans (tablettes/pliables) — Android 16
+// ignorera de toute façon les verrous d'orientation sur ces appareils, mais
+// l'app doit rester utilisable quand ça arrive plutôt que de casser sa mise
+// en page.
 function useAdaptiveOrientationLock() {
   useEffect(() => {
-    const appliquer = () => {
-      const { width, height } = Dimensions.get('screen');
-      const smallestWidthDp = Math.min(width, height);
-      const estTelephone = smallestWidthDp < 600;
-      if (estTelephone) {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-      } else {
-        ScreenOrientation.unlockAsync().catch(() => {});
-      }
-    };
-    appliquer();
-    const sub = Dimensions.addEventListener('change', appliquer);
-    return () => sub.remove();
+    ScreenOrientation.unlockAsync().catch(() => {});
   }, []);
 }
 
@@ -1796,6 +1820,28 @@ function AppInner() {
   const PANEL_H = SCREEN_H - insets.top;
 
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic'>('accueil');
+  // Écran large (voir responsive.ts) : le tiroir ouvert reste affiché en
+  // permanence (il ne glisse plus hors champ) et recouvre la carte comme sur
+  // téléphone — la carte, elle, reste toujours plein écran (pas de resize,
+  // pas de rechargement de tuiles). Ces insets servent uniquement à confiner
+  // les CONTRÔLES flottants (recherche, barre de nav...) à la zone non
+  // recouverte, pour qu'ils ne s'affichent pas par-dessus le tiroir (voir
+  // AccueilScreen et la barre de nav plus bas, tous deux zIndex plus élevé).
+  const isWideLayout = useIsWideLayout();
+  const mapLeftInset = isWideLayout && activeTab === 'favoris' ? WIDE_PANEL_INSET : 0;
+  const mapRightInset = isWideLayout && activeTab === 'trafic' ? WIDE_PANEL_INSET : 0;
+  // Version animée de ces insets, pour que la barre de nav (voir plus bas)
+  // glisse en douceur au lieu de sauter instantanément quand un tiroir
+  // permanent s'ouvre/se ferme (changement de largeur du même ordre que le
+  // tiroir lui-même — même durée que son slide, 300ms, pour rester en phase).
+  const navLeftInsetAnim = useRef(new Animated.Value(0)).current;
+  const navRightInsetAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(navLeftInsetAnim, { toValue: mapLeftInset, duration: 300, useNativeDriver: false }).start();
+  }, [mapLeftInset]);
+  useEffect(() => {
+    Animated.timing(navRightInsetAnim, { toValue: mapRightInset, duration: 300, useNativeDriver: false }).start();
+  }, [mapRightInset]);
   const [favoris, setFavoris] = useState<Gare[]>([]);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string; osmOnly?: boolean } | null>(null);
@@ -2021,6 +2067,19 @@ function AppInner() {
     snapHiddenSV.value = PANEL_H;
     snapHalfSV.value   = PANEL_H - SCREEN_H * 0.50;
     snapFullSV.value   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
+    // Les trois lignes ci-dessus ne mettent à jour que les POINTS D'ANCRAGE
+    // — pas `panelY`, la position réellement affichée. Sans ça, après un
+    // changement de hauteur d'écran (rotation), `panelY` restait à
+    // l'ancienne position "hidden" — celle calculée pour la précédente
+    // hauteur d'écran (ex: paysage, plus petite). Cette ancienne valeur ne
+    // suffit plus à cacher le panneau une fois revenu à un écran plus haut
+    // (portrait) : le panneau réapparaissait, vide, coincé en haut de
+    // l'écran. On resynchronise instantanément (pas de spring ici, ce n'est
+    // pas un geste utilisateur) `panelY` sur la cible actuelle, quel que
+    // soit le snap en cours (hidden/half/full).
+    panelY.value = panelSnapSV.value === 'hidden' ? snapHiddenSV.value
+                 : panelSnapSV.value === 'half'   ? snapHalfSV.value
+                                                   : snapFullSV.value;
   }, [PANEL_H, SCREEN_H, headerHeight, insets.top]);
 
   const panelY      = useSharedValue(PANEL_H);
@@ -2370,8 +2429,18 @@ function AppInner() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.bg }}><ActivityIndicator size="large" color={c.accent} /></View>;
   }
 
-  const tiroirTop    = headerHeight + 8;
-  const tiroirBottom = SEARCH_BAR_BOTTOM + SEARCH_BAR_HEIGHT + 8;
+  // En layout large (voir responsive.ts), le tiroir reste affiché en
+  // permanence (il ne glisse plus hors champ) : il n'a donc plus besoin
+  // d'éviter verticalement le header logo+titre (en haut) ni la barre de
+  // recherche/nav (en bas), qui restent confinés à une zone qui ne
+  // chevauche pas le tiroir (voir mapLeftInset/mapRightInset). Lui laisser
+  // toute la hauteur de l'écran (juste les insets système) au lieu de leur
+  // garder la même marge que sur téléphone — sans ça, en paysage (hauteur
+  // d'écran réduite), il ne restait presque plus de place pour le contenu
+  // du tiroir (mesuré à 106px de haut, pas même assez pour une seule carte
+  // favori de 72px).
+  const tiroirTop    = isWideLayout ? insets.top + 12 : headerHeight + 8;
+  const tiroirBottom = isWideLayout ? insets.bottom + 12 : SEARCH_BAR_BOTTOM + SEARCH_BAR_HEIGHT + 8;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['left', 'right']}>
@@ -2402,10 +2471,14 @@ function AppInner() {
         gareActuelle={gareActuelle ? { id: gareActuelle.id, label: gareActuelle.label } : null}
         onQuitterVueArret={quitterVueArret}
         onRevenirAccueil={() => setActiveTab('accueil')}
+        mapLeftInset={navLeftInsetAnim}
+        mapRightInset={navRightInsetAnim}
       />
 
-      {/* Zone de fermeture des tiroirs (sans voile) */}
-      {activeTab !== 'accueil' && (
+      {/* Zone de fermeture des tiroirs (sans voile) — absente en layout large
+          où le tiroir reste ouvert en permanence à côté de la carte : la
+          carte doit rester utilisable (tap, drag) sans fermer le tiroir. */}
+      {activeTab !== 'accueil' && !isWideLayout && (
         <TouchableOpacity
           style={[StyleSheet.absoluteFill, { zIndex: 100 }]}
           activeOpacity={1}
@@ -2418,6 +2491,11 @@ function AppInner() {
         <>
           <Animated.View style={[
             styles.sideCard, styles.sideCardLeft,
+            // Plus étroit en layout large : le tiroir reste affiché en
+            // permanence à côté de la carte (pas juste de passage comme sur
+            // téléphone), donc autant lui laisser moins de place pour que
+            // la carte en garde davantage.
+            isWideLayout ? { maxWidth: WIDE_PANEL_WIDTH } : null,
             { top: tiroirTop, bottom: tiroirBottom, backgroundColor: c.bg, transform: [{ translateX: favSlideAnim }] }
           ]}>
             <View style={styles.cardContentWrapper}>
@@ -2426,6 +2504,7 @@ function AppInner() {
           </Animated.View>
           <Animated.View style={[
             styles.sideCard, styles.sideCardRight,
+            isWideLayout ? { maxWidth: WIDE_PANEL_WIDTH } : null,
             { top: tiroirTop, bottom: tiroirBottom, backgroundColor: c.bg, transform: [{ translateX: asstSlideAnim }] }
           ]}>
             <View style={styles.cardContentWrapper}>
@@ -2434,6 +2513,17 @@ function AppInner() {
           </Animated.View>
         </>
       )}
+
+      {/* Enveloppe dédiée aux insets, même principe que dans AccueilScreen
+          pour la carte/barre de recherche : confine le fondu + la barre de
+          nav à la zone visible de la carte plutôt que de les laisser
+          s'étendre par-dessus le tiroir permanent (écran large, voir
+          responsive.ts). Sans ça, la barre de nav — seul moyen de changer
+          d'onglet en layout large, le tap en dehors du tiroir étant
+          désactivé — se retrouvait à cheval sur le tiroir. Version animée
+          des insets (navLeftInsetAnim/navRightInsetAnim) pour que la barre
+          glisse en douceur au lieu de sauter à l'ouverture/fermeture. */}
+      <Animated.View style={{ position: 'absolute', bottom: 0, top: 0, left: navLeftInsetAnim, right: navRightInsetAnim }} pointerEvents="box-none">
 
       {/* Fondu progressif en bas de l'écran pour détacher la barre de navigation du contenu */}
       <LinearGradient
@@ -2472,6 +2562,7 @@ function AppInner() {
           <Text style={[styles.tabLabel, { color: activeTab === 'trafic' ? c.text : c.textTab }]}>Trafic</Text>
         </TouchableOpacity>
       </View>
+      </Animated.View>
 
       {/* Panel gare : bottom sheet animé */}
       <View style={[StyleSheet.absoluteFill, { zIndex: 500, elevation: 0 }]} pointerEvents="box-none">
