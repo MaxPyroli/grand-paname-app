@@ -12,18 +12,6 @@ export type WhatsNewEntry = {
 
 export const WHATSNEW: WhatsNewEntry[] = [
   {
-    version: '3.3.1',
-    features: [
-      {
-        emoji: '📱',
-        title: 'L\'app s\'adapte aux grands écrans',
-        description:
-          "Tablette, pliable, ou simplement le téléphone tourné en paysage : les onglets Favoris et Info Trafic restent maintenant affichés à côté de la carte au lieu de la recouvrir.",
-      },
-    ],
-    footer: "Aussi un bug corrigé sur le volet des horaires après un changement d'orientation — détails dans le changelog complet.",
-  },
-  {
     version: '3.3.0',
     features: [
       {
