@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { ThemeContext, ThemeProvider, useColors } from './theme';
 import type { ThemeColors, ThemePref } from './theme';
+import { useIsWideLayout } from './responsive';
 import MapWebView, { MapWebViewRef } from './MapWebView';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -48,6 +49,11 @@ const NAV_BAR_BOTTOM = 16;
 const NAV_BAR_HEIGHT = 58;
 const SEARCH_BAR_HEIGHT = 52;
 const SEARCH_BAR_BOTTOM = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 10;
+// Sur écran large (voir responsive.ts), place à laisser à la carte quand un
+// tiroir reste ouvert en permanence à côté d'elle : la largeur max du
+// tiroir (420, voir sideCard) + sa marge au bord (12) + un espace avant la
+// carte (12).
+const WIDE_PANEL_INSET = 444;
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace('#', '');
@@ -165,6 +171,12 @@ type AccueilProps = {
   gareActuelle: { id: string; label: string } | null;
   onQuitterVueArret: () => void;
   onRevenirAccueil: () => void;
+  // Sur écran large (voir responsive.ts), le tiroir Favoris/Trafic ouvert
+  // reste affiché en permanence à côté de la carte plutôt que de la
+  // recouvrir — la carte doit alors laisser la place correspondante d'un
+  // côté ou de l'autre plutôt que de rester plein écran en dessous.
+  mapLeftInset: number;
+  mapRightInset: number;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -792,7 +804,7 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 }
 
 // ─── ÉCRAN D'ACCUEIL ─────────────────────────────────────────────────────────
-function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret, onRevenirAccueil }: AccueilProps) {
+function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret, onRevenirAccueil, mapLeftInset, mapRightInset }: AccueilProps) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -1042,18 +1054,25 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
   return (
     <View style={styles.container}>
-      <MapWebView
-        ref={mapRef}
-        isDark={isDark}
-        onStationSelected={onGareChoisie}
-        onViewportChanged={handleViewportChanged}
-        onMapTapped={onMapTapped}
-        onFollowExited={handleFollowExited}
-        onReady={() => {
-          mapRef.current?.setTheme(isDark);
-          mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
-        }}
-      />
+      {/* Enveloppe dédiée aux insets : MapWebView remplit son parent direct
+          via son propre absoluteFill interne (pas modifiable de l'extérieur
+          via une prop) — cette vue intermédiaire, elle, peut être resserrée
+          d'un côté pour laisser la place au tiroir permanent (écran large,
+          voir responsive.ts). */}
+      <View style={{ position: 'absolute', top: 0, bottom: 0, left: mapLeftInset, right: mapRightInset }}>
+        <MapWebView
+          ref={mapRef}
+          isDark={isDark}
+          onStationSelected={onGareChoisie}
+          onViewportChanged={handleViewportChanged}
+          onMapTapped={onMapTapped}
+          onFollowExited={handleFollowExited}
+          onReady={() => {
+            mapRef.current?.setTheme(isDark);
+            mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
+          }}
+        />
+      </View>
 
       {/* Overlay d'infos de debug (mode dev) */}
       {showDebugOverlay && (
@@ -1170,7 +1189,14 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Barre de recherche flottante, ou nom de l'arrêt affiché tant qu'on
           reste sur sa vue (poteaux compris), même horaires fermées */}
-      <Animated.View style={[styles.bottomSearchBar, { bottom: searchBarBottom, backgroundColor: c.bgFloat }]}>
+      <Animated.View style={[styles.bottomSearchBar, {
+        bottom: searchBarBottom, backgroundColor: c.bgFloat,
+        // `left`/`right` en % débordent sur le tiroir permanent (écran
+        // large, voir responsive.ts) — sinon la barre (zIndex plus élevé)
+        // s'affiche par-dessus. On bascule sur l'inset réel + une marge.
+        left: mapLeftInset > 0 ? mapLeftInset + 16 : '6%',
+        right: mapRightInset > 0 ? mapRightInset + 16 : '6%',
+      }]}>
         {gareActuelle ? (
           <>
             <TouchableOpacity
@@ -1796,6 +1822,13 @@ function AppInner() {
   const PANEL_H = SCREEN_H - insets.top;
 
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic'>('accueil');
+  // Écran large (voir responsive.ts) : le tiroir ouvert reste affiché en
+  // permanence à côté de la carte plutôt que de la recouvrir. La carte
+  // reçoit l'inset correspondant (voir mapLeftInset/mapRightInset plus bas,
+  // et l'appel invalidateSize() qui suit son changement).
+  const isWideLayout = useIsWideLayout();
+  const mapLeftInset = isWideLayout && activeTab === 'favoris' ? WIDE_PANEL_INSET : 0;
+  const mapRightInset = isWideLayout && activeTab === 'trafic' ? WIDE_PANEL_INSET : 0;
   const [favoris, setFavoris] = useState<Gare[]>([]);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string; osmOnly?: boolean } | null>(null);
@@ -1997,6 +2030,16 @@ function AppInner() {
   const mapRef = useRef<MapWebViewRef | null>(null);
   const blurTargetRef = useRef<View | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
+
+  // Leaflet ne recalcule pas tout seul sa zone visible quand son conteneur
+  // change de taille pour une raison autre qu'un vrai resize de fenêtre
+  // (voir invalidateMapSize() dans MapWebView.tsx) — donc à chaque
+  // changement d'inset (tiroir permanent qui s'ouvre/se ferme sur écran
+  // large), on le lui dit explicitement une fois la mise en page posée.
+  useEffect(() => {
+    const t = setTimeout(() => mapRef.current?.invalidateSize(), 80);
+    return () => clearTimeout(t);
+  }, [mapLeftInset, mapRightInset]);
 
   // ── Panel animé (Reanimated) ─────────────────────────────────────────────
   // Tout ce qui pilote le volet vit désormais en shared values Reanimated
@@ -2402,10 +2445,14 @@ function AppInner() {
         gareActuelle={gareActuelle ? { id: gareActuelle.id, label: gareActuelle.label } : null}
         onQuitterVueArret={quitterVueArret}
         onRevenirAccueil={() => setActiveTab('accueil')}
+        mapLeftInset={mapLeftInset}
+        mapRightInset={mapRightInset}
       />
 
-      {/* Zone de fermeture des tiroirs (sans voile) */}
-      {activeTab !== 'accueil' && (
+      {/* Zone de fermeture des tiroirs (sans voile) — absente en layout large
+          où le tiroir reste ouvert en permanence à côté de la carte : la
+          carte doit rester utilisable (tap, drag) sans fermer le tiroir. */}
+      {activeTab !== 'accueil' && !isWideLayout && (
         <TouchableOpacity
           style={[StyleSheet.absoluteFill, { zIndex: 100 }]}
           activeOpacity={1}
@@ -2446,7 +2493,20 @@ function AppInner() {
       />
 
       {/* Barre de navigation */}
-      <View style={[styles.floatingTabBar, { backgroundColor: c.bgFloat }]}>
+      <View style={[styles.floatingTabBar, {
+        backgroundColor: c.bgFloat,
+        // Même souci que la barre de recherche : `alignSelf:'center'` se
+        // centre sur tout l'écran, pas sur la zone visible de la carte une
+        // fois le tiroir permanent ouvert (écran large). On bascule sur des
+        // bords explicites qui respectent l'inset, sans quoi la barre de
+        // nav — seul moyen de changer d'onglet en layout large, le tap en
+        // dehors du tiroir étant désactivé — peut se retrouver à cheval sur
+        // le tiroir.
+        ...(mapLeftInset > 0 || mapRightInset > 0 ? {
+          alignSelf: undefined, width: undefined,
+          left: mapLeftInset + 24, right: mapRightInset + 24,
+        } : null),
+      }]}>
         <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('favoris')}>
           <View style={[styles.tabPill, activeTab === 'favoris' && { backgroundColor: c.pillActive }]}>
             {activeTab === 'favoris'

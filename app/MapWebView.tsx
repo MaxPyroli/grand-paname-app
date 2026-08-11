@@ -463,6 +463,15 @@ function getMapHTML(isDark: boolean) {
     });
   }
 
+  // Leaflet ne recalcule sa zone visible que sur l'événement 'resize' de la
+  // fenêtre — si le conteneur RN de cette WebView change de taille pour une
+  // autre raison (ex: un panneau permanent qui s'ouvre à côté sur grand
+  // écran), Leaflet ne le sait pas tout seul : il faut l'appeler
+  // explicitement, sinon la carte reste mal cadrée/coupée après coup.
+  function invalidateMapSize(){
+    map.invalidateSize();
+  }
+
   // Recentre la vue sur la station actuellement affichée dans le panneau,
   // sans rien redemander au backend (bouton "localiser" du panneau horaires).
   function recenterActiveStation(){
@@ -697,6 +706,7 @@ export type MapWebViewRef = {
   setTransportData: (data: { stops: any[]; lines: any[] }) => void;
   setNearbyStops: (stops: NearbyStopMarker[]) => void;
   recenterActiveStation: () => void;
+  invalidateSize: () => void;
 };
 
 type Props = {
@@ -754,6 +764,9 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
     },
     setNearbyStops: (stops) => {
       wvRef.current?.injectJavaScript(`setNearbyStops(${JSON.stringify(stops)});true;`);
+    },
+    invalidateSize: () => {
+      wvRef.current?.injectJavaScript(`invalidateMapSize();true;`);
     },
   }));
 
