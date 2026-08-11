@@ -1054,11 +1054,16 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
   return (
     <View style={styles.container}>
-      {/* Enveloppe dédiée aux insets : MapWebView remplit son parent direct
-          via son propre absoluteFill interne (pas modifiable de l'extérieur
-          via une prop) — cette vue intermédiaire, elle, peut être resserrée
-          d'un côté pour laisser la place au tiroir permanent (écran large,
-          voir responsive.ts). */}
+      {/* Enveloppe dédiée aux insets : contient la carte ET tous les
+          éléments flottants qui vivent au-dessus d'elle (en-tête, pastille
+          réglages, barre de recherche, résultats...). Comme ils utilisent
+          tous `position:'absolute'`, ils se positionnent par rapport au
+          parent direct — les enfermer ici plutôt que dans styles.container
+          les confine automatiquement à la zone visible de la carte plutôt
+          que de s'étendre par-dessus le tiroir permanent (écran large, voir
+          responsive.ts), sans recalculer leurs marges un par un. MapWebView
+          remplit cette enveloppe via son propre absoluteFill interne (pas
+          modifiable de l'extérieur via une prop). */}
       <View style={{ position: 'absolute', top: 0, bottom: 0, left: mapLeftInset, right: mapRightInset }}>
         <MapWebView
           ref={mapRef}
@@ -1072,7 +1077,6 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
             mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
           }}
         />
-      </View>
 
       {/* Overlay d'infos de debug (mode dev) */}
       {showDebugOverlay && (
@@ -1189,14 +1193,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Barre de recherche flottante, ou nom de l'arrêt affiché tant qu'on
           reste sur sa vue (poteaux compris), même horaires fermées */}
-      <Animated.View style={[styles.bottomSearchBar, {
-        bottom: searchBarBottom, backgroundColor: c.bgFloat,
-        // `left`/`right` en % débordent sur le tiroir permanent (écran
-        // large, voir responsive.ts) — sinon la barre (zIndex plus élevé)
-        // s'affiche par-dessus. On bascule sur l'inset réel + une marge.
-        left: mapLeftInset > 0 ? mapLeftInset + 16 : '6%',
-        right: mapRightInset > 0 ? mapRightInset + 16 : '6%',
-      }]}>
+      <Animated.View style={[styles.bottomSearchBar, { bottom: searchBarBottom, backgroundColor: c.bgFloat }]}>
         {gareActuelle ? (
           <>
             <TouchableOpacity
@@ -1248,6 +1245,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
           </>
         )}
       </Animated.View>
+      </View>
       <FeurModal visible={feurVisible} onClose={() => setFeurVisible(false)} />
     </View>
   );
@@ -2477,6 +2475,15 @@ function AppInner() {
         </>
       )}
 
+      {/* Enveloppe dédiée aux insets, même principe que dans AccueilScreen
+          pour la carte/barre de recherche : confine le fondu + la barre de
+          nav à la zone visible de la carte plutôt que de les laisser
+          s'étendre par-dessus le tiroir permanent (écran large, voir
+          responsive.ts). Sans ça, la barre de nav — seul moyen de changer
+          d'onglet en layout large, le tap en dehors du tiroir étant
+          désactivé — se retrouvait à cheval sur le tiroir. */}
+      <View style={{ position: 'absolute', bottom: 0, top: 0, left: mapLeftInset, right: mapRightInset }} pointerEvents="box-none">
+
       {/* Fondu progressif en bas de l'écran pour détacher la barre de navigation du contenu */}
       <LinearGradient
         pointerEvents="none"
@@ -2488,20 +2495,7 @@ function AppInner() {
       />
 
       {/* Barre de navigation */}
-      <View style={[styles.floatingTabBar, {
-        backgroundColor: c.bgFloat,
-        // Même souci que la barre de recherche : `alignSelf:'center'` se
-        // centre sur tout l'écran, pas sur la zone visible de la carte une
-        // fois le tiroir permanent ouvert (écran large). On bascule sur des
-        // bords explicites qui respectent l'inset, sans quoi la barre de
-        // nav — seul moyen de changer d'onglet en layout large, le tap en
-        // dehors du tiroir étant désactivé — peut se retrouver à cheval sur
-        // le tiroir.
-        ...(mapLeftInset > 0 || mapRightInset > 0 ? {
-          alignSelf: undefined, width: undefined,
-          left: mapLeftInset + 24, right: mapRightInset + 24,
-        } : null),
-      }]}>
+      <View style={[styles.floatingTabBar, { backgroundColor: c.bgFloat }]}>
         <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('favoris')}>
           <View style={[styles.tabPill, activeTab === 'favoris' && { backgroundColor: c.pillActive }]}>
             {activeTab === 'favoris'
@@ -2526,6 +2520,7 @@ function AppInner() {
           </View>
           <Text style={[styles.tabLabel, { color: activeTab === 'trafic' ? c.text : c.textTab }]}>Trafic</Text>
         </TouchableOpacity>
+      </View>
       </View>
 
       {/* Panel gare : bottom sheet animé */}

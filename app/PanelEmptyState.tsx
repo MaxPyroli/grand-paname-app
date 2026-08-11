@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useColors } from './theme';
 
 // État vide standard des volets (aucun favori, aucun scan encore fait...) :
@@ -14,16 +14,22 @@ type PanelEmptyStateProps = {
 export function PanelEmptyState({ icon, title, description }: PanelEmptyStateProps) {
   const c = useColors();
   return (
-    <View style={styles.container}>
+    // ScrollView plutôt qu'une simple View centrée : sur un volet bas (écran
+    // en paysage, où la hauteur disponible est bien plus réduite qu'en
+    // portrait), le contenu centré peut dépasser la hauteur du volet — sans
+    // ça, le volet parent (`overflow:hidden`) coupait silencieusement le
+    // titre/la description en trop, ne laissant que l'icône visible. Ici,
+    // ça défile au pire au lieu de disparaître.
+    <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.icon}>{icon}</View>
       <Text style={[styles.title, { color: c.text }]}>{title}</Text>
       <Text style={[styles.description, { color: c.textSub }]}>{description}</Text>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, paddingBottom: 40 },
+  container: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, paddingBottom: 40 },
   icon: { marginBottom: 14 },
   title: { fontSize: 17, fontFamily: 'GrandParis-Bold', marginBottom: 8, textAlign: 'center' },
   description: { fontSize: 14, fontFamily: 'GrandParis-Light', textAlign: 'center', lineHeight: 22 },
