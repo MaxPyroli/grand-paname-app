@@ -3,7 +3,7 @@ import {
   StyleSheet, View, Text, TouchableOpacity, ActivityIndicator,
   FlatList, TextInput, Keyboard, Animated, Dimensions, Easing,
   LayoutChangeEvent, Platform, ToastAndroid, NativeModules,
-  Modal, Linking, ScrollView, BackHandler, useWindowDimensions,
+  Linking, ScrollView, BackHandler, useWindowDimensions,
 } from 'react-native';
 import { ThemeContext, ThemeProvider, useColors } from './theme';
 import type { ThemeColors, ThemePref } from './theme';
@@ -249,6 +249,14 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
+  // Pas de <Modal> ici (voir le commentaire au-dessus de ModalBackdrop) :
+  // sur un écran redimensionnable en direct (fenêtre Samsung DeX...), la
+  // fenêtre native séparée qu'ouvre <Modal> se retrouvait mal dimensionnée
+  // (miniature, coincée en haut à gauche) au lieu de suivre la vraie taille
+  // de la fenêtre hôte. Même mécanisme de montage/animation que les autres
+  // modales "maison" (voir useModalCardAnim), en glissant depuis le bas.
+  const { height: winH } = useWindowDimensions();
+  const { anim: slideAnim, mounted } = useModalCardAnim(visible);
   const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>(() => logger.get());
   useEffect(() => { const unsub = logger.subscribe(() => setLogs(logger.get())); return () => { unsub(); }; }, []);
@@ -379,8 +387,12 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
     { icon: '✉️',  label: 'Contact',              url: 'mailto:contact@grandpaname.fun' },
   ];
 
+  if (!mounted) return null;
   return (
-    <Modal visible={visible} animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+    <Animated.View style={[StyleSheet.absoluteFill, {
+      zIndex: 20000, elevation: 20,
+      transform: [{ translateY: slideAnim.interpolate({ inputRange: [0, 1], outputRange: [winH, 0] }) }],
+    }]}>
       <View style={[styles.settingsPage, { backgroundColor: c.bg, paddingTop: insets.top }]}>
 
         {/* Nav header */}
@@ -750,7 +762,7 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
           resizeMode="contain"
         />
       )}
-    </Modal>
+    </Animated.View>
   );
 }
 
@@ -761,16 +773,21 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
     if (visible) { player.currentTime = 0; player.play(); }
     else player.pause();
   }, [visible]);
+  // Pas de <Modal> ici non plus (voir le commentaire dans SettingsModal) —
+  // même souci de fenêtre native mal dimensionnée sur écran redimensionnable.
+  if (!visible) return null;
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableOpacity style={styles.feurOverlay} onPress={onClose} activeOpacity={1}>
-        <View style={styles.feurBox}>
-          <Text style={styles.feurTitre}>FEUR ! 💇‍♂️</Text>
-          <VideoView player={player} style={styles.feurVideo} contentFit="contain" nativeControls={false} />
-          <Text style={styles.feurHint}>Tape pour fermer</Text>
-        </View>
-      </TouchableOpacity>
-    </Modal>
+    <TouchableOpacity
+      style={[styles.feurOverlay, StyleSheet.absoluteFill, { zIndex: 20000, elevation: 20 }]}
+      onPress={onClose}
+      activeOpacity={1}
+    >
+      <View style={styles.feurBox}>
+        <Text style={styles.feurTitre}>FEUR ! 💇‍♂️</Text>
+        <VideoView player={player} style={styles.feurVideo} contentFit="contain" nativeControls={false} />
+        <Text style={styles.feurHint}>Tape pour fermer</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
