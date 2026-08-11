@@ -1899,30 +1899,37 @@ function AppInner() {
   useEffect(() => { AsyncStorage.getItem('@gp_native_schedules').then(v => { if (v === '0') setNativeSchedules(false); }); }, []);
   const [showDebugOverlay, setShowDebugOverlay] = useState(false);
   useEffect(() => { AsyncStorage.getItem('@gp_debug_overlay').then(v => { if (v === '1') setShowDebugOverlay(true); }); }, []);
+  // Pas de comparaison avec APP_VERSION : on affiche la dernière entrée
+  // whatsnew tant que l'utilisateur ne l'a pas vue, même s'il a depuis
+  // avancé d'une version de plus (ex: une version sort sans entrée
+  // whatsnew, puis on en ajoute une pour l'annoncer après coup — elle
+  // doit quand même s'afficher).
+  const checkWhatsNew = useCallback(() => {
+    const latest = WHATSNEW[0];
+    if (!latest) return;
+    AsyncStorage.getItem('@gp_whatsnew_seen_version').then(v => {
+      if (v !== latest.version) setShowWhatsNew(true);
+    });
+  }, []);
+
   useEffect(() => {
     AsyncStorage.getItem('@gp_onboarding_seen').then(seen => {
       if (seen !== '1') {
-        // Premier lancement : la visite guidée remplace "Quoi de neuf" (rien
-        // de "nouveau" à raconter à quelqu'un qui découvre l'app), et on
-        // marque directement la dernière entrée whatsnew comme vue pour ne
-        // pas enchaîner avec cette modale juste après le tuto.
+        // "Pas encore vu le tuto" couvre aussi bien un vrai premier lancement
+        // qu'une mise à jour depuis une version d'avant l'existence de cette
+        // clé (ex: 3.2.0, qui a introduit le tuto) — dans ce dernier cas,
+        // marquer silencieusement "quoi de neuf" comme vu privait ces
+        // utilisateurs existants de l'annonce, sans qu'ils l'aient jamais
+        // vue (bug de la 3.2.0). On enchaîne donc avec "quoi de neuf" juste
+        // après le tuto (voir onFinish du OnboardingTour) au lieu de le
+        // supprimer.
         setShowOnboarding(true);
         AsyncStorage.setItem('@gp_onboarding_seen', '1').catch(() => {});
-        if (WHATSNEW[0]) AsyncStorage.setItem('@gp_whatsnew_seen_version', WHATSNEW[0].version).catch(() => {});
         return;
       }
-      // Pas de comparaison avec APP_VERSION : on affiche la dernière entrée
-      // whatsnew tant que l'utilisateur ne l'a pas vue, même s'il a depuis
-      // avancé d'une version de plus (ex: une version sort sans entrée
-      // whatsnew, puis on en ajoute une pour l'annoncer après coup — elle
-      // doit quand même s'afficher).
-      const latest = WHATSNEW[0];
-      if (!latest) return;
-      AsyncStorage.getItem('@gp_whatsnew_seen_version').then(v => {
-        if (v !== latest.version) setShowWhatsNew(true);
-      });
+      checkWhatsNew();
     });
-  }, []);
+  }, [checkWhatsNew]);
   // Gardé pour permettre de le copier depuis Paramètres > Débogage — sans
   // ça, tester une notif push demande de la ligne de commande (curl vers
   // l'API Expo Push, ou passer par Firebase Console) pour se procurer le
@@ -2707,7 +2714,7 @@ function AppInner() {
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
       <OnboardingTour
         visible={showOnboarding}
-        onFinish={() => setShowOnboarding(false)}
+        onFinish={() => { setShowOnboarding(false); checkWhatsNew(); }}
         steps={[
           { key: 'welcome', emoji: '👋', title: 'Bienvenue sur Grand Paname', text: "Naviguez le Grand Paris, tout simplement !\n Découvrez votre nouveau compagnon de transport en Île-de-France." },
           { key: 'search', emoji: '🔎', title: 'Vos horaires en un clic !', text: "Tapez le nom d'un arrêt dans la barre de recherche pour accéder à tous ses horaires en un instant.\nVous pouvez également utiliser la géolocalisation pour trouver les arrêts à proximité." },
