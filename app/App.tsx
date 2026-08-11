@@ -3,7 +3,7 @@ import {
   StyleSheet, View, Text, TouchableOpacity, ActivityIndicator,
   FlatList, TextInput, Keyboard, Animated, Dimensions, Easing,
   LayoutChangeEvent, Platform, ToastAndroid, NativeModules,
-  Modal, Linking, ScrollView, BackHandler,
+  Modal, Linking, ScrollView, BackHandler, useWindowDimensions,
 } from 'react-native';
 import { ThemeContext, ThemeProvider, useColors } from './theme';
 import type { ThemeColors, ThemePref } from './theme';
@@ -48,7 +48,6 @@ const NAV_BAR_BOTTOM = 16;
 const NAV_BAR_HEIGHT = 58;
 const SEARCH_BAR_HEIGHT = 52;
 const SEARCH_BAR_BOTTOM = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 10;
-const { height: SCREEN_H } = Dimensions.get('window');
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace('#', '');
@@ -1768,6 +1767,15 @@ function AppInner() {
   const { isDark } = useContext(ThemeContext);
   useAdaptiveOrientationLock();
 
+  // `useWindowDimensions` (réactif) plutôt que `Dimensions.get('window')`
+  // (figé à l'exécution du module) : sur un écran redimensionnable en direct
+  // (fenêtre Samsung DeX, pliable qu'on ouvre/referme...), la valeur figée
+  // ne suivait jamais le vrai changement de taille — le panneau d'horaires
+  // (PANEL_H, points d'ancrage mi/plein écran) restait calculé pour la
+  // taille de fenêtre du tout premier lancement, coupant le contenu dès que
+  // la fenêtre réelle différait.
+  const { width: screenWidth, height: SCREEN_H } = useWindowDimensions();
+
   const PANEL_H = SCREEN_H - insets.top;
 
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic'>('accueil');
@@ -2154,7 +2162,6 @@ function AppInner() {
     'GrandParis-Bold':    require('./assets/GrandParis-Bold.otf'),
   });
 
-  const { width: screenWidth } = Dimensions.get('window');
   const favSlideAnim  = useRef(new Animated.Value(-screenWidth)).current;
   const asstSlideAnim = useRef(new Animated.Value(screenWidth)).current;
 
@@ -2732,7 +2739,12 @@ const styles = StyleSheet.create({
 
   // Tiroirs latéraux
   sideCard: {
-    position: 'absolute', width: '80%', zIndex: 101, overflow: 'hidden', borderRadius: 24,
+    // `width: '80%'` seul est pensé pour un écran de téléphone — sur un
+    // grand écran (tablette, fenêtre desktop redimensionnée), 80% peut
+    // représenter plus de 1000px et le tiroir avale quasiment tout l'écran.
+    // `maxWidth` le borne à une largeur de panneau raisonnable, cohérente
+    // avec les cartes modales (voir ModalCard, même valeur).
+    position: 'absolute', width: '80%', maxWidth: 420, zIndex: 101, overflow: 'hidden', borderRadius: 24,
     shadowColor: '#0d1b2e', shadowOffset: { width: 6, height: 0 }, shadowOpacity: 0.18, shadowRadius: 20, elevation: 20,
   },
   sideCardLeft: { left: 12 },
