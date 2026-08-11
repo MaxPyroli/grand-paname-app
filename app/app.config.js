@@ -21,11 +21,11 @@ export default {
   expo: {
     name: IS_DEV ? 'Grand Paname Dev' : 'Grand Paname',
     slug: 'grand-paname',
-    version: '3.3.0',
-    // Pas de verrou statique ici : Google Play exige que l'app reste
-    // flexible en orientation sur grands écrans (tablettes/pliables). Le
-    // verrouillage portrait spécifique aux téléphones se fait au runtime,
-    // voir useAdaptiveOrientationLock() dans App.tsx.
+    version: '3.3.1',
+    // Pas de verrou statique ici : l'orientation est libre partout, y
+    // compris sur téléphone (paysage supporté depuis la 3.3.1, panneau
+    // Favoris/Trafic permanent — voir responsive.ts), géré au runtime via
+    // useAdaptiveOrientationLock() dans App.tsx.
     icon: './assets/icon.png',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
@@ -56,8 +56,8 @@ export default {
       // refuse le déploiement ("aucun utilisateur actuel ne peut mettre à
       // jour"). Toujours vérifier contre le dernier code réellement publié,
       // pas juste recalculer depuis le nom de version. 3.2.2 → 30202*10+0.
-      // 3.3.0 → 30300*10+0.
-      versionCode: 303000,
+      // 3.3.0 → 30300*10+0. 3.3.1 → 30301*10+0.
+      versionCode: 303010,
       // google-services.json est gitignore (pas commité) donc EAS Build ne le
       // voit pas nativement — on le fournit via une variable d'environnement
       // EAS de type "fichier" (GOOGLE_SERVICES_JSON), qui pointe vers un

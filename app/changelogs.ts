@@ -7,6 +7,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.3.1',
+    date: '11 août 2026',
+    content: `**🚀 Nouveautés**
+* L'app s'adapte maintenant aux grands écrans et au mode paysage (téléphone pivoté, tablette, pliable) : les onglets Favoris et Info Trafic restent affichés à côté de la carte au lieu de la recouvrir.
+
+**🛠️ Améliorations et Corrections**
+* Correction d'un bug d'affichage du volet des horaires qui pouvait apparaître vide après un changement d'orientation de l'écran.
+
+Bon voyage !`,
+  },
+  {
     version: '3.3.0',
     date: '11 août 2026',
     content: `**🚀 Nouveautés**
