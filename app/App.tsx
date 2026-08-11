@@ -177,11 +177,14 @@ type AccueilProps = {
   onQuitterVueArret: () => void;
   onRevenirAccueil: () => void;
   // Sur écran large (voir responsive.ts), le tiroir Favoris/Trafic ouvert
-  // reste affiché en permanence à côté de la carte plutôt que de la
-  // recouvrir — la carte doit alors laisser la place correspondante d'un
-  // côté ou de l'autre plutôt que de rester plein écran en dessous.
-  mapLeftInset: number;
-  mapRightInset: number;
+  // reste affiché en permanence et recouvre la carte (comme sur téléphone,
+  // elle ne se redimensionne plus) — ces valeurs animées servent à confiner
+  // les contrôles flottants (header, réglages, recherche) à la zone non
+  // recouverte, avec un glissement en douceur plutôt qu'un saut (voir
+  // navLeftInsetAnim/navRightInsetAnim dans AppInner, même mécanisme que la
+  // barre de nav).
+  mapLeftInset: Animated.Value;
+  mapRightInset: Animated.Value;
 };
 
 // ─── RENDU CONTENU CHANGELOG ─────────────────────────────────────────────────
@@ -1086,7 +1089,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
           utilisent tous `position:'absolute'`, ils se positionnent par
           rapport au parent direct — les enfermer ici suffit à les confiner
           sans recalculer leurs marges un par un. */}
-      <View style={{ position: 'absolute', top: 0, bottom: 0, left: mapLeftInset, right: mapRightInset }}>
+      <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, left: mapLeftInset, right: mapRightInset }}>
 
       {/* Overlay d'infos de debug (mode dev) */}
       {showDebugOverlay && (
@@ -1255,7 +1258,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
           </>
         )}
       </Animated.View>
-      </View>
+      </Animated.View>
       <FeurModal visible={feurVisible} onClose={() => setFeurVisible(false)} />
     </View>
   );
@@ -1835,6 +1838,18 @@ function AppInner() {
   const isWideLayout = useIsWideLayout();
   const mapLeftInset = isWideLayout && activeTab === 'favoris' ? WIDE_PANEL_INSET : 0;
   const mapRightInset = isWideLayout && activeTab === 'trafic' ? WIDE_PANEL_INSET : 0;
+  // Version animée de ces insets, pour que la barre de nav (voir plus bas)
+  // glisse en douceur au lieu de sauter instantanément quand un tiroir
+  // permanent s'ouvre/se ferme (changement de largeur du même ordre que le
+  // tiroir lui-même — même durée que son slide, 300ms, pour rester en phase).
+  const navLeftInsetAnim = useRef(new Animated.Value(0)).current;
+  const navRightInsetAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(navLeftInsetAnim, { toValue: mapLeftInset, duration: 300, useNativeDriver: false }).start();
+  }, [mapLeftInset]);
+  useEffect(() => {
+    Animated.timing(navRightInsetAnim, { toValue: mapRightInset, duration: 300, useNativeDriver: false }).start();
+  }, [mapRightInset]);
   const [favoris, setFavoris] = useState<Gare[]>([]);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string; osmOnly?: boolean } | null>(null);
@@ -2451,8 +2466,8 @@ function AppInner() {
         gareActuelle={gareActuelle ? { id: gareActuelle.id, label: gareActuelle.label } : null}
         onQuitterVueArret={quitterVueArret}
         onRevenirAccueil={() => setActiveTab('accueil')}
-        mapLeftInset={mapLeftInset}
-        mapRightInset={mapRightInset}
+        mapLeftInset={navLeftInsetAnim}
+        mapRightInset={navRightInsetAnim}
       />
 
       {/* Zone de fermeture des tiroirs (sans voile) — absente en layout large
@@ -2500,8 +2515,10 @@ function AppInner() {
           s'étendre par-dessus le tiroir permanent (écran large, voir
           responsive.ts). Sans ça, la barre de nav — seul moyen de changer
           d'onglet en layout large, le tap en dehors du tiroir étant
-          désactivé — se retrouvait à cheval sur le tiroir. */}
-      <View style={{ position: 'absolute', bottom: 0, top: 0, left: mapLeftInset, right: mapRightInset }} pointerEvents="box-none">
+          désactivé — se retrouvait à cheval sur le tiroir. Version animée
+          des insets (navLeftInsetAnim/navRightInsetAnim) pour que la barre
+          glisse en douceur au lieu de sauter à l'ouverture/fermeture. */}
+      <Animated.View style={{ position: 'absolute', bottom: 0, top: 0, left: navLeftInsetAnim, right: navRightInsetAnim }} pointerEvents="box-none">
 
       {/* Fondu progressif en bas de l'écran pour détacher la barre de navigation du contenu */}
       <LinearGradient
@@ -2540,7 +2557,7 @@ function AppInner() {
           <Text style={[styles.tabLabel, { color: activeTab === 'trafic' ? c.text : c.textTab }]}>Trafic</Text>
         </TouchableOpacity>
       </View>
-      </View>
+      </Animated.View>
 
       {/* Panel gare : bottom sheet animé */}
       <View style={[StyleSheet.absoluteFill, { zIndex: 500, elevation: 0 }]} pointerEvents="box-none">
