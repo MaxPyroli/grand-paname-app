@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useColors } from './theme';
+import { useUIScale, rf } from './scale';
 
 // En-tête standard de tous les volets latéraux (Favoris, Scanner, et les
 // prochains) : même taille de titre, même position, même espacement,
@@ -25,6 +26,11 @@ type PanelHeaderProps = {
 
 export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 'left' }: PanelHeaderProps) {
   const c = useColors();
+  // Pas de hauteur fixe dans ce composant (tout est auto-dimensionné par
+  // marginBottom) : grossir le texte ici ne peut pas le faire couper par
+  // son conteneur, contrairement au souci rencontré sur les cartes favoris.
+  const scale = useUIScale();
+  const styles = useMemo(() => makeStyles(scale), [scale]);
   const isRight = align === 'right';
   return (
     <View style={[styles.row, isRight && { flexDirection: 'row-reverse' }]}>
@@ -45,12 +51,12 @@ export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (s: number) => StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
-  title: { fontSize: 20, fontFamily: 'GrandParis-Bold' },
+  title: { fontSize: rf(20, s), fontFamily: 'GrandParis-Bold' },
   titleWithIcon: { marginLeft: 8 },
   titleWithIconRight: { marginRight: 8 },
   titleBadgeWrap: { marginLeft: 8 },
-  subtitle: { fontSize: 13, fontFamily: 'GrandParis-Light', marginTop: 4 },
+  subtitle: { fontSize: rf(13, s), fontFamily: 'GrandParis-Light', marginTop: 4 },
 });
