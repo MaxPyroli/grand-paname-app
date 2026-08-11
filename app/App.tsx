@@ -1788,23 +1788,15 @@ function UpdateModal({ visible, mode, onAccept, onDismiss }: {
   );
 }
 
-// L'app n'est pas prévue pour le paysage sur téléphone (rien dans l'UI n'est
-// pensé pour ça), mais Google Play exige depuis peu que les apps restent
-// flexibles en orientation sur grands écrans (tablettes/pliables) — d'où
-// l'absence de verrou statique dans app.config.js. Le compromis : verrouiller
-// le portrait uniquement quand l'écran est de taille "téléphone" (répliquant
-// le seuil sw600dp qu'utilise Android lui-même pour distinguer téléphone et
-// tablette), et laisser l'orientation libre au-delà. Recalculé à chaque
-// changement de dimensions pour suivre un pliable qu'on ouvre/referme.
+// Orientation libre partout, y compris sur téléphone : le paysage y est
+// désormais un vrai mode supporté (panneau Favoris/Trafic permanent, voir
+// responsive.ts), pas juste toléré. Ça correspond aussi à ce qu'exige
+// Google Play sur les grands écrans (tablettes/pliables) — Android 16
+// ignorera de toute façon les verrous d'orientation sur ces appareils, mais
+// l'app doit rester utilisable quand ça arrive plutôt que de casser sa mise
+// en page.
 function useAdaptiveOrientationLock() {
   useEffect(() => {
-    // Déverrouillé sur TOUS les écrans pour l'instant (y compris téléphone)
-    // — le temps de valider en vrai, en faisant pivoter un téléphone, le
-    // panneau permanent Favoris/Trafic (voir responsive.ts) plutôt que de
-    // deviner depuis des captures DeX. À remettre au comportement d'origine
-    // (portrait verrouillé sur téléphone, `smallestWidthDp < 600`) une fois
-    // ce test terminé, sauf si on décide de garder le paysage ouvert sur
-    // téléphone de façon permanente.
     ScreenOrientation.unlockAsync().catch(() => {});
   }, []);
 }

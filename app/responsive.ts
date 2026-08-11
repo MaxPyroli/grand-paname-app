@@ -1,19 +1,19 @@
 import { useWindowDimensions } from 'react-native';
 
-// Seuil au-delà duquel on a assez de place pour montrer un tiroir
-// (Favoris/Trafic, plafonné à 420px de large — voir sideCard dans App.tsx)
-// EN PERMANENCE à côté de la carte plutôt qu'en recouvrement temporaire :
-// 420 (tiroir) + un minimum confortable pour la carte à côté. En dessous,
-// comportement téléphone inchangé (tiroir qui glisse par-dessus la carte).
+// Seuil au-delà duquel le tiroir Favoris/Trafic (plafonné à 340px de large
+// en layout large — voir sideCard/WIDE_PANEL_WIDTH dans App.tsx) reste
+// affiché EN PERMANENCE (il ne glisse plus hors champ, ne se ferme plus au
+// tap en dehors) plutôt qu'en recouvrement temporaire comme sur téléphone.
+// 650dp correspond à peu près à un téléphone pivoté en paysage (~700-800dp
+// selon les modèles) : validé sur appareil réel, le paysage téléphone est
+// désormais un vrai mode supporté, pas juste toléré (voir aussi
+// useAdaptiveOrientationLock, orientation libre partout).
 //
 // Volontairement une largeur fixe simple (pas de multiplicateur continu,
-// pas de scaling de taille) — voir scale.ts (chantier abandonné) pour
-// pourquoi on évite cette approche : ici on change uniquement la
-// DISPOSITION (où les choses s'affichent), jamais leur taille.
-// Abaissé temporairement à 650 (au lieu de 900) le temps de tester sur un
-// vrai téléphone pivoté en paysage (~700-800dp de large selon les modèles,
-// ne franchirait pas 900) plutôt que de deviner depuis des captures DeX.
-// Remonter à 900 (ou ajuster selon ce que le test révèle) une fois validé.
+// pas de scaling de taille) — voir scale.ts (chantier de scaling
+// généralisé, abandonné) pour pourquoi on évite cette approche : ici on
+// change uniquement la DISPOSITION (où les choses s'affichent), jamais
+// leur taille.
 const WIDE_LAYOUT_BREAKPOINT = 650;
 
 export function useIsWideLayout(): boolean {
