@@ -1787,19 +1787,14 @@ function UpdateModal({ visible, mode, onAccept, onDismiss }: {
 // changement de dimensions pour suivre un pliable qu'on ouvre/referme.
 function useAdaptiveOrientationLock() {
   useEffect(() => {
-    const appliquer = () => {
-      const { width, height } = Dimensions.get('screen');
-      const smallestWidthDp = Math.min(width, height);
-      const estTelephone = smallestWidthDp < 600;
-      if (estTelephone) {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-      } else {
-        ScreenOrientation.unlockAsync().catch(() => {});
-      }
-    };
-    appliquer();
-    const sub = Dimensions.addEventListener('change', appliquer);
-    return () => sub.remove();
+    // Déverrouillé sur TOUS les écrans pour l'instant (y compris téléphone)
+    // — le temps de valider en vrai, en faisant pivoter un téléphone, le
+    // panneau permanent Favoris/Trafic (voir responsive.ts) plutôt que de
+    // deviner depuis des captures DeX. À remettre au comportement d'origine
+    // (portrait verrouillé sur téléphone, `smallestWidthDp < 600`) une fois
+    // ce test terminé, sauf si on décide de garder le paysage ouvert sur
+    // téléphone de façon permanente.
+    ScreenOrientation.unlockAsync().catch(() => {});
   }, []);
 }
 

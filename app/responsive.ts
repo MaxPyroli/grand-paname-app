@@ -10,7 +10,11 @@ import { useWindowDimensions } from 'react-native';
 // pas de scaling de taille) — voir scale.ts (chantier abandonné) pour
 // pourquoi on évite cette approche : ici on change uniquement la
 // DISPOSITION (où les choses s'affichent), jamais leur taille.
-const WIDE_LAYOUT_BREAKPOINT = 900;
+// Abaissé temporairement à 650 (au lieu de 900) le temps de tester sur un
+// vrai téléphone pivoté en paysage (~700-800dp de large selon les modèles,
+// ne franchirait pas 900) plutôt que de deviner depuis des captures DeX.
+// Remonter à 900 (ou ajuster selon ce que le test révèle) une fois validé.
+const WIDE_LAYOUT_BREAKPOINT = 650;
 
 export function useIsWideLayout(): boolean {
   const { width } = useWindowDimensions();
