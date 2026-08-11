@@ -2075,6 +2075,19 @@ function AppInner() {
     snapHiddenSV.value = PANEL_H;
     snapHalfSV.value   = PANEL_H - SCREEN_H * 0.50;
     snapFullSV.value   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
+    // Les trois lignes ci-dessus ne mettent à jour que les POINTS D'ANCRAGE
+    // — pas `panelY`, la position réellement affichée. Sans ça, après un
+    // changement de hauteur d'écran (rotation), `panelY` restait à
+    // l'ancienne position "hidden" — celle calculée pour la précédente
+    // hauteur d'écran (ex: paysage, plus petite). Cette ancienne valeur ne
+    // suffit plus à cacher le panneau une fois revenu à un écran plus haut
+    // (portrait) : le panneau réapparaissait, vide, coincé en haut de
+    // l'écran. On resynchronise instantanément (pas de spring ici, ce n'est
+    // pas un geste utilisateur) `panelY` sur la cible actuelle, quel que
+    // soit le snap en cours (hidden/half/full).
+    panelY.value = panelSnapSV.value === 'hidden' ? snapHiddenSV.value
+                 : panelSnapSV.value === 'half'   ? snapHalfSV.value
+                                                   : snapFullSV.value;
   }, [PANEL_H, SCREEN_H, headerHeight, insets.top]);
 
   const panelY      = useSharedValue(PANEL_H);
