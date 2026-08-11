@@ -50,11 +50,14 @@ const NAV_BAR_HEIGHT = 58;
 const SEARCH_BAR_HEIGHT = 52;
 const SEARCH_BAR_BOTTOM = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 10;
 // En layout large, le tiroir permanent est plus étroit que sur téléphone
-// (420, voir sideCard) — il reste affiché en continu à côté de la carte
-// plutôt que de passage, autant laisser plus de place à la carte.
+// (420, voir sideCard) — il reste affiché en continu plutôt que de passage,
+// autant laisser plus de place visible à la carte derrière lui.
 const WIDE_PANEL_WIDTH = 340;
-// Place à laisser à la carte pour ce tiroir : sa largeur + sa marge au bord
-// (12) + un espace avant la carte (12).
+// La carte reste toujours plein écran (voir AccueilScreen) — cette valeur
+// ne sert qu'à confiner les CONTRÔLES flottants (recherche, barre de nav...)
+// à la zone non recouverte par le tiroir, pour qu'ils ne s'affichent pas
+// par-dessus lui (zIndex plus élevé). Largeur du tiroir + sa marge au bord
+// (12) + un espace avant les contrôles (12).
 const WIDE_PANEL_INSET = WIDE_PANEL_WIDTH + 24;
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -1056,29 +1059,34 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
   return (
     <View style={styles.container}>
-      {/* Enveloppe dédiée aux insets : contient la carte ET tous les
-          éléments flottants qui vivent au-dessus d'elle (en-tête, pastille
-          réglages, barre de recherche, résultats...). Comme ils utilisent
-          tous `position:'absolute'`, ils se positionnent par rapport au
-          parent direct — les enfermer ici plutôt que dans styles.container
-          les confine automatiquement à la zone visible de la carte plutôt
-          que de s'étendre par-dessus le tiroir permanent (écran large, voir
-          responsive.ts), sans recalculer leurs marges un par un. MapWebView
-          remplit cette enveloppe via son propre absoluteFill interne (pas
-          modifiable de l'extérieur via une prop). */}
+      {/* La carte reste TOUJOURS plein écran, même quand un tiroir permanent
+          est ouvert (écran large, voir responsive.ts) — le tiroir (opaque)
+          la recouvre juste visuellement, comme sur téléphone. Redimensionner
+          son conteneur pour "faire de la place" forçait Leaflet à recharger
+          les tuiles de la zone révélée à chaque ouverture/fermeture (délai
+          visible), en plus d'avoir vraisemblablement déclenché le bug de
+          panneau vide après rotation — approche abandonnée. */}
+      <MapWebView
+        ref={mapRef}
+        isDark={isDark}
+        onStationSelected={onGareChoisie}
+        onViewportChanged={handleViewportChanged}
+        onMapTapped={onMapTapped}
+        onFollowExited={handleFollowExited}
+        onReady={() => {
+          mapRef.current?.setTheme(isDark);
+          mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
+        }}
+      />
+
+      {/* Enveloppe dédiée aux contrôles flottants (en-tête, pastille
+          réglages, barre de recherche, résultats...) — eux continuent de se
+          confiner à la zone non recouverte par le tiroir permanent, pour ne
+          pas s'afficher par-dessus (ils ont un zIndex plus élevé). Comme ils
+          utilisent tous `position:'absolute'`, ils se positionnent par
+          rapport au parent direct — les enfermer ici suffit à les confiner
+          sans recalculer leurs marges un par un. */}
       <View style={{ position: 'absolute', top: 0, bottom: 0, left: mapLeftInset, right: mapRightInset }}>
-        <MapWebView
-          ref={mapRef}
-          isDark={isDark}
-          onStationSelected={onGareChoisie}
-          onViewportChanged={handleViewportChanged}
-          onMapTapped={onMapTapped}
-          onFollowExited={handleFollowExited}
-          onReady={() => {
-            mapRef.current?.setTheme(isDark);
-            mapRef.current?.setTransportData(transportData as { stops: any[]; lines: any[] });
-          }}
-        />
 
       {/* Overlay d'infos de debug (mode dev) */}
       {showDebugOverlay && (
@@ -1818,9 +1826,12 @@ function AppInner() {
 
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic'>('accueil');
   // Écran large (voir responsive.ts) : le tiroir ouvert reste affiché en
-  // permanence à côté de la carte plutôt que de la recouvrir. La carte
-  // reçoit l'inset correspondant (voir mapLeftInset/mapRightInset plus bas,
-  // et l'appel invalidateSize() qui suit son changement).
+  // permanence (il ne glisse plus hors champ) et recouvre la carte comme sur
+  // téléphone — la carte, elle, reste toujours plein écran (pas de resize,
+  // pas de rechargement de tuiles). Ces insets servent uniquement à confiner
+  // les CONTRÔLES flottants (recherche, barre de nav...) à la zone non
+  // recouverte, pour qu'ils ne s'affichent pas par-dessus le tiroir (voir
+  // AccueilScreen et la barre de nav plus bas, tous deux zIndex plus élevé).
   const isWideLayout = useIsWideLayout();
   const mapLeftInset = isWideLayout && activeTab === 'favoris' ? WIDE_PANEL_INSET : 0;
   const mapRightInset = isWideLayout && activeTab === 'trafic' ? WIDE_PANEL_INSET : 0;
@@ -2025,16 +2036,6 @@ function AppInner() {
   const mapRef = useRef<MapWebViewRef | null>(null);
   const blurTargetRef = useRef<View | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
-
-  // Leaflet ne recalcule pas tout seul sa zone visible quand son conteneur
-  // change de taille pour une raison autre qu'un vrai resize de fenêtre
-  // (voir invalidateMapSize() dans MapWebView.tsx) — donc à chaque
-  // changement d'inset (tiroir permanent qui s'ouvre/se ferme sur écran
-  // large), on le lui dit explicitement une fois la mise en page posée.
-  useEffect(() => {
-    const t = setTimeout(() => mapRef.current?.invalidateSize(), 80);
-    return () => clearTimeout(t);
-  }, [mapLeftInset, mapRightInset]);
 
   // ── Panel animé (Reanimated) ─────────────────────────────────────────────
   // Tout ce qui pilote le volet vit désormais en shared values Reanimated
@@ -2408,15 +2409,16 @@ function AppInner() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.bg }}><ActivityIndicator size="large" color={c.accent} /></View>;
   }
 
-  // En layout large (voir responsive.ts), le tiroir vit à côté de la carte,
-  // plus par-dessus elle : il n'a donc plus besoin d'éviter verticalement le
-  // header logo+titre (en haut) ni la barre de recherche/nav (en bas), qui
-  // sont désormais confinés à la zone de la carte (voir mapLeftInset/
-  // mapRightInset). Lui laisser toute la hauteur de l'écran (juste les
-  // insets système) au lieu de leur garder la même marge que sur téléphone
-  // — sans ça, en paysage (hauteur d'écran réduite), il ne restait presque
-  // plus de place pour le contenu du tiroir (mesuré à 106px de haut, pas
-  // même assez pour une seule carte favori de 72px).
+  // En layout large (voir responsive.ts), le tiroir reste affiché en
+  // permanence (il ne glisse plus hors champ) : il n'a donc plus besoin
+  // d'éviter verticalement le header logo+titre (en haut) ni la barre de
+  // recherche/nav (en bas), qui restent confinés à une zone qui ne
+  // chevauche pas le tiroir (voir mapLeftInset/mapRightInset). Lui laisser
+  // toute la hauteur de l'écran (juste les insets système) au lieu de leur
+  // garder la même marge que sur téléphone — sans ça, en paysage (hauteur
+  // d'écran réduite), il ne restait presque plus de place pour le contenu
+  // du tiroir (mesuré à 106px de haut, pas même assez pour une seule carte
+  // favori de 72px).
   const tiroirTop    = isWideLayout ? insets.top + 12 : headerHeight + 8;
   const tiroirBottom = isWideLayout ? insets.bottom + 12 : SEARCH_BAR_BOTTOM + SEARCH_BAR_HEIGHT + 8;
 
