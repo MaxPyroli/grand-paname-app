@@ -21,7 +21,7 @@ export default {
   expo: {
     name: IS_DEV ? 'Grand Paname Dev' : 'Grand Paname',
     slug: 'grand-paname',
-    version: '3.2.2',
+    version: '3.3.0',
     // Pas de verrou statique ici : Google Play exige que l'app reste
     // flexible en orientation sur grands écrans (tablettes/pliables). Le
     // verrouillage portrait spécifique aux téléphones se fait au runtime,
@@ -56,7 +56,8 @@ export default {
       // refuse le déploiement ("aucun utilisateur actuel ne peut mettre à
       // jour"). Toujours vérifier contre le dernier code réellement publié,
       // pas juste recalculer depuis le nom de version. 3.2.2 → 30202*10+0.
-      versionCode: 302020,
+      // 3.3.0 → 30300*10+0.
+      versionCode: 303000,
       // google-services.json est gitignore (pas commité) donc EAS Build ne le
       // voit pas nativement — on le fournit via une variable d'environnement
       // EAS de type "fichier" (GOOGLE_SERVICES_JSON), qui pointe vers un

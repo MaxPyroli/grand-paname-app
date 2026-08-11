@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.3.0',
+    date: '11 août 2026',
+    content: `**🛠️ Améliorations et Corrections**
+* Les indices de ligne sur la carte utilisent désormais la police de l'app plutôt que la police système, pour un rendu plus cohérent.
+* Mise à jour technique en profondeur des fondations de l'application, pour rester compatible avec les dernières versions d'Android et préparer les prochaines nouveautés.
+
+Bon voyage !`,
+  },
+  {
     version: '3.2.2',
     date: '28 juillet 2026',
     content: `**🛠️ Améliorations et Corrections**
