@@ -1,4 +1,4 @@
-import React, { useRef, useImperativeHandle, forwardRef, useState, useEffect } from 'react';
+import { useRef, useImperativeHandle, forwardRef, useState, useEffect } from 'react';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { MODE_ICONS } from './modeIcons';
@@ -781,7 +781,9 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
 
 const styles = StyleSheet.create({
   loader: {
-    ...StyleSheet.absoluteFillObject,
+    // `StyleSheet.absoluteFillObject` a été retiré en RN 0.86 (seul
+    // `absoluteFill`, la référence de style non-spreadable, reste exporté).
+    position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },

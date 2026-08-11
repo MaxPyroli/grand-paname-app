@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, memo, startTransition, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useState, useCallback, useMemo, memo, startTransition, useRef, forwardRef, useImperativeHandle } from 'react';
 import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, ToastAndroid, Platform, Animated, ScrollView } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { NAVITIA_BASE, NAVITIA_KEY } from './constants';

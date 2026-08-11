@@ -68,7 +68,8 @@ export default {
         backgroundColor: '#ffffff',
         monochromeImage: './assets/android-icon-monochrome.png',
       },
-      edgeToEdgeEnabled: true,
+      // Retiré (SDK 55+) : edge-to-edge est désormais toujours actif nativement,
+      // l'option de config n'existe plus.
       predictiveBackGestureEnabled: false,
       package: APP_ID,
       permissions: [
@@ -83,6 +84,9 @@ export default {
     plugins: [
       'expo-font',
       'expo-video',
+      'expo-image',
+      'expo-status-bar',
+      'expo-asset',
       [
         'expo-audio',
         {
