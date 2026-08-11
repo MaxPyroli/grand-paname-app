@@ -2411,8 +2411,17 @@ function AppInner() {
     return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.bg }}><ActivityIndicator size="large" color={c.accent} /></View>;
   }
 
-  const tiroirTop    = headerHeight + 8;
-  const tiroirBottom = SEARCH_BAR_BOTTOM + SEARCH_BAR_HEIGHT + 8;
+  // En layout large (voir responsive.ts), le tiroir vit à côté de la carte,
+  // plus par-dessus elle : il n'a donc plus besoin d'éviter verticalement le
+  // header logo+titre (en haut) ni la barre de recherche/nav (en bas), qui
+  // sont désormais confinés à la zone de la carte (voir mapLeftInset/
+  // mapRightInset). Lui laisser toute la hauteur de l'écran (juste les
+  // insets système) au lieu de leur garder la même marge que sur téléphone
+  // — sans ça, en paysage (hauteur d'écran réduite), il ne restait presque
+  // plus de place pour le contenu du tiroir (mesuré à 106px de haut, pas
+  // même assez pour une seule carte favori de 72px).
+  const tiroirTop    = isWideLayout ? insets.top + 12 : headerHeight + 8;
+  const tiroirBottom = isWideLayout ? insets.bottom + 12 : SEARCH_BAR_BOTTOM + SEARCH_BAR_HEIGHT + 8;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['left', 'right']}>
