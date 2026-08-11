@@ -1258,6 +1258,11 @@ const FAV_SLOT_H = FAV_ITEM_H + FAV_GAP;
 
 function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReordonnerFavoris, actif }: FavorisProps) {
   const c = useColors();
+  // DEBUG TEMPORAIRE : affiche la hauteur réellement mesurée du tiroir, pour
+  // diagnostiquer pourquoi la liste ne s'affiche pas en paysage sans deviner
+  // depuis une capture. À retirer une fois le bug identifié.
+  const [debugRootH, setDebugRootH] = useState(0);
+  const [debugListH, setDebugListH] = useState(0);
   const [editMode, setEditMode] = useState(false);
   useEffect(() => { if (!actif) setEditMode(false); }, [actif]);
   const yMap = useRef(new Map<string, Animated.Value>()).current;
@@ -1297,12 +1302,12 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
   };
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1 }} onLayout={e => setDebugRootH(e.nativeEvent.layout.height)}>
       <View style={styles.favorisTitreRow}>
         <View>
           <Text style={[styles.titreTiroir, { color: c.text }]}>⭐ Mes Favoris</Text>
           <Text style={[styles.sousTitreTiroir, { color: c.textSub, marginBottom: 0 }]}>
-            {favoris.length} {favoris.length === 1 ? 'gare enregistrée' : 'gares enregistrées'}
+            {favoris.length} {favoris.length === 1 ? 'gare enregistrée' : 'gares enregistrées'} · DEBUG H:{Math.round(debugRootH)} L:{Math.round(debugListH)}
           </Text>
         </View>
         {favoris.length > 0 && (
@@ -1325,7 +1330,7 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
           </Text>
         </View>
       ) : (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1 }} onLayout={e => setDebugListH(e.nativeEvent.layout.height)}>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 28, paddingBottom: 60 }}>
             <View style={{ height: favoris.length * FAV_SLOT_H - FAV_GAP }}>
               {favoris.map((item, index) => (
