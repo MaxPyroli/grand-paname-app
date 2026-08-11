@@ -1,4 +1,3 @@
-import React from 'react';
 import Svg, { Path, Circle } from 'react-native-svg';
 import IconAccueil from './assets/icons/mono/icon-accueil.svg';
 import IconDiscussion from './assets/icons/mono/icon-discussion.svg';

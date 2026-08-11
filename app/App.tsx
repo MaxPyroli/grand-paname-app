@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as Clipboard from 'expo-clipboard';
 import transportData from './assets/transport-data.json';
 import { APP_VERSION, APP_CODENAME } from './constants';
 import { CHANGELOGS, ChangelogEntry } from './changelogs';
@@ -329,7 +330,7 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
-function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, showDebugOverlay, setShowDebugOverlay, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void }) {
+function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, showDebugOverlay, setShowDebugOverlay, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void }) {
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -687,6 +688,25 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                     </Text>
                   </View>
                   <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: pushToken ? 1 : 0.5 }]}
+                  disabled={!pushToken}
+                  onPress={async () => {
+                    if (!pushToken) return;
+                    await Clipboard.setStringAsync(pushToken);
+                    if (Platform.OS === 'android') ToastAndroid.show('Token copié !', ToastAndroid.SHORT);
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.settingsRowLabel, { color: c.text }]}>Copier le token de notifications push</Text>
+                    <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                      {pushToken
+                        ? "Colle-le sur expo.dev/notifications pour t'envoyer un test"
+                        : 'Indisponible (permission refusée, Expo Go, ou pas encore prêt)'}
+                    </Text>
+                  </View>
+                  <Text style={{ color: c.textSub, fontSize: 18 }}>📋</Text>
                 </TouchableOpacity>
                 <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1903,7 +1923,13 @@ function AppInner() {
       });
     });
   }, []);
-  useEffect(() => { registerForPushNotificationsAsync(); }, []);
+  // Gardé pour permettre de le copier depuis Paramètres > Débogage — sans
+  // ça, tester une notif push demande de la ligne de commande (curl vers
+  // l'API Expo Push, ou passer par Firebase Console) pour se procurer le
+  // token de CET appareil. Avec le token copié, il suffit d'aller sur
+  // https://expo.dev/notifications, de le coller et d'envoyer.
+  const [pushToken, setPushToken] = useState<string | null>(null);
+  useEffect(() => { registerForPushNotificationsAsync().then(setPushToken); }, []);
 
   // ── Mise à jour Play Store depuis l'app ──────────────────────────────────
   // require() différé partout ci-dessous : ces deux libs plantent à l'évaluation
@@ -2448,7 +2474,10 @@ function AppInner() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['left', 'right']}>
-      <StatusBar style={isDark ? 'light' : 'dark'} translucent backgroundColor="transparent" />
+      {/* `translucent`/`backgroundColor` retirés (SDK 55+) : la barre de statut
+          est désormais toujours translucide/transparente nativement (edge-to-
+          edge obligatoire), ces props n'existent plus. */}
+      <StatusBar style={isDark ? 'light' : 'dark'} />
 
       <AccueilScreen
         onBasculerFavori={basculerFavori}
@@ -2674,7 +2703,7 @@ function AppInner() {
       </View>
 
       {/* Modal paramètres */}
-      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
       <OnboardingTour
         visible={showOnboarding}
