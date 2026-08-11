@@ -1,18 +1,18 @@
 import Svg, { Path, Circle } from 'react-native-svg';
 import IconAccueil from './assets/icons/mono/icon-accueil.svg';
-import IconDiscussion from './assets/icons/mono/icon-discussion.svg';
 import IconFavoris from './assets/icons/mono/icon-favoris.svg';
 import IconParametres from './assets/icons/mono/icon-parametres.svg';
 import IconPosition from './assets/icons/mono/icon-position.svg';
 import IconRecherche from './assets/icons/mono/icon-recherche.svg';
+import IconInfoTrafic from './assets/icons/mono/icon-info-trafic.svg';
 
 const ICONS = {
   accueil: IconAccueil,
-  discussion: IconDiscussion,
   favoris: IconFavoris,
   parametres: IconParametres,
   position: IconPosition,
   recherche: IconRecherche,
+  'info-trafic': IconInfoTrafic,
 };
 
 export type IconName = keyof typeof ICONS;
@@ -47,13 +47,12 @@ export function IconFavorisCouleur({ size = 22, dotColor = '#FFFFFF' }: { size?:
   );
 }
 
-export function IconDiscussionCouleur({ size = 22, dotColor = '#FFFFFF' }: { size?: number; dotColor?: string }) {
+export function IconInfoTraficCouleur({ size = 22, dotColor = '#FFFFFF' }: { size?: number; dotColor?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 100 100">
-      <Path d="M50,18 C69,18 84,30.5 84,46 C84,61.5 69,74 50,74 C45,74 40.5,73.2 36.5,71.8 L20,80 L26,64.5 C19.8,59.5 16,53.1 16,46 C16,30.5 31,18 50,18 Z" fill="none" stroke="#27A65C" strokeWidth={9} strokeLinejoin="round" strokeLinecap="round" />
-      <Circle cx={36} cy={46} r={4.6} fill={dotColor} />
-      <Circle cx={50} cy={46} r={4.6} fill={dotColor} />
-      <Circle cx={64} cy={46} r={4.6} fill={dotColor} />
+      <Path d="M50,16 L86,80 L14,80 Z" fill="none" stroke="#E5493E" strokeWidth={9} strokeLinejoin="round" />
+      <Path d="M50,42 L50,58" stroke="#F2B705" strokeWidth={8} strokeLinecap="round" />
+      <Circle cx={50} cy={69} r={5} fill={dotColor} />
     </Svg>
   );
 }

@@ -9,7 +9,6 @@ import { ThemeContext, ThemeProvider, useColors } from './theme';
 import type { ThemeColors, ThemePref } from './theme';
 import MapWebView, { MapWebViewRef } from './MapWebView';
 import { useFonts } from 'expo-font';
-import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
@@ -34,7 +33,8 @@ import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 import { registerForPushNotificationsAsync } from './notifications';
-import { Icon, IconAccueilCouleur, IconFavorisCouleur, IconDiscussionCouleur, IconPositionCouleur } from './Icon';
+import { Icon, IconAccueilCouleur, IconFavorisCouleur, IconInfoTraficCouleur, IconPositionCouleur } from './Icon';
+import TraficScreen from './TraficScreen';
 // Import de type uniquement : pas de require() exécuté au chargement du bundle.
 // react-native-device-info (dépendance de cette lib) plante à l'évaluation de
 // son module si le natif n'est pas lié (Expo Go, ou dev client pas encore
@@ -49,90 +49,6 @@ const NAV_BAR_HEIGHT = 58;
 const SEARCH_BAR_HEIGHT = 52;
 const SEARCH_BAR_BOTTOM = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 10;
 const { height: SCREEN_H } = Dimensions.get('window');
-
-// ─── INJECTION WEBVIEW ───────────────────────────────────────────────────────
-const WEBVIEW_HIDE_JS = `
-(function() {
-  var css = document.createElement('style');
-  css.textContent = [
-    'header[data-testid="stHeader"]{display:none!important}',
-    '[data-testid="stToolbar"]{display:none!important}',
-    '[data-testid="stDecoration"]{display:none!important}',
-    '[data-testid="stMainMenuButton"]{display:none!important}',
-    '[data-testid="stStatusWidget"]{display:none!important}',
-    '#MainMenu{display:none!important}',
-    'footer{display:none!important}',
-    'section[data-testid="stMain"]{padding-top:0!important}',
-    'section.main{padding-top:0!important}',
-    '.block-container{padding-top:0.75rem!important}',
-    '[data-testid="stMainBlockContainer"]{padding-top:0.75rem!important}',
-  ].join('');
-  (document.head || document.documentElement).appendChild(css);
-
-  var done = new WeakSet();
-  function hide(el) {
-    if (!el || done.has(el)) return;
-    done.add(el);
-    el.style.setProperty('display','none','important');
-  }
-  function climb(el, max) {
-    var cur = el;
-    for (var i = 0; i < max; i++) {
-      if (!cur.parentElement || cur.parentElement.tagName === 'BODY') return cur;
-      cur = cur.parentElement;
-      if (cur.classList.contains('element-container') ||
-          cur.getAttribute('data-testid') === 'stButton' ||
-          cur.classList.contains('stButton') ||
-          cur.classList.contains('stVerticalBlock')) return cur;
-    }
-    return el;
-  }
-  function run() {
-    ['[data-testid="stDeckGlJsonChart"]','[data-testid="stPydeckChart"]',
-     '[data-testid="stFoliumChart"]','[data-testid="stMap"]',
-     '[data-testid="stToolbar"]','[data-testid="stDecoration"]',
-     '[data-testid="stMainMenuButton"]','[data-testid="stStatusWidget"]',
-     'header[data-testid="stHeader"]','#MainMenu','footer'].forEach(function(s) {
-      document.querySelectorAll(s).forEach(function(el){ hide(el); });
-    });
-    document.querySelectorAll('.block-container,[data-testid="stMainBlockContainer"],section[data-testid="stMain"],section.main').forEach(function(el) {
-      el.style.paddingTop = el.tagName === 'SECTION' ? '0' : '0.75rem';
-    });
-    var PAT = ['favori','favorite','⭐','★','☆','bookmark','sauvegarder','pana'];
-    document.querySelectorAll('button,[role="button"],[data-testid*="Button"] *,div[data-testid*="pana"]').forEach(function(btn) {
-      var txt = ((btn.textContent||'') + ' ' +
-                 (btn.getAttribute('aria-label')||'') + ' ' +
-                 (btn.getAttribute('title')||'')).toLowerCase();
-      for (var i=0;i<PAT.length;i++) {
-        if (txt.includes(PAT[i])) { hide(climb(btn,8)); break; }
-      }
-    });
-  }
-  run();
-  new MutationObserver(run).observe(document.body,{childList:true,subtree:true});
-})();
-true;
-`;
-
-const getWebviewDarkJS = (dark: boolean): string => {
-  const scheme = dark ? 'dark' : 'light';
-  const css = dark ? [
-    ':root,html{--background-color:#010e26!important;--secondary-background-color:#07213f!important;--text-color:#ddeeff!important;--primary-color:#5ab3f5!important}',
-    'body,.stApp,[data-testid="stAppViewContainer"]{background-color:#010e26!important;color:#ddeeff!important}',
-    'section[data-testid="stMain"],section.main,.block-container,[data-testid="stMainBlockContainer"],[data-testid="stVerticalBlock"],[data-testid="stHorizontalBlock"]{background-color:#010e26!important}',
-    '[data-testid="stVerticalBlockBorderWrapper"]{background-color:#07213f!important;border-color:rgba(90,179,245,0.25)!important}',
-    '[data-testid="stExpander"],[data-testid="stExpanderDetails"]{background-color:#07213f!important}',
-    '[data-testid="stMarkdownContainer"] p,[data-testid="stMarkdownContainer"] li{color:#ddeeff!important}',
-    'hr,[data-testid="stDivider"]{border-color:rgba(90,179,245,0.15)!important}',
-  ].join('') : '';
-  return `(function(){` +
-    `document.documentElement.style.colorScheme='${scheme}';` +
-    `document.documentElement.setAttribute('data-paname-theme','${scheme}');` +
-    `var s=document.getElementById('_gp_dark_theme');` +
-    `if(!s){s=document.createElement('style');s.id='_gp_dark_theme';document.head.appendChild(s);}` +
-    `s.textContent=${JSON.stringify(css)};` +
-  `})();true;`;
-};
 
 function hexToRgba(hex: string, alpha: number): string {
   const h = hex.replace('#', '');
@@ -330,7 +246,7 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
-function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, showDebugOverlay, setShowDebugOverlay, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate }: { visible: boolean; onClose: () => void; nativeSchedules: boolean; setNativeSchedules: (v: boolean) => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void }) {
+function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate }: { visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void }) {
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -709,30 +625,6 @@ function SettingsModal({ visible, onClose, nativeSchedules, setNativeSchedules, 
                   <Text style={{ color: c.textSub, fontSize: 18 }}>📋</Text>
                 </TouchableOpacity>
                 <View style={[styles.settingsCard, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Horaires webapp</Text>
-                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
-                        Repasser sur la WebView Streamlit (dev)
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setNativeSchedules(!nativeSchedules);
-                      }}
-                      style={{
-                        width: 44, height: 26, borderRadius: 13,
-                        backgroundColor: !nativeSchedules ? c.accent : c.dragBar,
-                        justifyContent: 'center', paddingHorizontal: 3,
-                      }}
-                    >
-                      <View style={{
-                        width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
-                        alignSelf: !nativeSchedules ? 'flex-end' : 'flex-start',
-                      }} />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.settingsRowLabel, { color: c.text }]}>Infos de debug</Text>
@@ -1461,26 +1353,6 @@ function FavorisScreen({ favoris, onSupprimerFavori, onSelectionnerGare, onReord
   );
 }
 
-// ─── ÉCRAN ASSISTANT ──────────────────────────────────────────────────────────
-function AssistantScreen() {
-  const c = useColors();
-  return (
-    <View style={{ flex: 1 }}>
-      <View style={styles.favorisTitreRow}>
-        <View>
-          <Text style={[styles.titreTiroir, { color: c.text }]}>💭 À venir</Text>
-          <Text style={[styles.sousTitreTiroir, { color: c.textSub, marginBottom: 0 }]}>Prochaines fonctionnalités</Text>
-        </View>
-      </View>
-      <View style={styles.etatVide}>
-        <Text style={styles.etatVideEmoji}>🏗️</Text>
-        <Text style={[styles.etatVideTitre, { color: c.text }]}>En construction</Text>
-        <Text style={[styles.etatVideDesc, { color: c.textSub }]}>De nouvelles fonctionnalités arrivent bientôt. Restez connectés ! 👀</Text>
-      </View>
-    </View>
-  );
-}
-
 // ─── MOTEUR COMMUN AUX MODALES-CARTES CENTRÉES ─────────────────────────────
 // "Quoi de neuf", mise à jour disponible, visite guidée... partagent toutes
 // le même mécanisme (Modal plein écran, fond sombre, carte qui apparaît en
@@ -1887,7 +1759,7 @@ function AppInner() {
 
   const PANEL_H = SCREEN_H - insets.top;
 
-  const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'assistant'>('accueil');
+  const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic'>('accueil');
   const [favoris, setFavoris] = useState<Gare[]>([]);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [gareActuelle, setGareActuelle] = useState<{ id: string; label: string; osmOnly?: boolean } | null>(null);
@@ -1895,8 +1767,6 @@ function AppInner() {
   const [showSettings, setShowSettings] = useState(false);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [nativeSchedules, setNativeSchedules] = useState(true);
-  useEffect(() => { AsyncStorage.getItem('@gp_native_schedules').then(v => { if (v === '0') setNativeSchedules(false); }); }, []);
   const [showDebugOverlay, setShowDebugOverlay] = useState(false);
   useEffect(() => { AsyncStorage.getItem('@gp_debug_overlay').then(v => { if (v === '1') setShowDebugOverlay(true); }); }, []);
   // Pas de comparaison avec APP_VERSION : on affiche la dernière entrée
@@ -2088,7 +1958,6 @@ function AppInner() {
     const first = panelLineItems.find((i): i is { type: 'mode'; mode: string } => i.type === 'mode');
     return first ? (MODE_ICONS[first.mode] ?? MODE_ICONS['BUS']) : null;
   }, [panelLineItems]);
-  const webViewRef = useRef<WebView>(null);
   const mapRef = useRef<MapWebViewRef | null>(null);
   const APP_URL = process.env.EXPO_PUBLIC_APP_URL || '';
 
@@ -2315,17 +2184,6 @@ function AppInner() {
 
   const estFavori = useCallback((id: string) => favoris.some(f => f.id === id), [favoris]);
 
-  useEffect(() => {
-    if (gareActuelle) {
-      webViewRef.current?.injectJavaScript(getWebviewDarkJS(isDark));
-    }
-  }, [isDark]);
-
-  const urlGareActuelle = useMemo(() => {
-    if (!gareActuelle) return '';
-    return `${APP_URL}?selectionned_stop_id=${gareActuelle.id}&selectionned_stop_name=${encodeURIComponent(gareActuelle.label)}&t=${Date.now()}`;
-  }, [gareActuelle, APP_URL]);
-
   const ouvrirGare = useCallback((id: string, label: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     const isOSM = id.startsWith('osm:');
@@ -2431,7 +2289,7 @@ function AppInner() {
         Animated.timing(favSlideAnim,  { toValue: 0,           duration: D, useNativeDriver: true }),
         Animated.timing(asstSlideAnim, { toValue: screenWidth,  duration: D, useNativeDriver: true }),
       ]).start();
-    } else if (activeTab === 'assistant') {
+    } else if (activeTab === 'trafic') {
       Animated.parallel([
         Animated.timing(asstSlideAnim, { toValue: 0,            duration: D, useNativeDriver: true }),
         Animated.timing(favSlideAnim,  { toValue: -screenWidth, duration: D, useNativeDriver: true }),
@@ -2529,7 +2387,7 @@ function AppInner() {
             { top: tiroirTop, bottom: tiroirBottom, backgroundColor: c.bg, transform: [{ translateX: asstSlideAnim }] }
           ]}>
             <View style={styles.cardContentWrapper}>
-              <AssistantScreen />
+              <TraficScreen />
             </View>
           </Animated.View>
         </>
@@ -2563,13 +2421,13 @@ function AppInner() {
           </View>
           <Text style={[styles.tabLabel, { color: activeTab === 'accueil' ? c.text : c.textTab }]}>Accueil</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('assistant')}>
-          <View style={[styles.tabPill, activeTab === 'assistant' && { backgroundColor: c.pillActive }]}>
-            {activeTab === 'assistant'
-              ? <IconDiscussionCouleur size={20} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
-              : <Icon name="discussion" size={20} color={c.textTab} />}
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('trafic')}>
+          <View style={[styles.tabPill, activeTab === 'trafic' && { backgroundColor: c.pillActive }]}>
+            {activeTab === 'trafic'
+              ? <IconInfoTraficCouleur size={20} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
+              : <Icon name="info-trafic" size={20} color={c.textTab} />}
           </View>
-          <Text style={[styles.tabLabel, { color: activeTab === 'assistant' ? c.text : c.textTab }]}>...</Text>
+          <Text style={[styles.tabLabel, { color: activeTab === 'trafic' ? c.text : c.textTab }]}>Trafic</Text>
         </TouchableOpacity>
       </View>
 
@@ -2679,20 +2537,11 @@ function AppInner() {
                   Cet arrêt n'est pas référencé dans les données temps réel IDFM.{'\n'}Aucun horaire disponible.
                 </Text>
               </View>
-            ) : gareActuelle && (nativeSchedules || gareActuelle.id === GHOST_STOP_ID) ? (
+            ) : gareActuelle ? (
               <NativeSchedules
                 ref={nativeSchedulesRef}
                 stopId={gareActuelle.id}
                 stopName={gareActuelle.id === GHOST_STOP_ID ? GHOST_STOP_NAME : gareActuelle.label.split('(')[0].trim()}
-              />
-            ) : gareActuelle ? (
-              <WebView
-                ref={webViewRef}
-                source={{ uri: urlGareActuelle }}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-                startInLoadingState={true}
-                injectedJavaScript={WEBVIEW_HIDE_JS + getWebviewDarkJS(isDark)}
               />
             ) : null}
             {gareActuelle && !gareActuelle.osmOnly && (
@@ -2710,7 +2559,7 @@ function AppInner() {
       </View>
 
       {/* Modal paramètres */}
-      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} nativeSchedules={nativeSchedules} setNativeSchedules={(v) => { setNativeSchedules(v); AsyncStorage.setItem('@gp_native_schedules', v ? '1' : '0').catch(() => {}); }} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
+      <SettingsModal visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
       <OnboardingTour
         visible={showOnboarding}
