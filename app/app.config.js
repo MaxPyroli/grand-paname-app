@@ -21,7 +21,7 @@ export default {
   expo: {
     name: IS_DEV ? 'Grand Paname Dev' : 'Grand Paname',
     slug: 'grand-paname',
-    version: '3.3.1',
+    version: '3.3.2',
     // Pas de verrou statique ici : l'orientation est libre partout, y
     // compris sur téléphone (paysage supporté depuis la 3.3.1, panneau
     // Favoris/Trafic permanent — voir responsive.ts), géré au runtime via
@@ -56,8 +56,10 @@ export default {
       // refuse le déploiement ("aucun utilisateur actuel ne peut mettre à
       // jour"). Toujours vérifier contre le dernier code réellement publié,
       // pas juste recalculer depuis le nom de version. 3.2.2 → 30202*10+0.
-      // 3.3.0 → 30300*10+0. 3.3.1 → 30301*10+0.
-      versionCode: 303010,
+      // 3.3.0 → 30300*10+0. 3.3.1 → 30301*10+0 (jamais publiée au-delà des
+      // testeurs internes — bug critique, carte injouable, voir git log).
+      // 3.3.2 → 30302*10+0.
+      versionCode: 303020,
       // google-services.json est gitignore (pas commité) donc EAS Build ne le
       // voit pas nativement — on le fournit via une variable d'environnement
       // EAS de type "fichier" (GOOGLE_SERVICES_JSON), qui pointe vers un
