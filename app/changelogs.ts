@@ -11,6 +11,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
     date: '20 août 2026',
     content: `**🛠️ Améliorations et Corrections**
 * L'app s'adapte désormais mieux aux grands écrans et au mode paysage (téléphone pivoté, tablette, pliable).
+* Correction d'un bug empêchant de se déplacer sur la carte (zoom, glisser, sélection d'arrêt).
 
 Bon voyage !`,
   },
