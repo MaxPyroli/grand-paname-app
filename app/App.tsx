@@ -1088,8 +1088,14 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
           pas s'afficher par-dessus (ils ont un zIndex plus élevé). Comme ils
           utilisent tous `position:'absolute'`, ils se positionnent par
           rapport au parent direct — les enfermer ici suffit à les confiner
-          sans recalculer leurs marges un par un. */}
-      <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, left: mapLeftInset, right: mapRightInset }}>
+          sans recalculer leurs marges un par un.
+          `pointerEvents="box-none"` est CRITIQUE ici : cette enveloppe
+          couvre tout l'écran (top:0, bottom:0) et, sans lui, une vue
+          transparente intercepte quand même les touchers sur toute sa
+          surface par défaut — même là où rien n'est affiché. Sans ce
+          réglage, la carte en dessous ne recevait plus aucun geste (pan,
+          zoom, tap) dès que ce wrapper a été introduit. */}
+      <Animated.View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: mapLeftInset, right: mapRightInset }}>
 
       {/* Overlay d'infos de debug (mode dev) */}
       {showDebugOverlay && (
