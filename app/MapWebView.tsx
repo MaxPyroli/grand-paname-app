@@ -3,13 +3,18 @@ import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { MODE_ICONS } from './modeIcons';
 import { GRANDPARIS_BOLD_BASE64 } from './assets/grandParisBoldBase64';
+import { CARTO_API_KEY } from './constants';
 
 function getMapHTML(isDark: boolean) {
   const iconsJson = JSON.stringify(MODE_ICONS);
   const bg = isDark ? '#031a3a' : '#eef2f7';
+  // CARTO a fermé l'accès anonyme à ces tuiles (basemaps.cartocdn.com) et
+  // exige désormais une clé API + le préfixe /rastertiles/ dans l'URL (les
+  // anciennes URLs, encore documentées un peu partout, renvoient une tuile
+  // "API key required" à la place du fond de carte).
   const tileUrl = isDark
-    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    ? `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}`
+    : `https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}`;
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -510,8 +515,8 @@ function getMapHTML(isDark: boolean) {
 
   function setTheme(isDark){
     var url = isDark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}'
+      : 'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}';
     if(window._tileLayer){ map.removeLayer(window._tileLayer); }
     window._tileLayer = L.tileLayer(url,{maxZoom:19,subdomains:'abcd'}).addTo(map);
     document.body.style.background = isDark ? '#031a3a' : '#eef2f7';
