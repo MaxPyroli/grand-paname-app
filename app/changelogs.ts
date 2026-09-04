@@ -11,6 +11,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
     date: '20 août 2026',
     content: `**🛠️ Améliorations et Corrections**
 * Correction d'un bug empêchant de se déplacer sur la carte (zoom, glisser, sélection d'arrêt).
+* Correction d'un bug affichant un message d'erreur à la place du fond de carte.
 
 Bon voyage !`,
   },

@@ -58,8 +58,11 @@ export default {
       // pas juste recalculer depuis le nom de version. 3.2.2 → 30202*10+0.
       // 3.3.0 → 30300*10+0. 3.3.1 → 30301*10+0 (jamais publiée au-delà des
       // testeurs internes — bug critique, carte injouable, voir git log).
-      // 3.3.2 → 30302*10+0.
-      versionCode: 303020,
+      // 3.3.2 → 30302*10+0 pour le premier build (jamais publié non plus —
+      // tuiles de carte cassées par la fermeture de l'accès anonyme CARTO).
+      // Fix inclus sans changer le nom de version : re-upload sous le même
+      // nom "3.3.2", donc numéro d'upload 1 au lieu de 0 → 30302*10+1.
+      versionCode: 303021,
       // google-services.json est gitignore (pas commité) donc EAS Build ne le
       // voit pas nativement — on le fournit via une variable d'environnement
       // EAS de type "fichier" (GOOGLE_SERVICES_JSON), qui pointe vers un
