@@ -12,6 +12,18 @@ export type WhatsNewEntry = {
 
 export const WHATSNEW: WhatsNewEntry[] = [
   {
+    version: '3.3.3',
+    features: [
+      {
+        emoji: '⚡',
+        title: 'Plus rapide, plus fluide',
+        description:
+          "Les performances et la fluidité de l'application ont été grandement améliorées, surtout sur la carte. Profitez d'une expérience plus agréable et plus rapide !",
+      },
+    ],
+    footer: "Et aussi une interface repensée (Accueil, Favoris, Horaires, Paramètres), plein de corrections — détails dans le changelog complet.",
+  },
+  {
     version: '3.3.0',
     features: [
       {
