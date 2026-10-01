@@ -24,7 +24,7 @@ export function Icon({ name, size = 22, color = '#000' }: { name: IconName; size
 
 // Versions "couleur" des icônes d'onglets (palette du logo), pour l'état
 // actif de la barre de navigation uniquement (voir LISEZMOI du dossier
-// icones-app-svg). Le trait a une couleur de marque fixe, mais le point
+// icons). Le trait a une couleur de marque fixe, mais le point
 // "station" doit rester lisible sur la pastille active — blanc sur fond
 // sombre, bleu nuit sur fond clair — d'où `dotColor` au lieu d'un import
 // statique du SVG couleur (qui a le blanc en dur).

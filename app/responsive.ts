@@ -10,10 +10,8 @@ import { useWindowDimensions } from 'react-native';
 // useAdaptiveOrientationLock, orientation libre partout).
 //
 // Volontairement une largeur fixe simple (pas de multiplicateur continu,
-// pas de scaling de taille) — voir scale.ts (chantier de scaling
-// généralisé, abandonné) pour pourquoi on évite cette approche : ici on
-// change uniquement la DISPOSITION (où les choses s'affichent), jamais
-// leur taille.
+// pas de scaling de taille) : on adapte la disposition des panneaux,
+// sans agrandir les textes ni les contrôles.
 const WIDE_LAYOUT_BREAKPOINT = 650;
 
 export function useIsWideLayout(): boolean {

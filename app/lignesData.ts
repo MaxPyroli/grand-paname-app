@@ -52,7 +52,9 @@ export const GEOGRAPHIE_RER: Record<string, GeoLigne> = {
   E: {
     labels: ['⇦ OUEST (Nanterre)', '⇨ EST (Chelles / Tournan)'],
     mots_1: ['NANTERRE','HAUSSMANN'],
-    term_1: ['NANTERRE','HAUSSMANN'],
+    // Haussmann n'est plus un terminus depuis le prolongement Eole vers
+    // Nanterre-La Folie : le garder ici masquait la direction Ouest à Haussmann.
+    term_1: ['NANTERRE'],
     mots_2: ['CHELLES','TOURNAN'],
     term_2: ['CHELLES','TOURNAN'],
   },
