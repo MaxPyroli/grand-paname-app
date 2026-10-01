@@ -3,7 +3,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "send-notification": "node send-notification.js"
+    "send-notification": "node send-notification.js",
+    "notifications": "node notifications-ui.js --ouvrir"
   },
   "dependencies": {
     "firebase-admin": "^13.0.0"

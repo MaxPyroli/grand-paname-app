@@ -22,6 +22,37 @@ function firebaseApp(): FirebaseApp {
   return getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 }
 
+// Empreinte courte (non cryptographique) : on évite de stocker l'identifiant
+// Android brut, on n'a besoin que de reconnaître "le même téléphone".
+function empreinte(texte: string): string {
+  let h1 = 0x811c9dc5, h2 = 0x9747b28c;
+  for (let i = 0; i < texte.length; i++) {
+    const c = texte.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193);
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b);
+    h2 ^= h2 >>> 13;
+  }
+  return (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0');
+}
+
+// Identifie ce téléphone + cette application (l'identifiant Android est stable
+// après une réinstallation, mais propre à la clé de signature : la version de
+// développement et celle du Play Store restent donc distinctes). Sert à l'outil
+// d'envoi (scripts/notifications-ui.js) pour supprimer les anciens jetons d'un
+// même téléphone. Import paresseux : si le module natif manque, on n'enregistre
+// simplement pas d'empreinte, sans jamais faire planter l'app.
+function cleAppareil(): string | null {
+  if (Platform.OS !== 'android') return null;
+  try {
+    const Application = require('expo-application');
+    const id: string | null = Application.getAndroidId?.() ?? null;
+    if (!id) return null;
+    return empreinte(`${id}:${Application.applicationId ?? ''}`);
+  } catch {
+    return null;
+  }
+}
+
 async function saveTokenToFirestore(token: string) {
   try {
     const db = getFirestore(firebaseApp());
@@ -31,6 +62,7 @@ async function saveTokenToFirestore(token: string) {
       token,
       platform: Platform.OS,
       appVersion: APP_VERSION,
+      deviceKey: cleAppareil(),
       updatedAt: serverTimestamp(),
     });
   } catch (e: any) {
@@ -44,8 +76,24 @@ async function saveTokenToFirestore(token: string) {
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
     if (Platform.OS === 'android') {
+      // Catégories de notifications visibles dans les réglages Android de l'app
+      // (Réglages > Applications > Grand Paname > Notifications). Les `id` sont
+      // ceux à donner en `channelId` à l'envoi (voir scripts/notifications-ui.js) ;
+      // le nom affiché peut être changé ici à tout moment (Android met à jour le
+      // nom d'une catégorie existante, mais pas son niveau d'importance).
+      await Notifications.setNotificationChannelAsync('trafic', {
+        name: 'Info Trafic',
+        description: 'Perturbations et informations sur le trafic.',
+        importance: Notifications.AndroidImportance.HIGH,
+      });
+      await Notifications.setNotificationChannelAsync('maj', {
+        name: 'Mises à jour',
+        description: "Nouvelles versions et nouveautés de l'application.",
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
+        name: 'Autres',
+        description: 'Toutes les autres notifications.',
         importance: Notifications.AndroidImportance.DEFAULT,
       });
     }

@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Notifications · Grand Paname</title>
+<style>
+  :root {
+    --bg:#f3f5f9; --carte:#ffffff; --texte:#0f1b2d; --doux:#5b6a80; --bord:#dfe5ee;
+    --accent:#1f6feb; --accent-texte:#ffffff; --ok:#1a9e55; --erreur:#d92d20; --alerte:#e58a00;
+    --champ:#f7f9fc; --notif:#2b303a; --notif-texte:#f2f4f8; --notif-doux:#aab2c0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d1420; --carte:#151e2d; --texte:#e8edf6; --doux:#93a1b8; --bord:#26334a; --champ:#0f1826; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--texte); font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:1080px; margin:0 auto; padding:24px 20px 60px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+  h1 { font-size:22px; margin:0; }
+  .pastille { background:var(--carte); border:1px solid var(--bord); border-radius:999px; padding:6px 14px; color:var(--doux); font-size:13px; }
+  .grille { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:18px; align-items:start; }
+  @media (max-width:860px) { .grille { grid-template-columns:1fr; } }
+  .carte { background:var(--carte); border:1px solid var(--bord); border-radius:16px; padding:18px; margin-bottom:18px; }
+  .carte h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--doux); margin:0 0 12px; font-weight:600; }
+  .categories { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .cat { border:2px solid var(--bord); border-radius:12px; padding:12px 8px; text-align:center; cursor:pointer; background:var(--champ); user-select:none; }
+  .cat .e { font-size:26px; display:block; }
+  .cat .n { font-weight:600; font-size:14px; margin-top:4px; display:block; }
+  .cat.actif { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, var(--carte)); }
+  label.champ { display:block; margin-bottom:12px; }
+  label.champ span { display:flex; justify-content:space-between; font-size:13px; color:var(--doux); margin-bottom:5px; }
+  input[type=text], textarea, select { width:100%; background:var(--champ); color:var(--texte); border:1px solid var(--bord); border-radius:10px; padding:10px 12px; font:inherit; }
+  textarea { min-height:96px; resize:vertical; }
+  input:focus, textarea:focus, select:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .modeles { display:flex; flex-wrap:wrap; gap:8px; margin:-2px 0 12px; }
+  .modele { border:1px dashed var(--bord); background:transparent; color:var(--doux); border-radius:999px; padding:5px 12px; font-size:13px; cursor:pointer; }
+  .modele:hover { color:var(--texte); border-color:var(--accent); }
+  .choix { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .choix label { display:flex; align-items:center; gap:8px; border:2px solid var(--bord); background:var(--champ); border-radius:10px; padding:9px 12px; cursor:pointer; }
+  .choix label:has(input:checked) { border-color:var(--accent); }
+  .case { display:flex; align-items:center; gap:8px; color:var(--doux); font-size:14px; margin-top:6px; }
+  .apercu { background:var(--notif); color:var(--notif-texte); border-radius:18px; padding:14px 16px; }
+  .apercu .haut { display:flex; align-items:center; gap:8px; color:var(--notif-doux); font-size:12px; margin-bottom:8px; }
+  .apercu .icone { width:18px; height:18px; border-radius:50%; background:#3a4a6b; display:inline-flex; align-items:center; justify-content:center; font-size:10px; }
+  .apercu .t { font-weight:600; font-size:15px; word-break:break-word; }
+  .apercu .m { font-size:14px; color:#d5dae4; margin-top:2px; word-break:break-word; white-space:pre-wrap; }
+  .apercu .vide { color:var(--notif-doux); font-style:italic; }
+  .indication { color:var(--doux); font-size:13px; margin:10px 2px 0; }
+  button.principal { width:100%; background:var(--accent); color:var(--accent-texte); border:0; border-radius:12px; padding:14px; font:inherit; font-weight:700; font-size:16px; cursor:pointer; }
+  button.principal:disabled { opacity:.45; cursor:not-allowed; }
+  button.secondaire { background:transparent; color:var(--texte); border:1px solid var(--bord); border-radius:10px; padding:8px 14px; font:inherit; cursor:pointer; }
+  .journal { font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; background:var(--champ); border:1px solid var(--bord); border-radius:10px; padding:10px 12px; max-height:260px; overflow:auto; margin-top:12px; }
+  .journal .ok { color:var(--ok); } .journal .erreur { color:var(--erreur); }
+  .bandeau { border-radius:10px; padding:12px 14px; margin-bottom:14px; font-weight:500; }
+  .bandeau.erreur { background:color-mix(in srgb, var(--erreur) 14%, var(--carte)); border:1px solid var(--erreur); }
+  .bandeau.ok { background:color-mix(in srgb, var(--ok) 14%, var(--carte)); border:1px solid var(--ok); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; color:var(--doux); font-weight:600; font-size:12px; padding:6px 8px; }
+  td { padding:9px 8px; border-top:1px solid var(--bord); vertical-align:top; }
+  .fond { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; padding:20px; z-index:10; }
+  .fond.ouvert { display:flex; }
+  .boite { background:var(--carte); border-radius:16px; padding:22px; max-width:440px; width:100%; }
+  .boite h3 { margin:0 0 8px; }
+  .boite .actions { display:flex; gap:10px; margin-top:18px; justify-content:flex-end; }
+  .boite .actions button.principal { width:auto; padding:10px 18px; font-size:15px; }
+  .petit { font-size:12px; color:var(--doux); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🔔 Notifications Grand Paname</h1>
+    <span class="pastille" id="etat">Chargement des appareils…</span>
+  </header>
+  <div id="bandeauFirebase"></div>
+
+  <div class="grille">
+    <div>
+      <section class="carte">
+        <h2>1 · Catégorie</h2>
+        <div class="categories" id="categories"></div>
+        <p class="indication">C'est le nom que l'utilisateur voit dans les réglages Android de l'app.</p>
+      </section>
+
+      <section class="carte">
+        <h2>2 · Message</h2>
+        <div class="modeles" id="modeles"></div>
+        <label class="champ"><span>Titre <b id="cTitre">0/80</b></span>
+          <input type="text" id="titre" maxlength="80" placeholder="Ex : Perturbation sur le RER B">
+        </label>
+        <label class="champ"><span>Message <b id="cMessage">0/300</b></span>
+          <textarea id="message" maxlength="300" placeholder="Le texte qui s'affichera sous le titre"></textarea>
+        </label>
+      </section>
+
+      <section class="carte">
+        <h2>3 · Destinataires</h2>
+        <div class="choix">
+          <label><input type="radio" name="cible" value="un" checked> Un seul appareil (test)</label>
+          <label><input type="radio" name="cible" value="recents"> <span id="libRecents">Appareils actifs (30 jours)</span></label>
+          <label><input type="radio" name="cible" value="tous"> <span id="libTous">Tous les appareils</span></label>
+        </div>
+        <select id="appareil"></select>
+        <label class="case"><input type="checkbox" id="simulation"> Simulation : ne rien envoyer, juste vérifier</label>
+        <p class="petit" id="noteNettoyage" style="margin:10px 0 0"></p>
+        <p class="petit" style="margin:8px 0 0">Les anciens jetons d'un même téléphone sont supprimés automatiquement. <a href="#" id="nettoyerInactifs">Retirer les appareils inactifs depuis plus de 60 jours</a></p>
+      </section>
+    </div>
+
+    <div>
+      <section class="carte">
+        <h2>Aperçu</h2>
+        <div class="apercu">
+          <div class="haut"><span class="icone">🚇</span><span>Grand Paname · <span id="apCat">Autres</span> · maintenant</span></div>
+          <div class="t" id="apTitre"></div>
+          <div class="m" id="apMessage"></div>
+        </div>
+        <p class="indication">Approximatif : l'affichage réel dépend du téléphone.</p>
+      </section>
+
+      <section class="carte">
+        <button class="principal" id="envoyer" disabled>Envoyer</button>
+        <div id="resultat"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="carte">
+    <h2>Historique des envois</h2>
+    <div id="historique" class="petit">Chargement…</div>
+  </section>
+</main>
+
+<div class="fond" id="fond">
+  <div class="boite">
+    <h3 id="confTitre">Confirmer l'envoi</h3>
+    <div id="confTexte"></div>
+    <div class="actions">
+      <button class="secondaire" id="confNon">Annuler</button>
+      <button class="principal" id="confOui">Envoyer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SECRET = "__SECRET__";
+const CATEGORIES = __CATEGORIES__;
+const ERREUR_FIREBASE = __ERREUR_FIREBASE__;
+
+const MODELES = {
+  maj: [
+    ['Nouvelle version', 'Grand Paname est disponible', "Une nouvelle version de Grand Paname vous attend sur le Play Store. Mettez à jour pour profiter des nouveautés !"],
+  ],
+  trafic: [
+    ['Perturbation', 'Perturbation sur le réseau', "Le trafic est perturbé. Ouvrez l'app pour voir les prochains départs."],
+  ],
+  default: [],
+};
+
+const $ = id => document.getElementById(id);
+let categorie = 'trafic';
+let appareils = [];
+
+async function api(chemin, options = {}) {
+  const res = await fetch(chemin, {
+    ...options,
+    headers: { 'x-secret': SECRET, 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.erreur || `Erreur ${res.status}`);
+  return json;
+}
+
+function echapper(s) { return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c])); }
+function courtToken(t) { return `${t.slice(0, 22)}…${t.slice(-6)}`; }
+function depuis(iso) {
+  if (!iso) return 'jamais vu';
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 2) return "à l'instant";
+  if (min < 60) return `il y a ${min} min`;
+  if (min < 1440) return `il y a ${Math.round(min / 60)} h`;
+  return `il y a ${Math.round(min / 1440)} j`;
+}
+
+function afficherCategories() {
+  $('categories').innerHTML = CATEGORIES.map(c => `
+    <div class="cat ${c.id === categorie ? 'actif' : ''}" data-id="${c.id}">
+      <span class="e">${c.emoji}</span><span class="n">${echapper(c.nom)}</span>
+    </div>`).join('');
+  $('categories').querySelectorAll('.cat').forEach(el => el.onclick = () => { categorie = el.dataset.id; afficherCategories(); afficherModeles(); majApercu(); });
+}
+
+function afficherModeles() {
+  const liste = MODELES[categorie] || [];
+  $('modeles').innerHTML = liste.map((m, i) => `<button class="modele" data-i="${i}">${echapper(m[0])}</button>`).join('');
+  $('modeles').querySelectorAll('.modele').forEach(b => b.onclick = () => {
+    const m = MODELES[categorie][b.dataset.i];
+    $('titre').value = m[1]; $('message').value = m[2]; majApercu();
+  });
+}
+
+function majApercu() {
+  const cat = CATEGORIES.find(c => c.id === categorie);
+  $('apCat').textContent = cat.nom;
+  const t = $('titre').value.trim(), m = $('message').value.trim();
+  $('apTitre').innerHTML = t ? echapper(t) : '<span class="vide">Titre…</span>';
+  $('apMessage').innerHTML = m ? echapper(m) : '<span class="vide">Message…</span>';
+  $('cTitre').textContent = `${$('titre').value.length}/80`;
+  $('cMessage').textContent = `${$('message').value.length}/300`;
+  $('envoyer').disabled = !(t && m) || (cible() === 'un' && !$('appareil').value) || appareils.length === 0;
+}
+
+const cible = () => document.querySelector('input[name=cible]:checked').value;
+const nbRecents = () => appareils.filter(a => a.maj && Date.now() - new Date(a.maj).getTime() < 30 * 86400000).length;
+
+function majCible() {
+  $('appareil').style.display = cible() === 'un' ? '' : 'none';
+  majApercu();
+}
+
+async function chargerAppareils() {
+  try {
+    const rep = await api('/api/appareils');
+    appareils = rep.appareils;
+    $('noteNettoyage').textContent = rep.supprimes ? `${rep.supprimes} ancien(s) jeton(s) du même téléphone supprimé(s).` : '';
+    $('etat').textContent = `${appareils.length} appareil(s) enregistré(s)`;
+    $('libTous').textContent = `Tous les appareils (${appareils.length})`;
+    $('libRecents').textContent = `Appareils actifs, vus depuis 30 jours (${nbRecents()})`;
+    $('appareil').innerHTML = appareils.map(a =>
+      `<option value="${echapper(a.token)}">${echapper(a.plateforme)} · v${echapper(a.version)} · ${depuis(a.maj)} · ${echapper(courtToken(a.token))}</option>`).join('');
+    if (appareils.length === 0) $('appareil').innerHTML = '<option value="">Aucun appareil enregistré</option>';
+  } catch (e) {
+    $('etat').textContent = 'Appareils indisponibles';
+    $('bandeauFirebase').innerHTML = `<div class="bandeau erreur">${echapper(e.message)}</div>`;
+  }
+  majApercu();
+}
+
+async function chargerHistorique() {
+  try {
+    const { historique } = await api('/api/historique');
+    if (historique.length === 0) { $('historique').textContent = "Aucun envoi pour l'instant."; return; }
+    $('historique').innerHTML = `<table><thead><tr><th>Date</th><th>Catégorie</th><th>Message</th><th>Livrés</th><th></th></tr></thead><tbody>` +
+      historique.map((h, i) => {
+        const cat = CATEGORIES.find(c => c.id === h.categorie);
+        return `<tr><td>${new Date(h.date).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</td>
+          <td>${cat ? cat.emoji + ' ' + echapper(cat.nom) : echapper(h.categorie)}</td>
+          <td><b>${echapper(h.titre)}</b><br><span class="petit">${echapper(h.message)}</span></td>
+          <td>${h.livres}/${h.destinataires}${h.echecs ? ` <span class="petit">(${h.echecs} échec)</span>` : ''}</td>
+          <td><button class="secondaire" data-i="${i}">Réutiliser</button></td></tr>`;
+      }).join('') + '</tbody></table>';
+    $('historique').querySelectorAll('button').forEach(b => b.onclick = () => {
+      const h = historique[b.dataset.i];
+      categorie = h.categorie; $('titre').value = h.titre; $('message').value = h.message;
+      afficherCategories(); afficherModeles(); majApercu(); window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  } catch (e) { $('historique').textContent = e.message; }
+}
+
+function confirmer(titre, texteHtml, libelleOui) {
+  return new Promise(resolve => {
+    $('confTitre').textContent = titre; $('confTexte').innerHTML = texteHtml; $('confOui').textContent = libelleOui;
+    $('fond').classList.add('ouvert');
+    const fin = v => { $('fond').classList.remove('ouvert'); resolve(v); };
+    $('confOui').onclick = () => fin(true); $('confNon').onclick = () => fin(false);
+  });
+}
+
+async function envoyer() {
+  const cat = CATEGORIES.find(c => c.id === categorie);
+  const simulation = $('simulation').checked;
+  const versTous = cible() !== 'un';
+  const n = cible() === 'recents' ? nbRecents() : cible() === 'tous' ? appareils.length : 1;
+  const ok = await confirmer(
+    simulation ? 'Lancer la simulation ?' : (versTous ? `Envoyer à ${n} appareils ?` : 'Envoyer à cet appareil ?'),
+    `<p><b>${cat.emoji} ${echapper(cat.nom)}</b></p><p><b>${echapper($('titre').value.trim())}</b><br>${echapper($('message').value.trim())}</p>` +
+    (simulation ? '<p class="petit">Simulation : rien ne sera envoyé.</p>' : (versTous ? '<p class="petit">Cette action ne peut pas être annulée.</p>' : '')),
+    simulation ? 'Simuler' : 'Envoyer');
+  if (!ok) return;
+
+  $('envoyer').disabled = true;
+  $('resultat').innerHTML = '<div class="journal" id="journal">Envoi en cours…</div>';
+  try {
+    const { id } = await api('/api/envoyer', { method: 'POST', body: JSON.stringify({
+      categorie, titre: $('titre').value.trim(), message: $('message').value.trim(),
+      cible: cible(), token: $('appareil').value, simulation,
+    }) });
+    let etat;
+    do {
+      await new Promise(r => setTimeout(r, 1000));
+      etat = await api(`/api/envoi/${id}`);
+      $('journal').innerHTML = etat.lignes.map(l => `<div class="${l.type}">${echapper(l.texte)}</div>`).join('') || 'Envoi en cours…';
+      $('journal').scrollTop = $('journal').scrollHeight;
+    } while (!etat.termine);
+    const r = etat.resume;
+    if (r) {
+      const bon = !r.simulation && r.echecs === 0;
+      $('resultat').insertAdjacentHTML('afterbegin',
+        `<div class="bandeau ${r.simulation || bon ? 'ok' : 'erreur'}">` +
+        (r.simulation ? `Simulation terminée : ${r.destinataires} destinataire(s).` : `${r.livres} livré(s) sur ${r.envoyes}${r.echecs ? `, ${r.echecs} échec(s)` : ''}.`) + '</div>');
+    }
+  } catch (e) {
+    $('resultat').innerHTML = `<div class="bandeau erreur">${echapper(e.message)}</div>`;
+  }
+  majApercu(); chargerHistorique(); chargerAppareils();
+}
+
+$('nettoyerInactifs').onclick = async e => {
+  e.preventDefault();
+  try {
+    const { nombre, jours } = await api('/api/inactifs?jours=60');
+    if (nombre === 0) { alert('Aucun appareil inactif depuis plus de 60 jours.'); return; }
+    const ok = await confirmer('Retirer les appareils inactifs ?',
+      `<p>${nombre} appareil(s) n'ont pas ouvert l'app depuis plus de ${jours} jours. Ils seront supprimés de la liste (s'ils rouvrent l'app un jour, ils se réenregistreront tout seuls).</p>`, 'Supprimer');
+    if (!ok) return;
+    const r = await api('/api/nettoyer', { method: 'POST', body: JSON.stringify({ jours: 60 }) });
+    await chargerAppareils();
+    $('noteNettoyage').textContent = `${r.supprimes} appareil(s) inactif(s) retiré(s).`;
+  } catch (err) { alert(err.message); }
+};
+if (ERREUR_FIREBASE) $('bandeauFirebase').innerHTML = `<div class="bandeau erreur">${echapper(ERREUR_FIREBASE)}</div>`;
+document.querySelectorAll('input[name=cible]').forEach(r => r.onchange = majCible);
+['titre', 'message'].forEach(id => $(id).oninput = majApercu);
+$('appareil').onchange = majApercu;
+$('envoyer').onclick = envoyer;
+afficherCategories(); afficherModeles(); majCible(); majApercu();
+chargerAppareils(); chargerHistorique();
+</script>
+</body>
+</html>

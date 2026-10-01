@@ -4,3 +4,5 @@ google-service-account.json
 app/google-services.json
 scripts/node_modules
 archive/
+desktop.ini
+scripts/historique-notifications.json
