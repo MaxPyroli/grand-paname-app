@@ -2375,7 +2375,7 @@ function NavItem({ id, actif, label, onPress, icone, couleurTexte }: {
     if (!dejaVu.current) { dejaVu.current = true; return; }
     if (!actif) return;
     p.setValue(0);
-    const duree = id === 'favoris' ? 650 : id === 'trafic' ? 600 : id === 'accueil' ? 550 : id === 'scanner' ? 520 : 420;
+    const duree = id === 'favoris' ? 650 : id === 'trafic' ? 600 : id === 'accueil' ? 550 : id === 'scanner' ? 750 : 420;
     Animated.timing(p, { toValue: 1, duration: duree, easing: id === 'favoris' ? Easing.out(Easing.cubic) : Easing.linear, useNativeDriver: true }).start();
   }, [actif]);
   const kf = (entrees: number[], sorties: Array<number | string>) => p.interpolate({ inputRange: entrees, outputRange: sorties as any });
@@ -2383,11 +2383,26 @@ function NavItem({ id, actif, label, onPress, icone, couleurTexte }: {
     id === 'favoris' ? [{ rotate: kf([0, 1], ['0deg', '360deg']) }, { scale: kf([0, 0.45, 1], [1, 1.3, 1]) }]
     : id === 'accueil' ? [{ translateY: kf([0, 0.25, 0.5, 0.75, 1], [0, -7, 0, -3, 0]) }, { scale: kf([0, 0.25, 1], [1, 1.12, 1]) }]
     : id === 'trafic' ? [{ rotate: kf([0, 0.2, 0.4, 0.6, 0.8, 1], ['0deg', '-16deg', '14deg', '-9deg', '5deg', '0deg']) }]
-    : id === 'scanner' ? [{ scale: kf([0, 0.3, 0.6, 1], [1, 1.25, 0.95, 1]) }]
+    : id === 'scanner' ? []
     : [{ scale: kf([0, 0.4, 1], [1, 1.7, 1]) }];
   return (
     <TouchableOpacity style={styles.tabItem} onPress={onPress} activeOpacity={0.7}>
-      <View style={styles.tabPill}><Animated.View style={{ transform }}>{icone}</Animated.View></View>
+      <View style={styles.tabPill}>
+        <Animated.View style={{ transform }}>
+          {icone}
+          {/* Scanner : un trait lumineux balaie l'icône de haut en bas puis de bas en haut (effet de scan). */}
+          {id === 'scanner' && (
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: 'absolute', left: -2, right: -2, top: 10, height: 2, borderRadius: 1, backgroundColor: '#F2B705',
+                opacity: kf([0, 0.06, 0.94, 1], [0, 1, 1, 0]),
+                transform: [{ translateY: kf([0, 0.5, 1], [-10, 10, -10]) }],
+              }}
+            />
+          )}
+        </Animated.View>
+      </View>
       <Text style={[styles.tabLabel, { color: couleurTexte, fontFamily: actif ? 'GrandParis-Bold' : 'GrandParis-Medium' }]}>{label}</Text>
     </TouchableOpacity>
   );
