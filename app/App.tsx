@@ -2364,12 +2364,30 @@ function useAdaptiveOrientationLock() {
 // ─── APP PRINCIPALE ───────────────────────────────────────────────────────────
 // Entrée de la barre de navigation. La pastille d'état actif n'est pas ici :
 // c'est un calque unique qui glisse d'une entrée à l'autre (voir AppInner).
-function NavItem({ actif, label, onPress, icone, couleurTexte }: {
-  actif: boolean; label: string; onPress: () => void; icone: React.ReactNode; couleurTexte: string;
+function NavItem({ id, actif, label, onPress, icone, couleurTexte }: {
+  id: 'gauche' | 'favoris' | 'accueil' | 'trafic' | 'scanner'; actif: boolean; label: string; onPress: () => void; icone: React.ReactNode; couleurTexte: string;
 }) {
+  // Petite animation propre à chaque icône quand son onglet DEVIENT actif (pas au lancement) :
+  // étoile qui tourne, maison qui rebondit, triangle qui se secoue, scanner qui pulse, point qui gonfle.
+  const p = useRef(new Animated.Value(0)).current;
+  const dejaVu = useRef(false);
+  useEffect(() => {
+    if (!dejaVu.current) { dejaVu.current = true; return; }
+    if (!actif) return;
+    p.setValue(0);
+    const duree = id === 'favoris' ? 650 : id === 'trafic' ? 600 : id === 'accueil' ? 550 : id === 'scanner' ? 520 : 420;
+    Animated.timing(p, { toValue: 1, duration: duree, easing: id === 'favoris' ? Easing.out(Easing.cubic) : Easing.linear, useNativeDriver: true }).start();
+  }, [actif]);
+  const kf = (entrees: number[], sorties: Array<number | string>) => p.interpolate({ inputRange: entrees, outputRange: sorties as any });
+  const transform =
+    id === 'favoris' ? [{ rotate: kf([0, 1], ['0deg', '360deg']) }, { scale: kf([0, 0.45, 1], [1, 1.3, 1]) }]
+    : id === 'accueil' ? [{ translateY: kf([0, 0.25, 0.5, 0.75, 1], [0, -7, 0, -3, 0]) }, { scale: kf([0, 0.25, 1], [1, 1.12, 1]) }]
+    : id === 'trafic' ? [{ rotate: kf([0, 0.2, 0.4, 0.6, 0.8, 1], ['0deg', '-16deg', '14deg', '-9deg', '5deg', '0deg']) }]
+    : id === 'scanner' ? [{ scale: kf([0, 0.3, 0.6, 1], [1, 1.25, 0.95, 1]) }]
+    : [{ scale: kf([0, 0.4, 1], [1, 1.7, 1]) }];
   return (
     <TouchableOpacity style={styles.tabItem} onPress={onPress} activeOpacity={0.7}>
-      <View style={styles.tabPill}>{icone}</View>
+      <View style={styles.tabPill}><Animated.View style={{ transform }}>{icone}</Animated.View></View>
       <Text style={[styles.tabLabel, { color: couleurTexte, fontFamily: actif ? 'GrandParis-Bold' : 'GrandParis-Medium' }]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -3404,7 +3422,7 @@ function AppInner() {
             scanner: { label: 'Scanner', icone: actif ? <IconScannerNavigoCouleur size={22} dotColor={point} /> : <Icon name="scanner-navigo" size={22} color={c.textTab} /> },
           }[id];
           return (
-            <NavItem key={id} actif={actif} label={def.label} onPress={() => setActiveTab(id)} couleurTexte={actif ? c.text : c.textTab} icone={def.icone} />
+            <NavItem key={id} id={id} actif={actif} label={def.label} onPress={() => setActiveTab(id)} couleurTexte={actif ? c.text : c.textTab} icone={def.icone} />
           );
         })}
       </View>

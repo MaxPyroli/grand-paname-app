@@ -132,6 +132,7 @@ Sans flou (interrupteur de debug coupé, ou flou suspendu) : +20 points, plafonn
 
 ## 7. Animations et gestes
 
+- **Barre de navigation** : à l'activation d'un onglet, son icône joue une courte animation propre (étoile qui tourne, maison qui rebondit, triangle qui se secoue, scanner qui pulse, point qui gonfle ; 400-650 ms, native, jamais au lancement).
 - **Façon de faire** : ressort commun (raideur 120, amortissement 15, masse 0,5) pour tout ce qui arrive/part (volet des horaires, barre de recherche au clavier, page des Paramètres). Courbe `cubic-bezier(0.22, 1, 0.36, 1)` 450 ms pour les tiroirs. Fondu pour ce qui porte un flou de la carte.
 
 - Pages plein écran des onglets extrêmes (Bientôt à gauche, Scanner à droite) : glissent depuis leur côté, comme les tiroirs, avec le ressort commun (raideur 120, amortissement 15, masse 0,5, à l'ouverture et à la fermeture : en passant de l'une à l'autre elles se suivent comme un carrousel), et recouvrent les tiroirs.

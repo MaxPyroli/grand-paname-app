@@ -7,6 +7,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.4.0',
+    date: 'En préparation',
+    content: `**🚀 Nouveautés**
+* Scanner Navigo (bêta) : lis ton passe Navigo (contrats, validations, incidents) avec le NFC de ton téléphone. À activer dans Paramètres > Avancé, il ajoute un onglet « Scanner » à la barre de navigation.
+
+**🛠️ Améliorations et Corrections**
+* Nouvelles petites animations sur les icônes de la barre de navigation quand tu changes d'onglet.
+
+Bon voyage !`,
+  },
+  {
     version: '3.3.3',
     date: '1er octobre 2026',
     content: `**📢A la une !📢**
