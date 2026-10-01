@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColors } from './theme';
 import { Icon, IconScannerNavigoCouleur } from './Icon';
 import { PanelLayout, panelCardStyle, panelChipStyle } from './PanelLayout';
+import { PANEL_TITLE_LINE } from './PanelHeader';
 import { FadeTop, FadeBottom, FONDU_HAUT } from './Fade';
 
 import Station from './reader/Station';
@@ -908,6 +909,7 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
       }
       subtitle="Lecture NFC des passes Navigo"
       headerRight={appDevMode ? (
+        <View style={{ height: PANEL_TITLE_LINE, justifyContent: 'center' }}>
         <TouchableOpacity
           onPress={() => setDumpModeOn(v => !v)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -915,6 +917,7 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
         >
           <View style={[styles.devSwitchThumb, { alignSelf: dumpModeOn ? 'flex-end' : 'flex-start' }]} />
         </TouchableOpacity>
+        </View>
       ) : null}
       footer={
         <>
