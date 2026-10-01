@@ -5,3 +5,10 @@ ios/
 .expo/
 dist/
 web-build/
+
+# Secrets et clés de signature : ne jamais les envoyer à EAS (les builds cloud utilisent les identifiants EAS)
+*.jks
+*.p8
+*.p12
+*.key
+*.keystore

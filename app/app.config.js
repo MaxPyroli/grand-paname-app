@@ -21,7 +21,7 @@ export default {
   expo: {
     name: IS_DEV ? 'Grand Paname Dev' : 'Grand Paname',
     slug: 'grand-paname',
-    version: '3.3.2',
+    version: '3.3.3',
     // Pas de verrou statique ici : l'orientation est libre partout, y
     // compris sur téléphone (paysage supporté depuis la 3.3.1, panneau
     // Favoris/Trafic permanent — voir responsive.ts), géré au runtime via
@@ -62,7 +62,8 @@ export default {
       // tuiles de carte cassées par la fermeture de l'accès anonyme CARTO).
       // Fix inclus sans changer le nom de version : re-upload sous le même
       // nom "3.3.2", donc numéro d'upload 1 au lieu de 0 → 30302*10+1.
-      versionCode: 303021,
+      // 3.3.3 → 30303*10+0.
+      versionCode: 303030,
       // google-services.json est gitignore (pas commité) donc EAS Build ne le
       // voit pas nativement — on le fournit via une variable d'environnement
       // EAS de type "fichier" (GOOGLE_SERVICES_JSON), qui pointe vers un
@@ -122,6 +123,10 @@ export default {
         {
           icon: './assets/icon.png',
           color: '#ffffff',
+          // Une notification sans catégorie précise atterrit dans « Autres »
+          // (id `default`) plutôt que dans la catégorie « Miscellaneous » que la
+          // bibliothèque crée sinon toute seule. Demande un nouveau build natif.
+          defaultChannel: 'default',
         },
       ],
     ],

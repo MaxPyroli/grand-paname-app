@@ -7,6 +7,30 @@ export type ChangelogEntry = {
 
 export const CHANGELOGS: ChangelogEntry[] = [
   {
+    version: '3.3.3',
+    date: '1er octobre 2026',
+    content: `**📢A la une !📢**
+* Les performances et la fluidité de l'application ont été grandement améliorées. Profitez d'une expérience plus agréable et plus rapide !
+
+**🛠️ Améliorations et Corrections**
+* Refontes visuelles et techniques (Accueil, Favoris, Horaires, Paramètres et éléments associés)
+* Le clavier de recherche se ferme maintenant quand tu touches la carte, y compris pour ouvrir un arrêt.
+* La croix du volet des horaires ferme désormais complètement l'arrêt. Seul le glissement vers le bas replie les horaires en gardant l'arrêt affiché.
+* Dans la recherche d'arrêts, les symboles des modes de transport (RER, Train, Métro, Tram...) s'affichent maintenant à droite du nom.
+* Dans les Favoris, les symboles des modes de transport (RER, Train, Métro, Tram, Bus...) s'affichent maintenant sur chaque arrêt.
+* Câble C1 : nouvel affichage avec l'état de fonctionnement de la ligne et sa fréquence de passage.
+* Le formulaire pour signaler un bug s'ouvre maintenant directement dans l'app, sans la quitter.
+* Les notifications intégrées sont maintenant classées en trois catégories (Info Trafic, Mises à jour, Autres).
+* Ajout d'un bouton dans les Paramètres avancés pour vider le cache de la carte, avec la place qu'il occupe.
+* Correction d'un bug n'affichant pas les départs du RER E vers Nanterre à Haussmann Saint-Lazare.
+* Correction d'un bug où les arrêts physiques ne se chargeaient pas quand on baissait le volet des horaires trop vite.
+* Correction d'un bug où la vue des arrêts physiques ne s'affichait plus quand on touchait rapidement plusieurs icônes sur la carte.
+* Correction d'un bug qui pouvait laisser le panneau des horaires ouvert mais vide.
+* Correction d'un bug où certains accès de station ne s'affichaient pas.
+
+Bon voyage !`,
+  },
+  {
     version: '3.3.2',
     date: '20 août 2026',
     content: `**🛠️ Améliorations et Corrections**
