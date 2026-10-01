@@ -920,17 +920,21 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
         <>
           {nfcWarning && <Text style={styles.nfcWarning}>{nfcWarning}</Text>}
           <TouchableOpacity
+            activeOpacity={0.85}
             style={[styles.button, { backgroundColor: scanKind === 'scan' ? c.bgSubtle : c.accent, opacity: scanKind === 'dump' ? 0.5 : 1 }]}
             onPress={scanKind === 'scan' ? () => cancelScan('user') : scanKind === 'dump' ? undefined : scanPass}
             disabled={scanKind === 'dump'}
           >
             {scanKind === 'scan' ? (
               <View style={styles.buttonContentRow}>
-                <Icon name="quitter" size={13} color={c.textSub} />
-                <Text style={[styles.buttonText, { color: c.textSub }]}>ANNULER LE SCAN</Text>
+                <Icon name="quitter" size={16} color={c.textSub} />
+                <Text style={[styles.buttonText, { color: c.textSub }]}>Annuler le scan</Text>
               </View>
             ) : (
-              <Text style={styles.buttonText}>SCANNER LE PASSE</Text>
+              <View style={styles.buttonContentRow}>
+                <Icon name="scanner-navigo" size={22} color="#fff" />
+                <Text style={styles.buttonText}>Scanner le passe</Text>
+              </View>
             )}
           </TouchableOpacity>
           {isDevMode && (
@@ -1023,9 +1027,14 @@ const styles = StyleSheet.create({
   // Couleur d'alerte fixe (palette du logo, rouge) : pas d'équivalent
   // "danger" dans le thème clair/sombre actuellement.
   nfcWarning: { color: '#E5493E', fontSize: 13, marginBottom: 8, textAlign: 'center', fontFamily: 'GrandParis-Medium' },
-  button: { paddingVertical: 15, paddingHorizontal: 40, borderRadius: 30, marginBottom: 10, width: '100%', alignItems: 'center' },
+  // Bouton principal au style des barres flottantes : même hauteur que la barre de recherche (52),
+  // rayon 30, ombre douce, libellé en casse normale avec son icône.
+  button: {
+    height: 52, borderRadius: 30, marginBottom: 10, width: '100%', alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#1a2a4a', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 8, elevation: 3,
+  },
   buttonText: { color: '#fff', fontFamily: 'GrandParis-Bold', fontSize: 16 },
-  buttonContentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  buttonContentRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   dumpButton: { backgroundColor: '#2C1010', paddingVertical: 12, paddingHorizontal: 40, borderRadius: 30, marginBottom: 20, width: '100%', alignItems: 'center', borderWidth: 1, borderColor: '#E5493E' },
   dumpButtonText: { color: '#FF9999', fontFamily: 'GrandParis-Bold', fontSize: 14 },
   // Marge négative + padding identique dans la liste : les ombres des cartes, collées aux bords, ne sont pas coupées.
