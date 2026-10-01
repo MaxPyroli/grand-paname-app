@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Animated, Easing, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, Animated, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from './theme';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
@@ -38,13 +38,13 @@ export function FullPageModal({ visible, cote, children }: {
     if (visible) {
       setMounted(true);
       slideAnim.setValue(hors);
-      // Même courbe que les tiroirs (voir le guide graphique).
-      Animated.timing(slideAnim, { toValue: 0, duration: 450, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true }).start();
+      // Ressort commun (celui du volet des horaires, de la barre de recherche et des Paramètres).
+      Animated.spring(slideAnim, { toValue: 0, stiffness: 120, damping: 15, mass: 0.5, useNativeDriver: true }).start();
     } else if (mounted) {
-      // Même durée et même courbe qu'à l'ouverture : quand on passe directement de « Bientôt » à
-      // « Scanner » (ou l'inverse), la page qui part et celle qui arrive se suivent bord à bord, comme
-      // un carrousel, sans trou ni chevauchement.
-      Animated.timing(slideAnim, { toValue: hors, duration: 450, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true })
+      // Même ressort qu'à l'ouverture (sans dépassement à la sortie) : en passant directement de
+      // « Bientôt » à « Scanner », la page qui part et celle qui arrive ont la même physique et
+      // restent collées, comme un carrousel.
+      Animated.spring(slideAnim, { toValue: hors, stiffness: 120, damping: 15, mass: 0.5, overshootClamping: true, useNativeDriver: true })
         .start(({ finished }) => { if (finished) setMounted(false); });
     }
   }, [visible]);
