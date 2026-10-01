@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from './theme';
@@ -28,34 +28,30 @@ export function FullPageModal({ visible, cote, children }: {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const hors = cote === 'gauche' ? -screenWidth : screenWidth;
-  const slideAnim = useRef(new Animated.Value(hors)).current;
-  // Reste monté pendant l'animation de sortie (sinon la page disparaît d'un
-  // coup au lieu de glisser vers le bas) ; démonté une fois hors écran, pour
-  // ne pas laisser une vue plein écran inutile intercepter les taps.
-  const [mounted, setMounted] = useState(visible);
-
+  const slideAnim = useRef(new Animated.Value(visible ? 0 : hors)).current;
+  // La page reste TOUJOURS montée (simplement hors écran quand elle est fermée) : l'ancienne
+  // version la montait au moment de l'ouverture, donc elle partait une ou deux images après la
+  // page qui s'en va, et on voyait la carte entre les deux au passage direct Bientôt ↔ Scanner.
+  // Ici les deux pages démarrent exactement en même temps. Fermée, elle ne reçoit aucun toucher.
   useEffect(() => {
     if (visible) {
-      setMounted(true);
-      slideAnim.setValue(hors);
       // Ressort commun (celui du volet des horaires, de la barre de recherche et des Paramètres).
       Animated.spring(slideAnim, { toValue: 0, stiffness: 120, damping: 15, mass: 0.5, useNativeDriver: true }).start();
-    } else if (mounted) {
-      // Même ressort qu'à l'ouverture (sans dépassement à la sortie) : en passant directement de
-      // « Bientôt » à « Scanner », la page qui part et celle qui arrive ont la même physique et
-      // restent collées, comme un carrousel.
-      Animated.spring(slideAnim, { toValue: hors, stiffness: 120, damping: 15, mass: 0.5, overshootClamping: true, useNativeDriver: true })
-        .start(({ finished }) => { if (finished) setMounted(false); });
+    } else {
+      // Même ressort à la sortie (sans dépassement) : la page qui part et celle qui arrive ont la
+      // même physique et restent collées, comme un carrousel.
+      Animated.spring(slideAnim, { toValue: hors, stiffness: 120, damping: 15, mass: 0.5, overshootClamping: true, useNativeDriver: true }).start();
     }
-  }, [visible]);
-
-  if (!mounted) return null;
+  }, [visible, hors]);
 
   return (
-    <Animated.View style={[
-      styles.root,
-      { backgroundColor: c.bg, paddingTop: insets.top + 8, transform: [{ translateX: slideAnim }] },
-    ]}>
+    <Animated.View
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[
+        styles.root,
+        { backgroundColor: c.bg, paddingTop: insets.top + 8, transform: [{ translateX: slideAnim }] },
+      ]}
+    >
       <View style={styles.content}>{children}</View>
     </Animated.View>
   );
