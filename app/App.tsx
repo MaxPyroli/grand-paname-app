@@ -3354,7 +3354,7 @@ function AppInner() {
           ]}>
             {!isWideLayout && flouTrafic && <CoucheVerre zone="tiroirs" />}
             <View style={[styles.cardContentWrapper, !isWideLayout && { paddingTop: 20, paddingBottom: 16 }]}>
-              <TraficScreen />
+              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} />
             </View>
           </Animated.View>
         </>
