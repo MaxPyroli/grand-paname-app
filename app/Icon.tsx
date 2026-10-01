@@ -1,10 +1,15 @@
-import Svg, { Path, Circle } from 'react-native-svg';
+import Svg, { Rect, G, Path, Circle } from 'react-native-svg';
 import IconAccueil from './assets/icons/mono/icon-accueil.svg';
 import IconFavoris from './assets/icons/mono/icon-favoris.svg';
 import IconParametres from './assets/icons/mono/icon-parametres.svg';
 import IconPosition from './assets/icons/mono/icon-position.svg';
 import IconRecherche from './assets/icons/mono/icon-recherche.svg';
 import IconInfoTrafic from './assets/icons/mono/icon-info-trafic.svg';
+import IconScannerNavigo from './assets/icons/mono/icon-scanner-navigo.svg';
+import IconAvancer from './assets/icons/mono/icon-avancer.svg';
+import IconReculer from './assets/icons/mono/icon-reculer.svg';
+import IconValider from './assets/icons/mono/icon-valider.svg';
+import IconQuitter from './assets/icons/mono/icon-quitter.svg';
 
 const ICONS = {
   accueil: IconAccueil,
@@ -13,6 +18,11 @@ const ICONS = {
   position: IconPosition,
   recherche: IconRecherche,
   'info-trafic': IconInfoTrafic,
+  'scanner-navigo': IconScannerNavigo,
+  avancer: IconAvancer,
+  reculer: IconReculer,
+  valider: IconValider,
+  quitter: IconQuitter,
 };
 
 export type IconName = keyof typeof ICONS;
@@ -62,6 +72,19 @@ export function IconPositionCouleur({ size = 22, dotColor = '#FFFFFF' }: { size?
     <Svg width={size} height={size} viewBox="0 0 100 100">
       <Path d="M50,86 C50,86 20,58 20,40 C20,24 33,13 50,13 C67,13 80,24 80,40 C80,58 50,86 50,86 Z" fill="none" stroke="#E5493E" strokeWidth={9} strokeLinejoin="round" />
       <Circle cx={50} cy={40} r={7} fill={dotColor} />
+    </Svg>
+  );
+}
+
+export function IconScannerNavigoCouleur({ size = 22, dotColor = '#FFFFFF' }: { size?: number; dotColor?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 100 100">
+      <Rect x={12} y={36} width={50} height={36} rx={9} fill="none" stroke="#2E9BD6" strokeWidth={9} />
+      <G fill="none" stroke="#F2B705" strokeWidth={8} strokeLinecap="round">
+        <Path d="M70,42 C74,46.5 74,53.5 70,58" />
+        <Path d="M79,34 C87,42.5 87,57.5 79,66" />
+      </G>
+      <Circle cx={62} cy={50} r={6} fill={dotColor} />
     </Svg>
   );
 }

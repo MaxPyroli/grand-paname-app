@@ -101,6 +101,7 @@ export default {
           recordAudioAndroid: false,
         },
       ],
+      'react-native-nfc-manager',
       './plugins/withRemoveMicPermission',
       [
         'expo-build-properties',

@@ -36,10 +36,13 @@ import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS, useFrameCallback } from 'react-native-reanimated';
 import { registerForPushNotificationsAsync } from './notifications';
+import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
 import { PanelLayout, panelCardStyle, panelChipStyle, PANEL_CARD_RADIUS } from './PanelLayout';
 import { PanelHeader, PanelPillAction } from './PanelHeader';
 import { PanelEmptyState } from './PanelEmptyState';
-import { Icon, IconAccueilCouleur, IconFavorisCouleur, IconInfoTraficCouleur, IconPositionCouleur } from './Icon';
+import ScannerScreen from './ScannerScreen';
+import { FullPageModal } from './FullPageModal';
+import { Icon, IconScannerNavigoCouleur, IconAccueilCouleur, IconFavorisCouleur, IconInfoTraficCouleur, IconPositionCouleur } from './Icon';
 import TraficScreen from './TraficScreen';
 import { FadeBottom, FadeTop, hexToRgba, FONDU_HAUT, FONDU_BAS } from './Fade';
 import { definirRect, retirerRect, definirOrigine, definirEnvoyeur, renvoyerVerre } from './verreWeb';
@@ -53,8 +56,7 @@ import type SpInAppUpdatesType from 'sp-react-native-in-app-updates';
 import type { AndroidUpdateType, AndroidInstallStatus } from 'sp-react-native-in-app-updates';
 
 // ─── CONSTANTES DE LAYOUT ────────────────────────────────────────────────────
-const NAV_BAR_BOTTOM = 16;
-const NAV_BAR_HEIGHT = 58;
+// NAV_BAR_BOTTOM / NAV_BAR_HEIGHT viennent de layout.ts (partagées avec les pages plein écran).
 const SEARCH_BAR_HEIGHT = 52;
 const SEARCH_BAR_BOTTOM = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 10;
 // En layout large, le tiroir permanent est plus étroit que sur téléphone
@@ -238,7 +240,7 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
-function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay, flouActif, setFlouActif, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate, onClearMapCache, onReportBug }: { visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; flouActif: boolean; setFlouActif: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void; onClearMapCache: () => void; onReportBug: () => void }) {
+function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay, flouActif, setFlouActif, scannerBeta, setScannerBeta, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate, onClearMapCache, onReportBug }: { visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; flouActif: boolean; setFlouActif: (v: boolean) => void; scannerBeta: boolean; setScannerBeta: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void; onClearMapCache: () => void; onReportBug: () => void }) {
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -615,6 +617,29 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
                       <View style={{
                         width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
                         alignSelf: oled ? 'flex-end' : 'flex-start',
+                      }} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, marginTop: 10 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Scanner Navigo (bêta)</Text>
+                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                        Lit ton passe Navigo (contrats, validations) avec le NFC du téléphone. Ajoute un onglet « Scanner ».
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setScannerBeta(!scannerBeta)}
+                      style={{
+                        width: 44, height: 26, borderRadius: 13,
+                        backgroundColor: scannerBeta ? c.accent : c.dragBar,
+                        justifyContent: 'center', paddingHorizontal: 3,
+                      }}
+                    >
+                      <View style={{
+                        width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
+                        alignSelf: scannerBeta ? 'flex-end' : 'flex-start',
                       }} />
                     </TouchableOpacity>
                   </View>
@@ -2367,7 +2392,15 @@ function AppInner() {
 
   const PANEL_H = SCREEN_H - insets.top;
 
-  const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic'>('accueil');
+  // 'favoris' et 'trafic' sont des tiroirs par-dessus la carte ; 'gauche' (« Bientôt », sans contenu) et
+  // 'scanner' sont de vraies pages plein écran (FullPageModal) et n'existent que si le Scanner
+  // Navigo (bêta) est activé dans Paramètres > Avancé.
+  const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic' | 'gauche' | 'scanner'>('accueil');
+  const [scannerBeta, setScannerBeta] = useState(false);
+  useEffect(() => { AsyncStorage.getItem('@gp_scanner_beta').then(v => { if (v === '1') setScannerBeta(true); }).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!scannerBeta && (activeTab === 'scanner' || activeTab === 'gauche')) setActiveTab('accueil');
+  }, [scannerBeta, activeTab]);
   // Écran large (voir responsive.ts) : le tiroir ouvert reste affiché en
   // permanence (il ne glisse plus hors champ) et recouvre la carte comme sur
   // téléphone — la carte, elle, reste toujours plein écran (pas de resize,
@@ -2889,14 +2922,20 @@ function AppInner() {
 
   // Pastille de la barre de nav : un seul calque qui glisse vers l'onglet actif.
   const [largeurBarreNav, setLargeurBarreNav] = useState(0);
-  const indexNav = useRef(new Animated.Value(1)).current;
+  // Entrées de la barre : 3 par défaut, 5 avec le Scanner Navigo (bêta) activé.
+  const entreesNav: Array<'gauche' | 'favoris' | 'accueil' | 'trafic' | 'scanner'> = scannerBeta
+    ? ['gauche', 'favoris', 'accueil', 'trafic', 'scanner']
+    : ['favoris', 'accueil', 'trafic'];
+  const nbEntreesNav = entreesNav.length;
+  const indexActifNav = Math.max(0, entreesNav.indexOf(activeTab));
+  const indexNav = useRef(new Animated.Value(indexActifNav)).current;
   useEffect(() => {
     Animated.spring(indexNav, {
-      toValue: activeTab === 'favoris' ? 0 : activeTab === 'accueil' ? 1 : 2,
+      toValue: indexActifNav,
       stiffness: 300, damping: 24, mass: 1, overshootClamping: true, useNativeDriver: true,
     }).start();
-  }, [activeTab]);
-  const largeurEntreeNav = largeurBarreNav > 0 ? (largeurBarreNav - 2 - 12) / 3 : 0;
+  }, [indexActifNav]);
+  const largeurEntreeNav = largeurBarreNav > 0 ? (largeurBarreNav - 2 - 12) / nbEntreesNav : 0;
   // Le flou d'un tiroir n'est monté que pendant qu'il est visible (le nombre de
   // flous simultanés sur la carte est limité, voir VERRE_FLOU_ZONES) : il reste
   // monté pendant l'animation de fermeture, sinon il disparaîtrait d'un coup.
@@ -3159,6 +3198,8 @@ function AppInner() {
         ressort(favSlideAnim, -screenWidth),
       ]).start();
     } else {
+      // Les pages plein écran (Bientôt, Scanner) rangent aussi le volet des horaires.
+      if (activeTab === 'gauche' || activeTab === 'scanner') fermerPanel();
       if (fermeParGesteRef.current) return;
       Animated.parallel([
         ressort(favSlideAnim, -screenWidth),
@@ -3284,6 +3325,24 @@ function AppInner() {
         </>
       )}
 
+      {/* Pages plein écran (Scanner Navigo en bêta, « Bientôt ») : empilées sous la barre de navigation. */}
+      {scannerBeta && (
+        <>
+          <FullPageModal visible={activeTab === 'scanner'}>
+            <ScannerScreen active={activeTab === 'scanner'} />
+          </FullPageModal>
+          <FullPageModal visible={activeTab === 'gauche'}>
+            <PanelLayout title="Bientôt" subtitle="Cet onglet n'a pas encore de contenu.">
+              <PanelEmptyState
+                icon={<Icon name="info-trafic" size={44} color={c.textSub} />}
+                title="Bientôt disponible"
+                description="Une nouvelle fonctionnalité arrive ici dans une prochaine version."
+              />
+            </PanelLayout>
+          </FullPageModal>
+        </>
+      )}
+
       {/* Enveloppe dédiée aux insets, même principe que dans AccueilScreen
           pour la carte/barre de recherche : confine le fondu + la barre de
           nav à la zone visible de la carte plutôt que de les laisser
@@ -3327,34 +3386,27 @@ function AppInner() {
             pointerEvents="none"
             style={[styles.tabItem, {
               position: 'absolute', top: 0, bottom: 0, left: 6, width: largeurEntreeNav, flex: 0,
-              transform: [{ translateX: indexNav.interpolate({ inputRange: [0, 1, 2], outputRange: [0, largeurEntreeNav, 2 * largeurEntreeNav] }) }],
+              transform: [{ translateX: indexNav.interpolate({ inputRange: entreesNav.map((_, i) => i), outputRange: entreesNav.map((_, i) => i * largeurEntreeNav) }) }],
             }]}
           >
             <View style={[styles.tabPill, { backgroundColor: c.pillCenter }]} />
             <Text style={[styles.tabLabel, { opacity: 0 }]}>Accueil</Text>
           </Animated.View>
         )}
-        <NavItem
-          actif={activeTab === 'favoris'} label="Favoris" onPress={() => setActiveTab('favoris')}
-          couleurTexte={activeTab === 'favoris' ? c.text : c.textTab}
-          icone={activeTab === 'favoris'
-            ? <IconFavorisCouleur size={22} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
-            : <Icon name="favoris" size={22} color={c.textTab} />}
-        />
-        <NavItem
-          actif={activeTab === 'accueil'} label="Accueil" onPress={() => setActiveTab('accueil')}
-          couleurTexte={activeTab === 'accueil' ? c.text : c.textTab}
-          icone={activeTab === 'accueil'
-            ? <IconAccueilCouleur size={22} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
-            : <Icon name="accueil" size={22} color={c.textTab} />}
-        />
-        <NavItem
-          actif={activeTab === 'trafic'} label="Trafic" onPress={() => setActiveTab('trafic')}
-          couleurTexte={activeTab === 'trafic' ? c.text : c.textTab}
-          icone={activeTab === 'trafic'
-            ? <IconInfoTraficCouleur size={22} dotColor={isDark ? '#FFFFFF' : '#0F2544'} />
-            : <Icon name="info-trafic" size={22} color={c.textTab} />}
-        />
+        {entreesNav.map((id) => {
+          const actif = activeTab === id;
+          const point = isDark ? '#FFFFFF' : '#0F2544';
+          const def = {
+            gauche: { label: 'Bientôt', icone: <View style={{ width: 9, height: 9, borderRadius: 4.5, backgroundColor: actif ? point : c.textTab }} /> },
+            favoris: { label: 'Favoris', icone: actif ? <IconFavorisCouleur size={22} dotColor={point} /> : <Icon name="favoris" size={22} color={c.textTab} /> },
+            accueil: { label: 'Accueil', icone: actif ? <IconAccueilCouleur size={22} dotColor={point} /> : <Icon name="accueil" size={22} color={c.textTab} /> },
+            trafic: { label: 'Trafic', icone: actif ? <IconInfoTraficCouleur size={22} dotColor={point} /> : <Icon name="info-trafic" size={22} color={c.textTab} /> },
+            scanner: { label: 'Scanner', icone: actif ? <IconScannerNavigoCouleur size={22} dotColor={point} /> : <Icon name="scanner-navigo" size={22} color={c.textTab} /> },
+          }[id];
+          return (
+            <NavItem key={id} actif={actif} label={def.label} onPress={() => setActiveTab(id)} couleurTexte={actif ? c.text : c.textTab} icone={def.icone} />
+          );
+        })}
       </View>
       </Animated.View>
 
@@ -3486,7 +3538,7 @@ function AppInner() {
       </BlurTargetView>
 
       {/* Modal paramètres */}
-      <SettingsModal onReportBug={() => setShowBugForm(true)} onClearMapCache={viderCacheCarte} visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} flouActif={flouActif} setFlouActif={(v) => { setFlouActif(v); AsyncStorage.setItem('@gp_debug_flou', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
+      <SettingsModal onReportBug={() => setShowBugForm(true)} onClearMapCache={viderCacheCarte} visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} flouActif={flouActif} setFlouActif={(v) => { setFlouActif(v); AsyncStorage.setItem('@gp_debug_flou', v ? '1' : '0').catch(() => {}); }} scannerBeta={scannerBeta} setScannerBeta={(v) => { setScannerBeta(v); AsyncStorage.setItem('@gp_scanner_beta', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
       <BugReportModal visible={showBugForm} onClose={() => setShowBugForm(false)} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
       <OnboardingTour
