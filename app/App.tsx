@@ -2375,7 +2375,7 @@ function NavItem({ id, actif, label, onPress, icone, couleurTexte }: {
     if (!dejaVu.current) { dejaVu.current = true; return; }
     if (!actif) return;
     p.setValue(0);
-    const duree = id === 'favoris' ? 650 : id === 'trafic' ? 600 : id === 'accueil' ? 550 : id === 'scanner' ? 750 : 420;
+    const duree = id === 'favoris' ? 650 : id === 'trafic' ? 600 : id === 'accueil' ? 550 : id === 'scanner' ? 950 : 420;
     Animated.timing(p, { toValue: 1, duration: duree, easing: id === 'favoris' ? Easing.out(Easing.cubic) : Easing.linear, useNativeDriver: true }).start();
   }, [actif]);
   const kf = (entrees: number[], sorties: Array<number | string>) => p.interpolate({ inputRange: entrees, outputRange: sorties as any });
@@ -2390,17 +2390,19 @@ function NavItem({ id, actif, label, onPress, icone, couleurTexte }: {
       <View style={styles.tabPill}>
         <Animated.View style={{ transform }}>
           {icone}
-          {/* Scanner : un trait lumineux balaie l'icône de haut en bas puis de bas en haut (effet de scan). */}
-          {id === 'scanner' && (
+          {/* Scanner : des ondes (comme les ondes NFC de l'icône) partent du côté de l'icône et s'élargissent en s'estompant. */}
+          {id === 'scanner' && [0, 0.22, 0.44].map((d, i) => (
             <Animated.View
+              key={i}
               pointerEvents="none"
               style={{
-                position: 'absolute', left: -2, right: -2, top: 10, height: 2, borderRadius: 1, backgroundColor: '#F2B705',
-                opacity: kf([0, 0.06, 0.94, 1], [0, 1, 1, 0]),
-                transform: [{ translateY: kf([0, 0.5, 1], [-10, 10, -10]) }],
+                position: 'absolute', left: 11, top: 6, width: 10, height: 10, borderRadius: 5,
+                borderWidth: 1.5, borderColor: '#F2B705',
+                opacity: kf([0, d, d + 0.1, d + 0.55, 1], [0, 0, 0.9, 0, 0]),
+                transform: [{ scale: kf([0, d, d + 0.55, 1], [0.2, 0.2, 2.6, 2.6]) }],
               }}
             />
-          )}
+          ))}
         </Animated.View>
       </View>
       <Text style={[styles.tabLabel, { color: couleurTexte, fontFamily: actif ? 'GrandParis-Bold' : 'GrandParis-Medium' }]}>{label}</Text>

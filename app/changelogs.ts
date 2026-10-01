@@ -13,7 +13,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
 * Scanner Navigo (bêta) : lis ton passe Navigo (contrats, validations, incidents) avec le NFC de ton téléphone. À activer dans Paramètres > Avancé, il ajoute un onglet « Scanner » à la barre de navigation.
 
 **🛠️ Améliorations et Corrections**
-* Nouvelles petites animations sur les icônes de la barre de navigation quand tu changes d'onglet.
+* Des animations ont été ajoutées sur les icônes de la barre de navigation lors du changement d'onglet.
 
 Bon voyage !`,
   },
