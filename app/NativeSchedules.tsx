@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, memo, startTransition, useRef, forwardRef, useImperativeHandle } from 'react';
-import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, ToastAndroid, Platform, Animated, ScrollView } from 'react-native';
+import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, ToastAndroid, Platform, Animated, Easing, ScrollView, FlatList } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { NAVITIA_BASE, NAVITIA_KEY } from './constants';
 import { useColors } from './theme';
@@ -54,6 +54,17 @@ type LigneGroupe = {
   // RER D) — affiché comme une carte bus à part entière, distincte de la
   // carte RER/Train (voir RAIL_CODES).
   isSubstitution?: boolean;
+  // Identifiant Navitia de la ligne (sert à interroger ses perturbations).
+  lineId?: string;
+  // État de fonctionnement (câble/funiculaire pour l'instant : les horaires y
+  // sont théoriques, donc sans cette info on afficherait des départs même à
+  // l'arrêt). Voir fetchEtatLigne.
+  etat?: EtatLigne;
+};
+
+type EtatLigne = {
+  niveau: 'ok' | 'perturbe' | 'arret' | 'inconnu';
+  message?: string;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -267,14 +278,37 @@ const GHOST_LIGNES_BASE: LigneGroupe[] = [
       ]},
     ],
   },
-  // Câble C2 — actif
+  // Câble C1 — en fonctionnement (affiche la fréquence)
+  {
+    key: 'C1|00A3E0', code: 'C1', color: '00A3E0', textColor: '#ffffff', mode: 'CABLE',
+    directions: undefined,
+    etat: { niveau: 'ok' },
+    destinations: [
+      { destination: 'Villa Nova', departs: [
+        { valTri: 1, affichage: 'À l\'approche', couleurTemps: '#f97316', heure: '09:13' },
+      ]},
+    ],
+  },
+  // Câble C2 — perturbé
   {
     key: 'C2|F8A01D', code: 'C2', color: 'F8A01D', textColor: '#000000', mode: 'CABLE',
     directions: undefined,
+    etat: { niveau: 'perturbe', message: 'Vitesse réduite, temps d\'attente allongé entre chaque cabine.' },
     destinations: [
       { destination: 'Fort d\'Aubervilliers', departs: [
         { valTri: 3,  affichage: '3 min',  couleurTemps: '#f97316', heure: '09:15' },
         { valTri: 11, affichage: '11 min', couleurTemps: '#22c55e', heure: '09:23' },
+      ]},
+    ],
+  },
+  // Câble C3 — à l'arrêt
+  {
+    key: 'C3|8B5CF6', code: 'C3', color: '8B5CF6', textColor: '#ffffff', mode: 'CABLE',
+    directions: undefined,
+    etat: { niveau: 'arret', message: 'Arrêt de la ligne pour cause d\'incident technique. Reprise du service prévue dans la soirée, merci de votre compréhension.' },
+    destinations: [
+      { destination: 'Terminus fictif', departs: [
+        { valTri: 2, affichage: '2 min', couleurTemps: '#f97316', heure: '09:14' },
       ]},
     ],
   },
@@ -337,6 +371,51 @@ async function fetchDepartures(url: string, signal: AbortSignal): Promise<any[]>
   return data?.departures || [];
 }
 
+// Cache court par ligne : l'état d'une ligne bouge rarement, inutile de le
+// redemander à chaque rafraîchissement des horaires (toutes les 15 s).
+const etatLigneCache = new Map<string, { at: number; etat: EtatLigne }>();
+const ETAT_LIGNE_TTL_MS = 60_000;
+
+const ORDRE_ETAT: Record<EtatLigne['niveau'], number> = { inconnu: 0, ok: 1, perturbe: 2, arret: 3 };
+
+// Perturbations en cours sur une ligne (info trafic Navitia/IDFM). Seules
+// comptent celles qui visent la ligne elle-même, actives à cet instant : une
+// panne d'ascenseur dans une gare ne dit rien du fonctionnement de la ligne.
+async function fetchEtatLigne(lineId: string, signal: AbortSignal): Promise<EtatLigne> {
+  const cache = etatLigneCache.get(lineId);
+  if (cache && Date.now() - cache.at < ETAT_LIGNE_TTL_MS) return cache.etat;
+
+  const r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(lineId)}/line_reports?count=20`, { headers: { apiKey: NAVITIA_KEY }, signal });
+  // 404 = aucune perturbation connue pour cette ligne.
+  if (!r.ok && r.status !== 404) throw new Error(`HTTP ${r.status}`);
+  const data = r.ok ? await r.json() : {};
+
+  const now = Date.now();
+  let niveau: EtatLigne['niveau'] = 'ok';
+  let message: string | undefined;
+  for (const d of data?.disruptions || []) {
+    if (d.status && d.status !== 'active') continue;
+    const periodes: any[] = d.application_periods || [];
+    const enCours = periodes.length === 0 || periodes.some(p =>
+      parseNavitiaDate(p.begin).getTime() <= now && now <= parseNavitiaDate(p.end).getTime());
+    if (!enCours) continue;
+    const visePLigne = (d.impacted_objects || []).length === 0 ||
+      (d.impacted_objects || []).some((o: any) => o?.pt_object?.embedded_type === 'line' && o?.pt_object?.id === lineId);
+    if (!visePLigne) continue;
+    const effet: string = d.severity?.effect || '';
+    if (effet === 'ADDITIONAL_SERVICE') continue;
+    const nv: EtatLigne['niveau'] = effet === 'NO_SERVICE' ? 'arret' : 'perturbe';
+    if (ORDRE_ETAT[nv] > ORDRE_ETAT[niveau]) {
+      niveau = nv;
+      const texte: string | undefined = (d.messages || []).find((m: any) => m?.text)?.text;
+      message = texte ? texte.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : undefined;
+    }
+  }
+  const etat: EtatLigne = { niveau, message };
+  etatLigneCache.set(lineId, { at: Date.now(), etat });
+  return etat;
+}
+
 async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal): Promise<LigneGroupe[]> {
   const base = `${NAVITIA_BASE}/stop_areas/${stopId}/departures`;
 
@@ -359,7 +438,7 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     departures.push(d);
   }
 
-  const lignesMap = new Map<string, { code: string; color: string; textColor: string; mode: string; isSubstitution: boolean; dests: Map<string, Depart[]> }>();
+  const lignesMap = new Map<string, { code: string; color: string; textColor: string; mode: string; isSubstitution: boolean; lineId?: string; dests: Map<string, Depart[]> }>();
 
   for (const d of departures) {
     const info = d.stop_date_time;
@@ -404,7 +483,7 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     if (valTri < -5) continue;
 
     const lineKey = `${code}|${color}|${mode}`;
-    if (!lignesMap.has(lineKey)) lignesMap.set(lineKey, { code, color, textColor, mode, isSubstitution, dests: new Map() });
+    if (!lignesMap.has(lineKey)) lignesMap.set(lineKey, { code, color, textColor, mode, isSubstitution, lineId: line.id, dests: new Map() });
     const entry = lignesMap.get(lineKey)!;
     if (!entry.dests.has(dest)) entry.dests.set(dest, []);
 
@@ -453,7 +532,7 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
       ? destinations.filter(d => (d.departs[0]?.valTri ?? 9999) < 62)
       : destinations;
 
-    lignes.push({ key, code: entry.code, color: entry.color, textColor: entry.textColor, mode: entry.mode, destinations: finalDests, isSubstitution: entry.isSubstitution });
+    lignes.push({ key, code: entry.code, color: entry.color, textColor: entry.textColor, mode: entry.mode, destinations: finalDests, isSubstitution: entry.isSubstitution, lineId: entry.lineId });
   }
 
   // Un bus de substitution ne doit jamais remplacer la carte RER/Train de la
@@ -474,7 +553,101 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
     });
   }
 
+  // État de fonctionnement des câbles/funiculaires (horaires théoriques : voir
+  // fetchEtatLigne). Échec réseau → "inconnu", jamais un faux "ok".
+  await Promise.all(lignes.filter(l => l.mode === 'CABLE' && l.lineId).map(async l => {
+    let etat: EtatLigne;
+    try { etat = await fetchEtatLigne(l.lineId!, signal); }
+    catch (e: any) { if (e?.name === 'AbortError') throw e; etat = { niveau: 'inconnu' }; }
+    // Aucun départ en pleine journée alors que l'API ne signale rien : on ne
+    // dit pas "service terminé", on demande de vérifier (comme l'ancienne
+    // version Streamlit, plage 6h-23h).
+    const heure = new Date().getHours();
+    const aucunDepart = l.destinations.every(d => d.departs.length === 0);
+    if (aucunDepart && (etat.niveau === 'ok' || etat.niveau === 'inconnu')) {
+      // En journée : anormal, on le signale. La nuit : simple fin de service,
+      // pas de bandeau (la carte affiche "Service terminé").
+      etat = heure >= 6 && heure < 23
+        ? { niveau: 'perturbe', message: "Aucun départ détecté, vérifiez l'état de la ligne." }
+        : undefined as any;
+    }
+    l.etat = etat;
+  }));
+
   return lignes.sort(comparerLignesParMode);
+}
+
+// ── Bandeau d'état (câble) ────────────────────────────────────────────────────
+
+const COULEUR_ETAT: Record<EtatLigne['niveau'], string> = {
+  ok: '#22c55e', perturbe: '#f97316', arret: '#ef4444', inconnu: '#9ca3af',
+};
+const ICONE_ETAT: Record<EtatLigne['niveau'], string> = {
+  ok: '', perturbe: '⚠️', arret: '❌', inconnu: '',
+};
+
+// Texte qui défile en boucle quand il est plus long que la place disponible
+// (sinon il reste fixe). Défilement en pilote natif : pas de charge JS.
+// La largeur réelle du texte est mesurée dans un ScrollView horizontal caché :
+// dans une simple vue, la largeur mesurée serait plafonnée à celle de la zone
+// et le texte, tronqué avec "…", ne défilerait jamais.
+function TexteDefilant({ texte, couleur }: { texte: string; couleur: string }) {
+  const [largeurZone, setLargeurZone] = useState(0);
+  const [largeurTexte, setLargeurTexte] = useState(0);
+  const x = useRef(new Animated.Value(0)).current;
+  const defile = largeurZone > 0 && largeurTexte > largeurZone;
+  const ESPACE = 48;
+
+  useEffect(() => {
+    x.setValue(0);
+    if (!defile) return;
+    const distance = largeurTexte + ESPACE;
+    // Boucle relancée à la main à chaque tour : Animated.loop en pilote natif
+    // finissait par s'arrêter de défiler (surtout après un re-rendu).
+    let annule = false;
+    const tour = () => {
+      if (annule) return;
+      x.setValue(0);
+      Animated.sequence([
+        Animated.delay(1200),
+        Animated.timing(x, { toValue: -distance, duration: (distance / 40) * 1000, easing: Easing.linear, useNativeDriver: true }),
+      ]).start(({ finished }) => { if (finished) tour(); });
+    };
+    tour();
+    return () => { annule = true; x.stopAnimation(); };
+  }, [defile, largeurTexte, x]);
+
+  const styleTexte = [s.bandeauEtatMessage, { color: couleur }];
+  return (
+    <View style={{ overflow: 'hidden' }} onLayout={e => setLargeurZone(e.nativeEvent.layout.width)}>
+      <ScrollView
+        horizontal
+        scrollEnabled={false}
+        pointerEvents="none"
+        style={{ position: 'absolute', opacity: 0 }}
+        onContentSizeChange={w => setLargeurTexte(Math.ceil(w))}
+      >
+        <Text style={styleTexte} numberOfLines={1}>{texte}</Text>
+      </ScrollView>
+      <Animated.View style={{ flexDirection: 'row', transform: [{ translateX: x }] }}>
+        <Text style={[styleTexte, largeurTexte > 0 && { width: largeurTexte }]} numberOfLines={1}>{texte}</Text>
+        {defile ? <Text style={[styleTexte, { width: largeurTexte, marginLeft: ESPACE }]} numberOfLines={1}>{texte}</Text> : null}
+      </Animated.View>
+    </View>
+  );
+}
+
+// Affiché seulement quand la ligne est perturbée ou interrompue : en
+// fonctionnement normal, rien (pas de bruit sur la carte).
+function BandeauEtat({ etat }: { etat: EtatLigne }) {
+  if (etat.niveau !== 'perturbe' && etat.niveau !== 'arret') return null;
+  const couleur = COULEUR_ETAT[etat.niveau];
+  return (
+    <View style={[s.bandeauEtat, { backgroundColor: `${couleur}26`, borderColor: couleur }]}>
+      <Text style={{ fontSize: 18 }}>{ICONE_ETAT[etat.niveau]}</Text>
+      {etat.message ? <View style={{ flex: 1 }}><TexteDefilant texte={etat.message} couleur={couleur} /></View> : null}
+    </View>
+  );
 }
 
 // ── Carte ligne (memoïsée pour éviter re-renders pendant le scroll) ───────────
@@ -492,10 +665,15 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
     Animated.timing(glowAnim, { toValue: 0, duration: 1000, useNativeDriver: false }).start();
   }, [highlightTick]);
 
+  // Câble perturbé/à l'arrêt : cadre coloré, visible d'un coup d'œil.
+  const problemeEtat = ligne.etat?.niveau === 'perturbe' || ligne.etat?.niveau === 'arret';
   const borderColor = glowAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [c.borderCard, `#${ligne.color}`],
+    outputRange: [problemeEtat ? COULEUR_ETAT[ligne.etat!.niveau] : c.borderCard, `#${ligne.color}`],
   });
+  // Les horaires d'un câble sont théoriques : à l'arrêt ils seraient trompeurs.
+  const cacherHoraires = ligne.etat?.niveau === 'arret';
+  const frequenceC1 = ligne.mode === 'CABLE' && ligne.code === 'C1' && ligne.etat?.niveau === 'ok';
   const shadowOpacity = glowAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 0.5],
@@ -510,7 +688,7 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
     : ligne.destinations.every(d => d.departs.length === 0);
 
   return (
-    <Animated.View style={[s.carte, {
+    <Animated.View style={[s.carte, problemeEtat && { borderWidth: 2 }, {
       backgroundColor: c.bgCard,
       borderColor,
       shadowColor: `#${ligne.color}`,
@@ -526,7 +704,10 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
         {ligne.isSubstitution ? (
           <Text style={{ fontSize: 11, fontWeight: '700', color: c.textSub }}>🚌 BUS DE REMPLACEMENT</Text>
         ) : null}
-        {toutTermine ? (
+        {ligne.etat ? <BandeauEtat etat={ligne.etat} /> : null}
+        {cacherHoraires ? null
+        : toutTermine && problemeEtat ? null
+        : toutTermine ? (
           <Text style={[s.destTexte, { color: c.textSub, textAlign: 'left', paddingTop: 4 }]}>😴 Service terminé</Text>
         ) : ligne.directions ? (
           ligne.directions.map((dir, di) => (
@@ -549,10 +730,16 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
           ))
         ) : (
           ligne.destinations.map((dest, di) => (
-            <View key={di} style={s.destRow}>
+            // Une seule ligne de texte (fréquence du C1) : hauteur mini = celle du
+            // badge, pour rester centrée comme les lignes à deux lignes (minutes + heure).
+            <View key={di} style={[s.destRow, frequenceC1 && { minHeight: 29 }]}>
               <Text style={[s.destTexte, { color: c.text }]} numberOfLines={2} ellipsizeMode="tail">{dest.destination}</Text>
               {dest.departs.length === 0 ? (
                 <Text style={[s.destTexte, { color: c.textSub }]} numberOfLines={1}>😴 Terminé</Text>
+              ) : frequenceC1 ? (
+                <View style={s.departItem}>
+                  <Text style={[s.tempsTexte, { color: '#22c55e' }]}>Départ toutes les ~30 s</Text>
+                </View>
               ) : dest.premierLointain ? (
                 <Text style={[s.destTexte, { color: c.textSub }]} numberOfLines={1}>Premier départ : {dest.departs[0].heure}</Text>
               ) : (
@@ -575,28 +762,32 @@ const LigneCard = memo(function LigneCard({ ligne, highlightTick }: LigneCardPro
 
 // ── Composant principal ───────────────────────────────────────────────────────
 
-type Props = { stopId: string; stopName?: string };
+// `onScrollY` : position de défilement de la liste (0 = tout en haut), pour que le volet sache
+// quand un tiré vers le bas doit déplacer le volet plutôt que faire défiler la liste.
+type Props = { stopId: string; stopName?: string; onScrollY?: (y: number) => void };
 export type SchedulesRef = { scrollTo: (code: string) => void };
 
 const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules(
-  { stopId, stopName = '' },
+  { stopId, stopName = '', onScrollY },
   ref,
 ) {
   const c = useColors();
   const [lignes, setLignes] = useState<LigneGroupe[] | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const isInitialLoad = useRef(true);
-  const scrollRef = useRef<ScrollView>(null);
-  const yPositions = useRef<Record<string, number>>({});
-  const terminatedBusCodes = useRef<Set<string>>(new Set());
+  const scrollRef = useRef<FlatList<any>>(null);
+  // Éléments affichés (mis à jour à chaque rendu) : la liste est virtualisée, donc on
+  // retrouve une ligne par son INDEX et non par une position mesurée (les lignes
+  // pas encore affichées n'ont pas de position).
+  const itemsRef = useRef<any[]>([]);
   const [highlightState, setHighlightState] = useState<{ code: string; tick: number } | null>(null);
   const toastCooldown = useRef(false);
 
   useImperativeHandle(ref, () => ({
     scrollTo: (code: string) => {
-      const y = yPositions.current[code];
-      if (y !== undefined) {
-        scrollRef.current?.scrollTo({ y, animated: true });
+      const index = itemsRef.current.findIndex(it => it.type === 'ligne' && it.ligne.code === code);
+      if (index >= 0) {
+        scrollRef.current?.scrollToIndex({ index, animated: true });
         setHighlightState(prev => ({ code, tick: (prev?.tick ?? 0) + 1 }));
       } else {
         if (Platform.OS === 'android' && !toastCooldown.current) {
@@ -609,7 +800,7 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
   }), []);
 
   // Vide les données immédiatement quand on change de gare (évite d'afficher les horaires de l'ancienne gare)
-  useEffect(() => { setLignes(null); isInitialLoad.current = true; }, [stopId]);
+  useEffect(() => { setLignes(null); isInitialLoad.current = true; onScrollY?.(0); }, [stopId]);
 
   // Pointe toujours vers l'annulation de la requête EN COURS. `charger()` est
   // rappelé à chaque tick du setInterval ci-dessous ; sans cette ref, seul le
@@ -627,7 +818,6 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
           .filter(x => x.mode === 'BUS' && x.destinations.every(d => (d.departs[0]?.valTri ?? 0) >= 3000))
           .map(x => x.code)
       );
-      terminatedBusCodes.current = terminatedCodes;
       const filtered = GHOST_LIGNES_BASE.filter(x => x.mode !== 'BUS' || !terminatedCodes.has(x.code));
       isInitialLoad.current = false;
       setLignes(filtered);
@@ -638,11 +828,11 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
     abortCourantRef.current = () => ctrl.abort();
     fetchLignes(stopId, stopName, ctrl.signal)
       .then(l => {
-        terminatedBusCodes.current = new Set(
+        const terminatedCodes = new Set(
           l.filter(x => x.mode === 'BUS' && x.destinations.every(d => d.departs.length === 0))
            .map(x => x.code)
         );
-        const filtered = l.filter(x => x.mode !== 'BUS' || !terminatedBusCodes.current.has(x.code));
+        const filtered = l.filter(x => x.mode !== 'BUS' || !terminatedCodes.has(x.code));
         if (isInitialLoad.current) {
           isInitialLoad.current = false;
           setLignes(filtered);
@@ -700,17 +890,33 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
     );
   }
 
+  itemsRef.current = renderItems;
+  // Liste virtualisée : seules les premières lignes sont créées au départ. Rendre les
+  // 30+ lignes d'une grosse gare d'un coup faisait doubler les images saccadées à
+  // l'ouverture du volet (mesuré : ~20 % contre ~12 % avec 8 lignes).
   const listView = (
-    <ScrollView
+    <FlatList
       ref={scrollRef}
       style={{ flex: 1 }}
       contentContainerStyle={s.listContent}
       overScrollMode="always"
       bounces={true}
-    >
-      {renderItems.map((item, i) =>
+      data={renderItems}
+      onScroll={onScrollY ? (e) => onScrollY(e.nativeEvent.contentOffset.y) : undefined}
+      scrollEventThrottle={16}
+      extraData={highlightState}
+      keyExtractor={(item, i) => (item.type === 'mode' ? `mode-${i}` : item.ligne.key)}
+      initialNumToRender={8}
+      maxToRenderPerBatch={6}
+      windowSize={9}
+      updateCellsBatchingPeriod={50}
+      onScrollToIndexFailed={(info) => {
+        scrollRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+        setTimeout(() => scrollRef.current?.scrollToIndex({ index: info.index, animated: true }), 200);
+      }}
+      renderItem={({ item, index: i }) =>
         item.type === 'mode' ? (
-          <View key={`mode-${i}`} style={[s.modeSeparator, i === 0 && { marginTop: 0 }]}>
+          <View style={[s.modeSeparator, i === 0 && { marginTop: 0 }]}>
             <ExpoImage
               source={{ uri: MODE_ICONS[item.mode] ?? MODE_ICONS['BUS'] }}
               style={[s.modeIcon, { tintColor: c.textSub }]}
@@ -719,12 +925,10 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
             <View style={[s.modeSeparatorLine, { backgroundColor: c.border }]} />
           </View>
         ) : (
-          <View key={item.ligne.key} onLayout={e => { yPositions.current[item.ligne.code] = e.nativeEvent.layout.y; }}>
-            <LigneCard ligne={item.ligne} highlightTick={highlightState?.code === item.ligne.code ? highlightState.tick : 0} />
-          </View>
+          <LigneCard ligne={item.ligne} highlightTick={highlightState?.code === item.ligne.code ? (highlightState?.tick ?? 0) : 0} />
         )
-      )}
-    </ScrollView>
+      }
+    />
   );
 
   return listView;
@@ -734,7 +938,7 @@ export default memo(NativeSchedules);
 
 const s = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  listContent: { padding: 10, gap: 8, paddingBottom: 74 },
+  listContent: { padding: 10, gap: 8, paddingBottom: 88 },
   modeSeparator: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
   modeIcon: { width: 20, height: 20 },
   modeSeparatorLine: { flex: 1, height: 1 },
@@ -756,6 +960,10 @@ const s = StyleSheet.create({
   departItem: { alignItems: 'flex-end' },
   tempsTexte: { fontSize: 13, fontFamily: 'GrandParis-Medium' },
   heureTexte: { fontSize: 10, fontFamily: 'GrandParis' },
+  // Câble : bandeau d'état
+  bandeauEtat: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  bandeauEtatTitre: { fontSize: 13, fontFamily: 'GrandParis-Bold' },
+  bandeauEtatMessage: { fontSize: 12, fontFamily: 'GrandParis-Medium' },
   // RER/Train
   dirLabel: { fontSize: 11, fontFamily: 'GrandParis-Medium', fontWeight: '700', marginBottom: 1 },
   rerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

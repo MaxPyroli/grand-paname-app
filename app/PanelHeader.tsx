@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useColors } from './theme';
 
 // En-tête standard de tous les volets latéraux (Favoris, Scanner, et les
@@ -45,12 +45,32 @@ export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 
   );
 }
 
+// Bouton d'action d'en-tête (ex: « Modifier ») : pastille de 32 px, la même
+// hauteur que la ligne du titre, donc alignée dessus. `actif` = état « en cours ».
+export function PanelPillAction({ label, onPress, actif }: { label: string; onPress: () => void; actif?: boolean }) {
+  const c = useColors();
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.7}
+      style={[styles.pill, { backgroundColor: actif ? c.accent : c.pillCenter }]}
+    >
+      <Text style={{ color: actif ? '#fff' : c.accent, fontSize: 13, fontFamily: 'GrandParis-Medium' }}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// Dimensions communes à tous les volets (ne pas les redéfinir dans un écran).
+export const PANEL_TITLE_SIZE = 24;
+export const PANEL_TITLE_LINE = 32;
+
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  titleRow: { flexDirection: 'row', alignItems: 'center' },
-  title: { fontSize: 20, fontFamily: 'GrandParis-Bold' },
+  row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', height: PANEL_TITLE_LINE },
+  title: { fontSize: PANEL_TITLE_SIZE, lineHeight: PANEL_TITLE_LINE, fontFamily: 'GrandParis-Bold' },
   titleWithIcon: { marginLeft: 8 },
   titleWithIconRight: { marginRight: 8 },
   titleBadgeWrap: { marginLeft: 8 },
-  subtitle: { fontSize: 13, fontFamily: 'GrandParis-Light', marginTop: 4 },
+  subtitle: { fontSize: 13, fontFamily: 'GrandParis-Light', marginTop: 2 },
+  pill: { height: PANEL_TITLE_LINE, paddingHorizontal: 14, borderRadius: PANEL_TITLE_LINE / 2, alignItems: 'center', justifyContent: 'center' },
 });

@@ -58,12 +58,6 @@ function getMapHTML(isDark: boolean) {
       transition:transform 0.25s ease-out;
       pointer-events:none;display:none;
     }
-    .s-dot{
-      width:11px;height:11px;
-      background:#25303b;border:2.5px solid #fff;border-radius:50%;
-      box-shadow:0 1px 5px rgba(0,0,0,0.35);cursor:pointer;
-    }
-    .s-dot.active{background:#3498db}
     .n-wrap{
       background:#ffffff;
       border:1px solid rgba(0,0,0,0.12);
@@ -77,6 +71,15 @@ function getMapHTML(isDark: boolean) {
     .map-tail{
       position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);
       width:0;height:0;pointer-events:none;
+      border-left:7px solid transparent;
+      border-right:7px solid transparent;
+      border-top:8px solid ${isDark ? 'rgba(90,179,245,0.3)' : 'rgba(0,0,0,0.12)'};
+    }
+    /* Pointe en deux triangles : le grand (contour) et, dessus, le petit (remplissage),
+       pour que la pointe ait le même contour que le reste de la bulle. */
+    .map-tail::after{
+      content:'';position:absolute;left:-6px;top:-9px;
+      width:0;height:0;
       border-left:6px solid transparent;
       border-right:6px solid transparent;
       border-top:7px solid ${isDark ? '#010e26' : '#ffffff'};
@@ -91,10 +94,13 @@ function getMapHTML(isDark: boolean) {
       color:${isDark ? '#8fb8e6' : '#3d4852'}!important;
       opacity:0.85!important;
     }
+  #glass{position:fixed;left:0;top:0;right:0;bottom:0;pointer-events:none;z-index:2000}
+  .gl{position:absolute;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);transform:translateZ(0);will-change:backdrop-filter;-webkit-backface-visibility:hidden;backface-visibility:hidden}
   </style>
 </head>
 <body>
 <div id="map"></div>
+<div id="glass"></div>
 <script>
   var map = L.map('map',{zoomControl:false,attributionControl:false,zoomSnap:0.1,zoomDelta:0.5}).setView([48.8566,2.3522],11.5);
 
@@ -108,6 +114,15 @@ function getMapHTML(isDark: boolean) {
   var _userInteracted=false;
   map.on('zoomstart dragstart',function(){ _userInteracted=true; });
 
+  // Leaflet ignore tout nouveau geste (glisser, pincer) tant que l'animation
+  // de zoom court (~270 ms après un zoom, un double-tap ou un pincement) : on
+  // avait l'impression d'être bloqué jusqu'à la fin du chargement. Un doigt qui
+  // se pose termine maintenant l'animation tout de suite (la carte saute à sa
+  // position finale) et le geste part normalement.
+  map.getContainer().addEventListener('touchstart',function(){
+    if(map._animatingZoom){ map._onZoomTransitionEnd(); }
+  },true);
+
   window._tileLayer = L.tileLayer('${tileUrl}',{
     maxZoom:19, subdomains:'abcd'
   }).addTo(map);
@@ -119,36 +134,17 @@ function getMapHTML(isDark: boolean) {
   var userMarker = null;
   var followMode = false;
   var stationMarkers = [];
-  var activeMarkerId = null;
   var _lastMain = null;
   var _lastPoints = [];
   var _lastExits = [];
   var transportLines = [];
   var transportStops = [];
-  // id -> {marker, key} : la vue "arrêts à proximité" se reconstruisait en
-  // entier (removeLayer + recréation de tous les divIcon) à chaque zoomend,
-  // puis une seconde fois ~600ms plus tard au retour des données fraîches du
-  // backend (voir setNearbyStops/_vpTimer) — donc deux reconstructions
-  // complètes juste après chaque geste de zoom, pile quand la fluidité
-  // compte le plus. "key" résume tout ce qui influence l'icône (modes
-  // visibles + échelle) : un arrêt dont l'icône ne change pas entre deux
-  // rendus (cas courant : re-zoom léger, ou re-fetch avec les mêmes arrêts)
-  // garde son marker existant au lieu d'être supprimé/recréé.
-  var nearbyStopMarkerById = {};
 
   function userIcon(){
     return L.divIcon({
       className:'',
       html:'<div class="u-ring"></div><div class="u-heading"></div><div class="u-dot"></div>',
       iconSize:[16,16], iconAnchor:[8,8]
-    });
-  }
-
-  function stationIcon(active){
-    return L.divIcon({
-      className:'',
-      html:'<div class="s-dot'+(active?' active':'')+'"></div>',
-      iconSize:[11,11], iconAnchor:[5.5,5.5]
     });
   }
 
@@ -179,7 +175,7 @@ function getMapHTML(isDark: boolean) {
     var tgtPt=map.latLngToContainerPoint(ll);
     var dist=curPt.distanceTo(tgtPt);
     if(dist<3 && Math.abs(map.getZoom()-zoom)<0.05) return;
-    map.flyTo(ll,zoom,{animate:true,duration:0.9});
+    map.flyTo(ll,zoom,{animate:true,duration:0.65});
   }
 
   // Manipule directement le DOM de l'icône (au lieu de la recréer via
@@ -207,30 +203,7 @@ function getMapHTML(isDark: boolean) {
     }
   });
 
-  function setStations(stations){
-    stationMarkers.forEach(function(m){map.removeLayer(m);});
-    stationMarkers=[];
-    stations.forEach(function(s){
-      if(s.lat==null||s.lon==null) return;
-      var active=(s.id===activeMarkerId);
-      var m=L.marker([s.lat,s.lon],{icon:stationIcon(active),zIndexOffset:1000})
-        .addTo(map)
-        .on('click',function(e){
-          e.originalEvent.stopPropagation();
-          activeMarkerId=s.id;
-          stationMarkers.forEach(function(mk,i){
-            mk.setIcon(stationIcon(stations[i]&&stations[i].id===s.id));
-          });
-          window.ReactNativeWebView.postMessage(
-            JSON.stringify({type:'stationSelected',id:s.id,label:s.label})
-          );
-        });
-      stationMarkers.push(m);
-    });
-  }
-
   function clearActiveStation(){
-    activeMarkerId=null;
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
     if(_hiddenNearbyId!==null){ _hiddenNearbyId=null; _renderNearbyStops(); }
@@ -254,7 +227,6 @@ function getMapHTML(isDark: boolean) {
     }
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
-    activeMarkerId=id;
     var m=L.marker([lat,lon],{icon:pinIcon(),zIndexOffset:3000})
       .addTo(map)
       .on('click',function(e){
@@ -281,7 +253,10 @@ function getMapHTML(isDark: boolean) {
     var tgtPt=map.latLngToContainerPoint(shifted);
     var dist=curPt.distanceTo(tgtPt);
     if(dist<3 && Math.abs(map.getZoom()-zoom)<0.05) return;
-    map.flyTo(shifted,zoom,{animate:true,duration:0.9});
+    // setView animé (transitions CSS, ~0,25 s) plutôt que flyTo : flyTo recalcule
+    // et repositionne TOUS les marqueurs et le canevas à chaque image pendant
+    // 0,9 s — très coûteux dans une gare à nombreux arrêts.
+    map.flyTo(shifted,zoom,{animate:true,duration:0.65});
   }
 
   function stopPointIcon(lines){
@@ -322,7 +297,7 @@ function getMapHTML(isDark: boolean) {
       +'white-space:nowrap;display:none;box-shadow:0 1px 5px rgba(0,0,0,0.35)">'+(name||'')+'</div>';
     var svg='<svg width="'+EXIT_W+'" height="'+EXIT_H+'" viewBox="0 0 32 32" '
       +'style="position:absolute;left:0;top:0;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.4))">'
-      +'<path d="M20.65,22.97 A11,11 0 1,0 11.35,22.97 L16,32 Z" fill="#0a0082" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
+      +'<path class="exit-pin" d="M20.65,22.97 A11,11 0 1,0 11.35,22.97 L16,32 Z" fill="#0a0082" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>'
       +'<text x="16" y="17" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">'+number+'</text>'
       +'</svg>';
     var html='<div style="position:absolute;left:50%;top:0;transform:translateX(-50%);'
@@ -385,7 +360,6 @@ function getMapHTML(isDark: boolean) {
     }
     stationMarkers.forEach(function(m){map.removeLayer(m);});
     stationMarkers=[];
-    activeMarkerId=id;
     // Évite la superposition avec la pastille "arrêts à proximité" déjà
     // affichée au même endroit (visible dès le zoom large).
     _hiddenNearbyId=id;
@@ -464,17 +438,8 @@ function getMapHTML(isDark: boolean) {
     map.flyToBounds(bounds,{
       paddingTopLeft:[65,85],
       paddingBottomRight:[65,Math.round(h*0.52)],
-      animate:true,duration:0.9,
+      animate:true,duration:0.65,
     });
-  }
-
-  // Leaflet ne recalcule sa zone visible que sur l'événement 'resize' de la
-  // fenêtre — si le conteneur RN de cette WebView change de taille pour une
-  // autre raison (ex: un panneau permanent qui s'ouvre à côté sur grand
-  // écran), Leaflet ne le sait pas tout seul : il faut l'appeler
-  // explicitement, sinon la carte reste mal cadrée/coupée après coup.
-  function invalidateMapSize(){
-    map.invalidateSize();
   }
 
   // Recentre la vue sur la station actuellement affichée dans le panneau,
@@ -513,6 +478,37 @@ function getMapHTML(isDark: boolean) {
     });
   }
 
+  // Verre dépoli fait ICI (backdrop-filter, géré par le moteur de la WebView)
+  // plutôt que par un flou natif qui recopie la WebView dans un calque et la
+  // fait planter. Un rectangle flou par surface flottante de l'app, placé aux
+  // coordonnées envoyées par le natif (px CSS = dp). Pas de backtick ici.
+  function setGlassRects(list){
+    var host=document.getElementById('glass'); var seen={};
+    var CB='cubic-bezier(0.22,1,0.36,1)';
+    list.forEach(function(r){
+      seen[r.id]=1;
+      var el=document.getElementById('gl_'+r.id);
+      var neuf=false;
+      if(!el){ el=document.createElement('div'); el.id='gl_'+r.id; el.className='gl'; host.appendChild(el); neuf=true; }
+      var d=r.d||450;
+      el.style.transition=(r.anim&&!neuf)?('transform '+d+'ms '+CB+', bottom '+d+'ms '+CB+', opacity '+d+'ms linear'):'none';
+      el.style.opacity=(r.op==null)?'1':String(r.op);
+      el.style.left=r.x+'px';
+      el.style.top=(r.y==null)?'auto':r.y+'px';
+      el.style.bottom=(r.b==null)?'auto':r.b+'px';
+      el.style.width=r.w+'px';
+      el.style.height=(r.h==null)?'auto':r.h+'px';
+      el.style.borderRadius=(typeof r.r==='number')?r.r+'px':r.r;
+      el.style.boxShadow=r.o||'';
+      var bf=r.nf?'none':'';
+      el.style.backdropFilter=bf; el.style.webkitBackdropFilter=bf;
+      el.style.transform='translate3d('+(r.tx||0)+'px,0,0)';
+    });
+    Array.prototype.slice.call(host.children).forEach(function(el){
+      if(!seen[el.id.slice(3)]) host.removeChild(el);
+    });
+  }
+
   function setTheme(isDark){
     var url = isDark
       ? 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}'
@@ -525,16 +521,21 @@ function getMapHTML(isDark: boolean) {
     if(!s){ s=document.createElement('style'); s.id='_gp_dots'; document.head.appendChild(s); }
     s.textContent = isDark
       ? 'img.leaflet-tile{filter:sepia(0.9) hue-rotate(180deg) saturate(2.5) brightness(2.2)!important}'
-        + '.s-dot{background:#5ab3f5!important;border-color:rgba(1,14,38,0.8)!important;box-shadow:0 1px 6px rgba(90,179,245,0.4)!important}'
-        + '.s-dot.active{background:#fff!important}'
         + '.n-icon{filter:invert(1)!important}'
         + '.n-wrap{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
         + '.sp-badge{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
-        + '.map-tail{border-top-color:#010e26!important}'
+        + '.map-tail{border-top-color:rgba(90,179,245,0.3)!important}'
+        + '.map-tail::after{border-top-color:#010e26!important}'
+        + '.exit-pin{stroke:rgba(255,255,255,0.75)!important;stroke-width:1.5px!important}'
       : '.n-icon{filter:none!important}'
         + '.n-wrap{background:#ffffff!important;border-color:rgba(0,0,0,0.12)!important}'
         + '.sp-badge{background:#ffffff!important;border-color:rgba(0,0,0,0.12)!important}'
-        + '.map-tail{border-top-color:#ffffff!important}';
+        + '.map-tail{border-top-color:rgba(0,0,0,0.12)!important}'
+        + '.map-tail::after{border-top-color:#ffffff!important}'
+        + '.exit-pin{stroke:#fff!important;stroke-width:2px!important}';
+    _nbDark=isDark;
+    Object.keys(_nbImgs).forEach(_nbBuildBitmap);
+    _nbSchedule();
     var attr=document.querySelector('.leaflet-control-attribution');
     if(attr){
       attr.style.background = isDark ? 'rgba(1,14,38,0.4)' : 'rgba(255,255,255,0.55)';
@@ -550,6 +551,19 @@ function getMapHTML(isDark: boolean) {
   var MODE_ZINDEX={RER:790,TRAIN:770,METRO:750,TRAM:730,CABLE:710,FLUVIAL:690,BUS:670,AUTRE:650};
   var _allNearbyStops=[];
   var _hiddenNearbyId=null;
+  var _nbDark=${isDark ? 'true' : 'false'};
+
+  // ── Pastilles des arrêts proches : dessinées sur UN SEUL canvas ──────────────
+  // Avant : un marker HTML (div + <img> base64) par arrêt, soit 150 à 500
+  // éléments dans le DOM, repositionnés à chaque image d'un geste de zoom et
+  // recréés à chaque changement de zoom/données — c'était ce qui faisait
+  // saccader la carte dans Paris (dense en métro) et la figeait après un zoom,
+  // le temps de tout reconstruire. Ici : aucun élément par arrêt, un seul
+  // dessin par image, et la création/suppression ne coûte plus rien.
+  var _nbImgs={};      // mode -> Image SVG chargée
+  var _nbBitmaps={};   // mode -> bitmap prérendu (inversé en thème sombre)
+  var NB_BMP=96;
+  var _nbDrawn=[];     // pastilles dessinées à la dernière image (pour le tap)
 
   function _minZoomForStop(s){
     var min=99;
@@ -557,98 +571,155 @@ function getMapHTML(isDark: boolean) {
     return min;
   }
 
-  function _renderNearbyStops(){
-    var z=map.getZoom();
-    var seen={};
-    _allNearbyStops.forEach(function(s){
-      if(s.lat==null||s.lon==null)return;
-      if(_hiddenNearbyId!==null&&(s.id===_hiddenNearbyId||s.stop_area_id===_hiddenNearbyId))return;
-      if(_minZoomForStop(s)>z)return;
+  function _nbBuildBitmap(mode){
+    var img=_nbImgs[mode];
+    if(!img) return;
+    var c=document.createElement('canvas'); c.width=NB_BMP; c.height=NB_BMP;
+    var x=c.getContext('2d');
+    x.drawImage(img,0,0,NB_BMP,NB_BMP);
+    if(_nbDark){
+      try{
+        var d=x.getImageData(0,0,NB_BMP,NB_BMP), a=d.data;
+        for(var i=0;i<a.length;i+=4){ a[i]=255-a[i]; a[i+1]=255-a[i+1]; a[i+2]=255-a[i+2]; }
+        x.putImageData(d,0,0);
+      }catch(e){}
+    }
+    _nbBitmaps[mode]=c;
+  }
+  Object.keys(NEARBY_ICONS).forEach(function(mode){
+    var img=new Image();
+    img.onload=function(){ _nbImgs[mode]=img; _nbBuildBitmap(mode); _nbSchedule(); };
+    img.src=NEARBY_ICONS[mode];
+  });
+
+  // Le canvas vit dans son propre "pane" (entre les tracés et les markers),
+  // recalé sur la vue à chaque image : il couvre toujours exactement l'écran.
+  var _nbPane=map.createPane('nearbyPane');
+  _nbPane.style.zIndex=590;
+  _nbPane.style.pointerEvents='none';
+  var _nbCanvas=document.createElement('canvas');
+  _nbCanvas.className='leaflet-zoom-animated';
+  _nbPane.appendChild(_nbCanvas);
+  var _nbCtx=_nbCanvas.getContext('2d');
+  var _nbSize=null, _nbCenter=null, _nbZoom=null, _nbRaf=0;
+
+  function _nbSchedule(){
+    if(_nbRaf) return;
+    _nbRaf=requestAnimationFrame(function(){ _nbRaf=0; _drawNearby(); });
+  }
+
+  function _nbRoundRect(ctx,x,y,w,h,r){
+    r=Math.min(r,w/2,h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function _drawNearby(){
+    var size=map.getSize(), dpr=window.devicePixelRatio||1;
+    if(!_nbSize||_nbSize.x!==size.x||_nbSize.y!==size.y){
+      _nbSize=size;
+      _nbCanvas.width=Math.round(size.x*dpr);
+      _nbCanvas.height=Math.round(size.y*dpr);
+      _nbCanvas.style.width=size.x+'px';
+      _nbCanvas.style.height=size.y+'px';
+    }
+    L.DomUtil.setPosition(_nbCanvas,map.containerPointToLayerPoint([0,0]));
+    _nbCenter=map.getCenter(); _nbZoom=map.getZoom();
+    var ctx=_nbCtx, z=_nbZoom;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,size.x,size.y);
+    _nbDrawn=[];
+    if(z<11.5) return;
+
+    var scale=z<12.5?0.62:z<13?0.72:z<13.5?0.80:z<14?0.88:z<15?0.96:z<16?1.05:z<17?1.2:1.4;
+    var items=[];
+    for(var k=0;k<_allNearbyStops.length;k++){
+      var s=_allNearbyStops[k];
+      if(s.lat==null||s.lon==null)continue;
+      if(_hiddenNearbyId!==null&&(s.id===_hiddenNearbyId||s.stop_area_id===_hiddenNearbyId))continue;
+      if(_minZoomForStop(s)>z)continue;
+      var p=map.latLngToContainerPoint([s.lat,s.lon]);
+      if(p.x<-40||p.y<-40||p.x>size.x+40||p.y>size.y+40)continue;
       var isPoint=s.id&&s.id.indexOf('stop_point:')===0;
       var visibleModes=(s.modes||[]).filter(function(m){
         if((MODE_MIN_ZOOM[m]||15)>z)return false;
         if(isPoint) return m==='BUS'||m==='FLUVIAL'||m==='CABLE';
         return m!=='BUS'&&m!=='FLUVIAL';
       });
-      if(!visibleModes.length)return;
-      var scale=z<12.5?0.62:z<13?0.72:z<13.5?0.80:z<14?0.88:z<15?0.96:z<16?1.05:z<17?1.2:1.4;
-
-      // Tout ce qui suit ne dépend que de "visibleModes" et "scale" — un
-      // arrêt dont l'icône serait identique au dernier rendu (id + clé
-      // inchangés) garde son marker existant plutôt que d'être détruit et
-      // reconstruit (removeLayer + nouveau divIcon HTML), ce qui est le vrai
-      // coût de cette fonction, appelée à chaque zoomend.
-      var key=visibleModes.join(',')+'|'+scale;
-      seen[s.id]=true;
-      var existing=nearbyStopMarkerById[s.id];
-      if(existing&&existing.key===key) return;
-      if(existing) map.removeLayer(existing.marker);
-
-      var maxSz=0;
-      visibleModes.forEach(function(m){ var s2=Math.round((MODE_ICON_SIZE[m]||14)*scale); if(s2>maxSz)maxSz=s2; });
+      if(!visibleModes.length)continue;
+      var maxSz=0,bestZ=0;
+      visibleModes.forEach(function(m){
+        var s2=Math.round((MODE_ICON_SIZE[m]||14)*scale); if(s2>maxSz)maxSz=s2;
+        var zz=MODE_ZINDEX[m]||670; if(zz>bestZ)bestZ=zz;
+      });
       var sz=visibleModes.length>1?Math.max(maxSz-2,12):maxSz;
-      var gap=3;
+      var gap=3, pad=Math.round(sz*0.18), inner=sz+pad*2;
       var totalW=visibleModes.length*sz+(visibleModes.length-1)*gap;
-      var imgs=visibleModes.map(function(m){
-        var src=NEARBY_ICONS[m]||NEARBY_ICONS['BUS'];
-        return '<img class="n-icon" src="'+src+'" style="width:'+sz+'px;height:'+sz+'px"/>';
-      }).join('');
-      var pad=Math.round(sz*0.18);
-      var inner=sz+pad*2; // taille intérieure (sans border)
-      var b=2; // 1px border * 2 côtés
-      var wrapBr=Math.round((inner+b)*0.22);
-      var html,iW,iH;
-      if(visibleModes.length===1){
-        // Carré parfait : width=height=inner forcés, icône centrée
-        html='<div class="n-wrap" style="width:'+inner+'px;height:'+inner+'px;display:flex;align-items:center;justify-content:center;border-radius:'+wrapBr+'px">'+imgs+'</div>';
-        iW=inner+b; iH=inner+b;
-      } else {
-        // Multi-mode : largeur naturelle, hauteur = inner
-        var innerW=totalW+pad*2;
-        html='<div class="n-wrap" style="width:'+innerW+'px;height:'+inner+'px;display:flex;gap:'+gap+'px;align-items:center;justify-content:center;border-radius:'+wrapBr+'px">'+imgs+'</div>';
-        iW=innerW+b; iH=inner+b;
-      }
-      var icon=L.divIcon({className:'',html:html,iconSize:[iW,iH],iconAnchor:[iW/2,iH/2]});
-      var bestZ=0;
-      visibleModes.forEach(function(m){var z=MODE_ZINDEX[m]||670;if(z>bestZ)bestZ=z;});
-      var m=L.marker([s.lat,s.lon],{icon:icon,zIndexOffset:bestZ})
-        .addTo(map)
-        .on('click',function(e){
-          e.originalEvent.stopPropagation();
-          window.ReactNativeWebView.postMessage(JSON.stringify({type:'stationSelected',id:s.stop_area_id||s.id,label:s.label}));
-        });
-      nearbyStopMarkerById[s.id]={marker:m,key:key};
-    });
-    // Les arrêts qui n'ont pas été vus cette passe (plus dans la liste, plus
-    // dans le champ de vue, ou masqués car station active) perdent leur
-    // marker existant.
-    Object.keys(nearbyStopMarkerById).forEach(function(id){
-      if(!seen[id]){
-        map.removeLayer(nearbyStopMarkerById[id].marker);
-        delete nearbyStopMarkerById[id];
-      }
+      var w=(visibleModes.length===1?inner:totalW+pad*2)+2, h=inner+2;
+      items.push({s:s,x:p.x,y:p.y,w:w,h:h,sz:sz,gap:gap,totalW:totalW,modes:visibleModes,bestZ:bestZ,r:Math.round((inner+2)*0.22)});
+    }
+    items.sort(function(a,b){return a.bestZ-b.bestZ;});
+
+    ctx.lineWidth=1;
+    var fill=_nbDark?'#010e26':'#ffffff';
+    var stroke=_nbDark?'rgba(90,179,245,0.3)':'rgba(0,0,0,0.12)';
+    items.forEach(function(it){
+      // Cadre ET icônes partent du même coin arrondi au pixel : sinon l'icône
+      // (positionnée au dixième de pixel près) flottait dans son cadre pendant
+      // que la carte bouge.
+      var bx=Math.round(it.x-it.w/2), by=Math.round(it.y-it.h/2);
+      var x=bx+0.5, y=by+0.5;
+      _nbRoundRect(ctx,x,y+1.5,it.w-1,it.h-1,it.r);
+      ctx.fillStyle='rgba(0,0,0,0.16)'; ctx.fill();
+      _nbRoundRect(ctx,x,y,it.w-1,it.h-1,it.r);
+      ctx.fillStyle=fill; ctx.fill();
+      ctx.strokeStyle=stroke; ctx.stroke();
+      var ix=bx+Math.round((it.w-it.totalW)/2), iy=by+Math.round((it.h-it.sz)/2);
+      it.modes.forEach(function(m){
+        var b=_nbBitmaps[m]||_nbBitmaps['BUS'];
+        if(b) ctx.drawImage(b,ix,iy,it.sz,it.sz);
+        ix+=it.sz+it.gap;
+      });
+      _nbDrawn.push(it);
     });
   }
+
+  // Zoom animé (double-tap, fin de pincement...) : le canvas suit l'échelle de
+  // la carte, comme les tracés, puis est redessiné net à la fin.
+  map.on('zoomanim',function(e){
+    if(!_nbCenter) return;
+    var sc=map.getZoomScale(e.zoom,_nbZoom);
+    var viewHalf=map.getSize().multiplyBy(0.5);
+    var cur=map.project(_nbCenter,e.zoom);
+    var off=viewHalf.multiplyBy(-sc).add(cur).subtract(map._getNewPixelOrigin(e.center,e.zoom));
+    L.DomUtil.setTransform(_nbCanvas,off,sc);
+  });
+  map.on('move zoom viewreset resize',_nbSchedule);
+  map.on('moveend zoomend',_drawNearby);
+
+  function _renderNearbyStops(){ _nbSchedule(); }
 
   function setNearbyStops(stops){
     _allNearbyStops=stops;
-    _renderNearbyStops();
+    _nbSchedule();
   }
 
-  // Anti-rebond : sans lui, chaque zoomend (un par geste de pincement, donc
-  // plusieurs si on zoome vite plusieurs fois de suite) relançait aussitôt
-  // _renderNearbyStops, qui s'exécute sur le même thread JS que celui qui
-  // gère les gestes de la carte — les appels s'empilaient et bloquaient les
-  // gestes suivants le temps de les rattraper (le "ça se fige quelques
-  // secondes" en zoomant vite plusieurs fois). Ne garder que le dernier
-  // zoomend d'une rafale règle ça, sans revenir sur le diff par id déjà en
-  // place (qui réduit déjà le coût de chaque appel).
-  var _nearbyRenderTimer=null;
-  map.on('zoomend',function(){
-    clearTimeout(_nearbyRenderTimer);
-    _nearbyRenderTimer=setTimeout(_renderNearbyStops,120);
-  });
-  map.on('click',function(){
+  map.on('click',function(e){
+    // Tap sur une pastille d'arrêt : on cherche la plus haute sous le doigt
+    // (marge de 6px pour les petites pastilles).
+    var cp=e.containerPoint;
+    for(var i=_nbDrawn.length-1;i>=0;i--){
+      var d=_nbDrawn[i];
+      if(Math.abs(cp.x-d.x)<=d.w/2+6&&Math.abs(cp.y-d.y)<=d.h/2+6){
+        window.ReactNativeWebView.postMessage(JSON.stringify({type:'stationSelected',id:d.s.stop_area_id||d.s.id,label:d.s.label}));
+        return;
+      }
+    }
     // On ne vide plus les poteaux ici : un tap sur la carte ne fait que
     // refermer le volet des horaires côté RN (fermerPanel), la vue de
     // l'arrêt (poteaux compris) doit rester tant qu'on ne quitte pas
@@ -669,23 +740,6 @@ function getMapHTML(isDark: boolean) {
     },600);
   });
 
-  function handleMsg(e){
-    try{
-      var msg=JSON.parse(e.data);
-      if(msg.type==='setLocation') setUserLocation(msg.lat,msg.lon);
-      if(msg.type==='recenterOnUser') recenterOnUser(msg.lat,msg.lon);
-      if(msg.type==='setUserHeading') setUserHeading(msg.deg);
-      if(msg.type==='setStations') setStations(msg.stations);
-      if(msg.type==='clearActive') clearActiveStation();
-      if(msg.type==='setTheme') setTheme(msg.isDark);
-      if(msg.type==='flyTo') flyToStation(msg.lat,msg.lon);
-      if(msg.type==='showStation') showStation(msg.id,msg.lat,msg.lon);
-      if(msg.type==='setTransportData') setTransportData(msg.data);
-      if(msg.type==='setNearbyStops') setNearbyStops(msg.stops);
-    }catch(err){}
-  }
-  document.addEventListener('message',handleMsg);
-  window.addEventListener('message',handleMsg);
 </script>
 </body>
 </html>`;}
@@ -696,7 +750,6 @@ export type MapWebViewRef = {
   setUserLocation: (lat: number, lon: number) => void;
   recenterOnUser: (lat: number, lon: number) => void;
   setUserHeading: (deg: number | null) => void;
-  setStations: (stations: Array<{ id: string; label: string; lat?: number; lon?: number }>) => void;
   clearActiveStation: () => void;
   setTheme: (isDark: boolean) => void;
   flyTo: (lat: number, lon: number) => void;
@@ -711,7 +764,8 @@ export type MapWebViewRef = {
   setTransportData: (data: { stops: any[]; lines: any[] }) => void;
   setNearbyStops: (stops: NearbyStopMarker[]) => void;
   recenterActiveStation: () => void;
-  invalidateSize: () => void;
+  clearCache: () => void;
+  setGlassRects: (rects: Array<{ id: string; x: number; y?: number; w: number; h?: number; b?: number; r: number | string; o?: string; tx?: number; anim?: boolean; d?: number; nf?: boolean; op?: number }>) => void;
 };
 
 type Props = {
@@ -743,9 +797,6 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
     setUserHeading: (deg) => {
       wvRef.current?.injectJavaScript(`setUserHeading(${deg === null ? 'null' : deg});true;`);
     },
-    setStations: (stations) => {
-      wvRef.current?.injectJavaScript(`setStations(${JSON.stringify(stations)});true;`);
-    },
     clearActiveStation: () => {
       wvRef.current?.injectJavaScript(`clearActiveStation();true;`);
     },
@@ -764,14 +815,19 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
     recenterActiveStation: () => {
       wvRef.current?.injectJavaScript(`recenterActiveStation();true;`);
     },
+    // Vide le cache HTTP de la WebView (tuiles de carte mémorisées, ~180 jours
+    // de validité côté CARTO). Les tuiles se retéléchargent ensuite au besoin.
+    setGlassRects: (rects) => {
+      wvRef.current?.injectJavaScript(`setGlassRects(${JSON.stringify(rects)});true;`);
+    },
+    clearCache: () => {
+      wvRef.current?.clearCache?.(true);
+    },
     setTransportData: (data) => {
       wvRef.current?.injectJavaScript(`setTransportData(${JSON.stringify(data)});true;`);
     },
     setNearbyStops: (stops) => {
       wvRef.current?.injectJavaScript(`setNearbyStops(${JSON.stringify(stops)});true;`);
-    },
-    invalidateSize: () => {
-      wvRef.current?.injectJavaScript(`invalidateMapSize();true;`);
     },
   }));
 

@@ -1,7 +1,7 @@
 import { NAVITIA_BASE, NAVITIA_KEY } from './constants';
 import { logger } from './logger';
 
-export type SearchResult = { id: string; label: string; distance?: number };
+export type SearchResult = { id: string; label: string; distance?: number; modes?: string[] };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +31,26 @@ export function isNetworkError(e: any): boolean {
   );
 }
 
+// Modes "lourds" (hors bus) desservis par un stop_area, pour les pictos de la
+// liste de recherche : un arrêt 100% bus ne doit afficher aucun symbole.
+function modesHorsBus(sa: any): string[] {
+  const modes = new Set<string>();
+  for (const m of sa?.physical_modes || []) {
+    const mode = modeDepuisCommercialMode(m?.id || '');
+    if (mode !== 'BUS') modes.add(mode);
+  }
+  return Array.from(modes).sort((a, b) => (MODE_ORDER[a] ?? 6) - (MODE_ORDER[b] ?? 6));
+}
+
+// Modes d'un arrêt connu par son identifiant — pour les pictos des favoris (qui n'enregistrent pas les modes, voir basculerFavori).
+export async function modesArret(id: string, signal?: AbortSignal): Promise<string[]> {
+  const d = await navitia(`stop_areas/${id}/physical_modes`, signal);
+  // Tous les modes, bus compris (en dernier) : un arrêt 100 % bus affiche le picto bus.
+  const modes = new Set<string>();
+  for (const m of d?.physical_modes || []) modes.add(modeDepuisCommercialMode(m?.id || ''));
+  return Array.from(modes).sort((x, y) => (MODE_ORDER[x] ?? 6) - (MODE_ORDER[y] ?? 6));
+}
+
 // ── API publique ──────────────────────────────────────────────────────────────
 
 export async function searchGares(q: string, signal?: AbortSignal): Promise<SearchResult[]> {
@@ -40,7 +60,7 @@ export async function searchGares(q: string, signal?: AbortSignal): Promise<Sear
     if (!p.stop_area) continue;
     const sa = p.stop_area;
     const ville = villeDepuisRegions(sa.administrative_regions || []);
-    results.push({ id: sa.id, label: ville ? `${sa.name} (${ville})` : sa.name });
+    results.push({ id: sa.id, label: ville ? `${sa.name} (${ville})` : sa.name, modes: modesHorsBus(sa) });
   }
   logger.info(`search "${q}" → ${results.length} résultat(s)`);
   return results;
@@ -48,7 +68,7 @@ export async function searchGares(q: string, signal?: AbortSignal): Promise<Sear
 
 export async function nearbyGares(lat: number, lon: number, signal?: AbortSignal, distance = 1500): Promise<SearchResult[]> {
   const data = await navitia(
-    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=${distance}&count=60`,
+    `coords/${lon};${lat}/places_nearby?type[]=stop_area&distance=${distance}&count=60&depth=2`,
     signal
   );
   const results: SearchResult[] = [];
@@ -58,7 +78,7 @@ export async function nearbyGares(lat: number, lon: number, signal?: AbortSignal
     const ville = villeDepuisRegions(sa.administrative_regions || []);
     const dist = parseInt(p.distance || '0');
     const label = ville ? `${sa.name} (${ville})` : sa.name;
-    results.push({ id: sa.id, label, distance: dist });
+    results.push({ id: sa.id, label, distance: dist, modes: modesHorsBus(sa) });
   }
   logger.info(`nearby (${lat.toFixed(4)}, ${lon.toFixed(4)}) → ${results.length} arrêt(s)`);
   return results;
@@ -123,13 +143,31 @@ export async function regionWideRailStops(signal?: AbortSignal): Promise<NearbyS
 
 const HEAVY_MODES = new Set(['RER', 'TRAIN', 'METRO', 'TRAM']);
 
-export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: AbortSignal, distance = 1000): Promise<NearbyStop[]> {
+// Filtre Navitia sur les modes physiques (ids IDFM : Bus, Metro, Tramway,
+// RapidTransit, LocalTrain, Train, Funicular, SuspendedCableCar...).
+function filtreModes(ids: string[]): string {
+  return `&filter=${encodeURIComponent(ids.map(i => `physical_mode.id=physical_mode:${i}`).join(' or '))}`;
+}
+
+// Seuils de zoom d'affichage (miroir de MODE_MIN_ZOOM dans MapWebView) : on ne
+// demande à l'API que les modes qui seront réellement dessinés à ce zoom, au
+// lieu de tout récupérer (jusqu'à 500 résultats avec depth=2, très lourd) pour
+// n'en afficher qu'une partie. Sans zoom fourni : comportement d'avant (tout).
+const AREA_MODES_RAIL = ['RapidTransit', 'LocalTrain', 'Train'];
+const AREA_MODES_URBAIN = [...AREA_MODES_RAIL, 'Metro', 'Tramway'];
+const POINT_MODES_CABLE = ['Funicular', 'SuspendedCableCar'];
+
+export async function nearbyStopsWithCoords(lat: number, lon: number, signal?: AbortSignal, distance = 1000, zoom?: number): Promise<NearbyStop[]> {
   const count = Math.min(Math.ceil(distance / 15), 500);
 
   const base = `coords/${lon};${lat}/places_nearby?distance=${distance}&count=${count}&depth=2`;
+  const filtreAreas = zoom == null ? '' : filtreModes(zoom < 13 ? AREA_MODES_RAIL : AREA_MODES_URBAIN);
+  // Poteaux : bus seulement dès le zoom 15, câbles dès 13,5, rien en dessous.
+  const demanderPoints = zoom == null || zoom >= 13.5;
+  const filtrePoints = zoom != null && zoom < 15 ? filtreModes(POINT_MODES_CABLE) : '';
   const [areaData, pointData] = await Promise.all([
-    navitia(`${base}&type[]=stop_area`, signal),
-    navitia(`${base}&type[]=stop_point`, signal),
+    navitia(`${base}&type[]=stop_area${filtreAreas}`, signal),
+    demanderPoints ? navitia(`${base}&type[]=stop_point${filtrePoints}`, signal) : Promise.resolve(null),
   ]);
 
   const results: NearbyStop[] = [];
@@ -322,18 +360,66 @@ export type StationExit = { id: string; number: number; name: string; lat: numbe
 // interrogé par proximité géographique autour de la station plutôt que par
 // un identifiant (le zdaid de ce jeu de données ne correspond pas à l'id de
 // stop_area utilisé par Navitia).
-export async function stationExits(lat: number, lon: number, radius = 200): Promise<StationExit[]> {
-  const url = `https://data.iledefrance-mobilites.fr/api/records/1.0/search/?dataset=acces&geofilter.distance=${lat},${lon},${radius}&rows=50`;
-  const r = await fetch(url);
+const DONNEES_IDFM = 'https://data.iledefrance-mobilites.fr/api/records/1.0/search/';
+
+async function recordsIDFM(dataset: string, q: string, rows: number): Promise<any[]> {
+  const r = await fetch(`${DONNEES_IDFM}?dataset=${dataset}&q=${encodeURIComponent(q)}&rows=${rows}`);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const data = await r.json();
+  return data?.records || [];
+}
+
+function sortieDepuisRecord(rec: any): StationExit | null {
+  const f = rec.fields || {};
+  const number = parseInt(f.accshortname, 10);
+  const coord = f.accgeopoint;
+  if (isNaN(number) || !coord || coord.length < 2) return null;
+  return { id: f.accid || rec.recordid, number, name: f.accname || '', lat: coord[0], lon: coord[1] };
+}
+
+// Méthode exacte, par rattachement officiel (référentiel des arrêts IDFM) :
+// l'identifiant Navitia d'une gare (stop_area:IDFM:73163) est son identifiant de
+// "zone de correspondance" (zdcid) ; celle-ci regroupe des zones d'arrêt
+// (zdaid) ; le jeu "Relations accès" relie chaque sortie à sa zone d'arrêt.
+// Contrairement à la recherche par distance, ça ne ramène ni les sorties d'une
+// gare voisine, ni ne manque une sortie éloignée (ex : sortie 1 de Noisy-Champs,
+// à 276 m du point de la station).
+async function sortiesParRattachement(stopAreaId: string): Promise<StationExit[]> {
+  const zdcid = stopAreaId.match(/IDFM:(\d+)/)?.[1];
+  if (!zdcid) return [];
+  const zones = (await recordsIDFM('zones-d-arrets', `zdcid:${zdcid}`, 100)).map(r => r.fields?.zdaid).filter(Boolean);
+  if (zones.length === 0) return [];
+  const relations = await recordsIDFM('relations-acces', zones.map(z => `zdaid:${z}`).join(' OR '), 200);
+  const accids = [...new Set<string>(relations.map(r => r.fields?.accid).filter(Boolean))];
+  if (accids.length === 0) return [];
+  const acces = await recordsIDFM('acces', accids.map(a => `accid:${a}`).join(' OR '), 200);
+  return acces.map(sortieDepuisRecord).filter((e): e is StationExit => e !== null);
+}
+
+// `stopAreaId` (id Navitia de la gare) active la méthode exacte ; sans lui, ou
+// si les données manquent, on retombe sur la recherche par proximité autour de
+// (lat, lon), qui reste approximative.
+export async function stationExits(lat: number, lon: number, radius = 200, stopAreaId?: string): Promise<StationExit[]> {
+  if (stopAreaId) {
+    try {
+      const exactes = await sortiesParRattachement(stopAreaId);
+      if (exactes.length > 0) return exactes.sort((a, b) => a.number - b.number);
+    } catch {
+      // On retombe sur la proximité ci-dessous.
+    }
+  }
+  const records = await recordsIDFMProximite(lat, lon, radius);
   const exits: StationExit[] = [];
-  for (const rec of data?.records || []) {
-    const f = rec.fields || {};
-    const number = parseInt(f.accshortname, 10);
-    const coord = f.accgeopoint;
-    if (isNaN(number) || !coord || coord.length < 2) continue;
-    exits.push({ id: f.accid || rec.recordid, number, name: f.accname || '', lat: coord[0], lon: coord[1] });
+  for (const rec of records) {
+    const e = sortieDepuisRecord(rec);
+    if (e) exits.push(e);
   }
   return exits.sort((a, b) => a.number - b.number);
+}
+
+async function recordsIDFMProximite(lat: number, lon: number, radius: number): Promise<any[]> {
+  const r = await fetch(`${DONNEES_IDFM}?dataset=acces&geofilter.distance=${lat},${lon},${radius}&rows=50`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  return data?.records || [];
 }

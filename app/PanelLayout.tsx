@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, TouchableWithoutFeedback } from 'react-native';
 import { PanelHeader } from './PanelHeader';
+import { FONDU_HAUT } from './Fade';
 
 // Gabarit commun à tous les volets latéraux : quatre zones toujours dans le
 // même ordre, avec le même espacement — en-tête, actions (optionnel, juste
@@ -21,8 +22,19 @@ import { PanelHeader } from './PanelHeader';
 // transparence parfaite (même souci que documenté sur `FadeBottom` en mode
 // `strong`), et sans cette petite marge, le premier élément reste
 // légèrement mangé par le fondu au repos.
-export const PANEL_FADE_TOP_HEIGHT = 16;
+export const PANEL_FADE_TOP_HEIGHT = FONDU_HAUT;
 export const PANEL_CONTENT_TOP_PAD = PANEL_FADE_TOP_HEIGHT + 6;
+
+// Carte standard d'un volet (favori, et plus tard les cartes du Trafic) :
+// mêmes coins, mêmes marges, même ombre. `hauteur` = hauteur fixe éventuelle.
+export const PANEL_CARD_RADIUS = 20;
+export const panelCardStyle = {
+  flexDirection: 'row' as const, alignItems: 'center' as const,
+  paddingHorizontal: 12, borderRadius: PANEL_CARD_RADIUS, borderWidth: 1,
+  shadowColor: '#1a2a4a', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 6, elevation: 2,
+};
+// Puce ronde à gauche d'une carte (icône dans un carré arrondi).
+export const panelChipStyle = { width: 42, height: 42, borderRadius: 15, alignItems: 'center' as const, justifyContent: 'center' as const, marginRight: 12 };
 
 type PanelLayoutProps = {
   icon?: React.ReactNode;
