@@ -134,7 +134,7 @@ Sans flou (interrupteur de debug coupé, ou flou suspendu) : +20 points, plafonn
 
 - **Façon de faire** : ressort commun (raideur 120, amortissement 15, masse 0,5) pour tout ce qui arrive/part (volet des horaires, barre de recherche au clavier, page des Paramètres). Courbe `cubic-bezier(0.22, 1, 0.36, 1)` 450 ms pour les tiroirs. Fondu pour ce qui porte un flou de la carte.
 
-- Pages plein écran des onglets extrêmes (Bientôt à gauche, Scanner à droite) : glissent depuis leur côté, comme les tiroirs, avec la même courbe (450 ms à l'ouverture, 350 ms à la fermeture), et recouvrent les tiroirs.
+- Pages plein écran des onglets extrêmes (Bientôt à gauche, Scanner à droite) : glissent depuis leur côté, comme les tiroirs, avec la même courbe (450 ms à l'ouverture ET à la fermeture : en passant de l'une à l'autre elles se suivent comme un carrousel), et recouvrent les tiroirs.
 - Éléments qui portent un verre dans la carte (tiroirs, barre de recherche) : animation `timing` avec `Easing.bezier(0.22, 1, 0.36, 1)` (450 ms tiroirs) ; barre de recherche : ressort du volet des horaires (raideur 120, amortissement 15, masse 0,5), identique à la transition CSS de la carte, pour rester synchrones. Ailleurs : préférer les ressorts amortis (sans dépassement quand un vide pourrait apparaître) aux timings : tiroirs (raideur 220, amortissement 26), pastille de la barre de nav (300 / 22). Durées en timing : 180 à 220 ms pour les petits éléments (barre de recherche) ; l'animation de nettoyage du cache dure 1,4 s (exception ludique).
 - Toujours `useNativeDriver: true` quand c'est possible.
 - La barre de recherche se range vers le bas quand le volet des horaires **ou** un tiroir est ouvert ; le clavier la remonte.

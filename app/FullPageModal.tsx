@@ -41,7 +41,10 @@ export function FullPageModal({ visible, cote, children }: {
       // Même courbe que les tiroirs (voir le guide graphique).
       Animated.timing(slideAnim, { toValue: 0, duration: 450, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true }).start();
     } else if (mounted) {
-      Animated.timing(slideAnim, { toValue: hors, duration: 350, easing: Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: true })
+      // Même durée et même courbe qu'à l'ouverture : quand on passe directement de « Bientôt » à
+      // « Scanner » (ou l'inverse), la page qui part et celle qui arrive se suivent bord à bord, comme
+      // un carrousel, sans trou ni chevauchement.
+      Animated.timing(slideAnim, { toValue: hors, duration: 450, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true })
         .start(({ finished }) => { if (finished) setMounted(false); });
     }
   }, [visible]);
