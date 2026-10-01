@@ -3328,10 +3328,10 @@ function AppInner() {
       {/* Pages plein écran (Scanner Navigo en bêta, « Bientôt ») : empilées sous la barre de navigation. */}
       {scannerBeta && (
         <>
-          <FullPageModal visible={activeTab === 'scanner'}>
+          <FullPageModal visible={activeTab === 'scanner'} cote="droite">
             <ScannerScreen active={activeTab === 'scanner'} />
           </FullPageModal>
-          <FullPageModal visible={activeTab === 'gauche'}>
+          <FullPageModal visible={activeTab === 'gauche'} cote="gauche">
             <PanelLayout title="Bientôt" subtitle="Cet onglet n'a pas encore de contenu.">
               <PanelEmptyState
                 icon={<Icon name="info-trafic" size={44} color={c.textSub} />}

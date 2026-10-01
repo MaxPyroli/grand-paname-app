@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
+import { View, StyleSheet, Animated, Easing, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from './theme';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
@@ -17,14 +17,18 @@ import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
 // La contrainte qui empêchait <Modal> pour les tiroirs (flou de la carte
 // visible dessous, cassé dans une fenêtre séparée) ne s'applique pas non
 // plus ici : ces pages n'ont pas besoin de montrer la carte en transparence.
-export function FullPageModal({ visible, children }: {
+export function FullPageModal({ visible, cote, children }: {
   visible: boolean;
+  // Côté d'où la page arrive : « gauche » (onglet de gauche) ou « droite » (onglet de droite), comme
+  // les tiroirs Favoris et Trafic qu'elle vient recouvrir.
+  cote: 'gauche' | 'droite';
   children: React.ReactNode;
 }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
-  const { height: screenHeight } = Dimensions.get('window');
-  const slideAnim = useRef(new Animated.Value(screenHeight)).current;
+  const { width: screenWidth } = useWindowDimensions();
+  const hors = cote === 'gauche' ? -screenWidth : screenWidth;
+  const slideAnim = useRef(new Animated.Value(hors)).current;
   // Reste monté pendant l'animation de sortie (sinon la page disparaît d'un
   // coup au lieu de glisser vers le bas) ; démonté une fois hors écran, pour
   // ne pas laisser une vue plein écran inutile intercepter les taps.
@@ -33,11 +37,12 @@ export function FullPageModal({ visible, children }: {
   useEffect(() => {
     if (visible) {
       setMounted(true);
-      slideAnim.setValue(screenHeight);
-      Animated.timing(slideAnim, { toValue: 0, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+      slideAnim.setValue(hors);
+      // Même courbe que les tiroirs (voir le guide graphique).
+      Animated.timing(slideAnim, { toValue: 0, duration: 450, easing: Easing.bezier(0.22, 1, 0.36, 1), useNativeDriver: true }).start();
     } else if (mounted) {
-      Animated.timing(slideAnim, { toValue: screenHeight, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: true })
-        .start(() => setMounted(false));
+      Animated.timing(slideAnim, { toValue: hors, duration: 350, easing: Easing.bezier(0.4, 0, 0.2, 1), useNativeDriver: true })
+        .start(({ finished }) => { if (finished) setMounted(false); });
     }
   }, [visible]);
 
@@ -46,7 +51,7 @@ export function FullPageModal({ visible, children }: {
   return (
     <Animated.View style={[
       styles.root,
-      { backgroundColor: c.bg, paddingTop: insets.top + 8, transform: [{ translateY: slideAnim }] },
+      { backgroundColor: c.bg, paddingTop: insets.top + 8, transform: [{ translateX: slideAnim }] },
     ]}>
       <View style={styles.content}>{children}</View>
     </Animated.View>
