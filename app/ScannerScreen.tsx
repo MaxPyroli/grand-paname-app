@@ -5,8 +5,8 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColors } from './theme';
 import { Icon, IconScannerNavigoCouleur } from './Icon';
-import { PanelLayout, PANEL_FADE_TOP_HEIGHT, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
-import { FadeTop, FadeBottom } from './Fade';
+import { PanelLayout, panelCardStyle, panelChipStyle } from './PanelLayout';
+import { FadeTop, FadeBottom, FONDU_HAUT } from './Fade';
 
 import Station from './reader/Station';
 import Tarif from './reader/Tarif';
@@ -740,7 +740,7 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
   }) {
     return (
       <View style={styles.scanningWrap}>
-        <View style={styles.scanningIconWrap}>
+        <View style={[styles.scanningIconWrap, { backgroundColor: c.iconGareBg }]}>
           {pulse && (
             <Animated.View
               style={[
@@ -760,11 +760,10 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
   // Titre de section "propre" (icône + libellé + compteur), en remplacement
   // des anciens en-têtes façon log ("[CONTRATS]") qui avaient plus leur
   // place dans un terminal que dans l'app.
-  function SectionTitle({ icon, label, count }: { icon: string; label: string; count?: number }) {
+  function SectionTitle({ label, count }: { icon?: string; label: string; count?: number }) {
     return (
       <View style={styles.sectionTitleRow}>
-        <Text style={styles.sectionTitleIcon}>{icon}</Text>
-        <Text style={[styles.sectionTitleText, { color: c.text }]}>{label}</Text>
+        <Text style={[styles.sectionTitleText, { color: c.textSub }]}>{label.toUpperCase()}</Text>
         {count !== undefined && <Text style={[styles.sectionTitleCount, { color: c.textSub }]}>{count}</Text>}
       </View>
     );
@@ -774,7 +773,9 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
     return (
       <View style={[styles.card, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
         <View style={styles.identityRow}>
-          <Text style={styles.identityIcon}>{identity.icon}</Text>
+          <View style={[panelChipStyle, { backgroundColor: c.iconGareBg, marginRight: 0 }]}>
+            <Text style={styles.identityIcon}>{identity.icon}</Text>
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { color: c.text }]}>N° {identity.number}</Text>
             {identity.extra ? <Text style={[styles.cardDetails, { color: c.textSub }]}>{identity.extra}</Text> : null}
@@ -819,7 +820,7 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
         isIncident && { borderLeftColor: color, borderLeftWidth: 3 },
       ]}>
         <View style={[styles.eventDot, { backgroundColor: color + '22' }]}>
-          <Text style={{ fontSize: 13 }}>{isIncident ? '⚠️' : '✅'}</Text>
+          <Icon name={isIncident ? 'info-trafic' : 'valider'} size={14} color={color} />
         </View>
         <View style={{ flex: 1 }}>
           <View style={styles.eventTopRow}>
@@ -844,22 +845,22 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
   function renderScanResult(result: ScanResult) {
     return (
       <View style={{ flex: 1 }}>
-        <ScrollView style={styles.dataBox} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: 28 }}>
+        <ScrollView style={styles.dataBox} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: FONDU_HAUT, paddingBottom: 28, paddingHorizontal: 8 }}>
           {result.identity && (
             <>
-              <SectionTitle icon={result.identity.icon} label={result.identity.title} />
+              <SectionTitle label={result.identity.title} />
               <IdentityCardView identity={result.identity} />
             </>
           )}
 
-          <SectionTitle icon="🎫" label="Contrats" count={result.contracts.length} />
+          <SectionTitle label="Contrats" count={result.contracts.length} />
           {result.contracts.length === 0 ? (
             <Text style={[styles.emptySectionText, { color: c.textSub }]}>Aucun contrat décodable.</Text>
           ) : (
             result.contracts.map(contract => <ContractCardView key={contract.id} contract={contract} />)
           )}
 
-          <SectionTitle icon="🕓" label="Historique" count={result.events.length} />
+          <SectionTitle label="Historique" count={result.events.length} />
           {result.events.length === 0 ? (
             <Text style={[styles.emptySectionText, { color: c.textSub }]}>Aucune validation ni incident enregistré.</Text>
           ) : (
@@ -884,8 +885,8 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
             </View>
           )}
         </ScrollView>
-        <FadeTop color={c.bg} height={PANEL_FADE_TOP_HEIGHT} />
-        <FadeBottom color={c.bg} height={24} />
+        <FadeTop color={c.bg} />
+        <FadeBottom color={c.bg} />
       </View>
     );
   }
@@ -898,7 +899,7 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
 
   return (
     <PanelLayout
-      icon={<IconScannerNavigoCouleur size={20} dotColor={c.text} />}
+      icon={<IconScannerNavigoCouleur size={26} dotColor={c.text} />}
       title="Scanner Navigo"
       titleBadge={
         <View style={[styles.betaBadge, { backgroundColor: c.accent }]}>
@@ -972,7 +973,7 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
           })
         : (
         <View style={{ flex: 1 }}>
-          <ScrollView style={styles.dataBox} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: 28 }}>
+          <ScrollView style={styles.dataBox} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: FONDU_HAUT, paddingBottom: 28, paddingHorizontal: 8 }}>
             {dataList.map((item) => (
               <View key={item.id}>
                 <Text style={[
@@ -1003,8 +1004,8 @@ export default function ScannerScreen({ active }: { active?: boolean }) {
               </View>
               )}
           </ScrollView>
-          <FadeTop color={c.bg} height={PANEL_FADE_TOP_HEIGHT} />
-          <FadeBottom color={c.bg} height={24} />
+          <FadeTop color={c.bg} />
+          <FadeBottom color={c.bg} />
         </View>
       )}
     </PanelLayout>
@@ -1027,7 +1028,8 @@ const styles = StyleSheet.create({
   buttonContentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dumpButton: { backgroundColor: '#2C1010', paddingVertical: 12, paddingHorizontal: 40, borderRadius: 30, marginBottom: 20, width: '100%', alignItems: 'center', borderWidth: 1, borderColor: '#E5493E' },
   dumpButtonText: { color: '#FF9999', fontFamily: 'GrandParis-Bold', fontSize: 14 },
-  dataBox: { flex: 1, width: '100%' },
+  // Marge négative + padding identique dans la liste : les ombres des cartes, collées aux bords, ne sont pas coupées.
+  dataBox: { flex: 1, alignSelf: 'stretch', marginHorizontal: -8 },
   headerText: { fontFamily: 'GrandParis-Bold', fontSize: 16, marginTop: 15, marginBottom: 5 },
   dataText: { fontSize: 14, marginBottom: 4, paddingLeft: 10, fontFamily: 'GrandParis' },
   subText: { fontSize: 13, marginBottom: 8, paddingLeft: 25, fontFamily: 'GrandParis-Light' },
@@ -1043,25 +1045,26 @@ const styles = StyleSheet.create({
   // l'icône, sinon elle "saute" à chaque changement d'état (attente / échec
   // / vide) — voir renderScanVisual.
   scanningWrap: { flex: 1, alignItems: 'center', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 40 },
-  scanningIconWrap: { width: 88, height: 88, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
+  scanningIconWrap: { width: 88, height: 88, borderRadius: 30, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
   pulseRing: { position: 'absolute', width: 44, height: 44, borderRadius: 22, borderWidth: 2 },
   scanningText: { fontSize: 17, fontFamily: 'GrandParis-Bold', marginBottom: 8, textAlign: 'center' },
   scanningSubText: { fontSize: 14, fontFamily: 'GrandParis-Light', textAlign: 'center', lineHeight: 22 },
 
   // --- Résultats de scan (cartes) ---
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, marginBottom: 8, gap: 7 },
-  sectionTitleIcon: { fontSize: 15 },
-  sectionTitleText: { fontSize: 15, fontFamily: 'GrandParis-Bold' },
-  sectionTitleCount: { fontSize: 13, fontFamily: 'GrandParis-Light' },
+  // Titres de section au style des Paramètres : petites capitales espacées.
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14, marginBottom: 8, marginLeft: 6, gap: 8 },
+  sectionTitleText: { fontSize: 12, fontFamily: 'GrandParis-Bold', letterSpacing: 0.8 },
+  sectionTitleCount: { fontSize: 12, fontFamily: 'GrandParis-Light' },
   emptySectionText: { fontSize: 13, fontFamily: 'GrandParis-Light', marginBottom: 4 },
-  card: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
+  // Cartes au gabarit des volets (rayon 20, ombre douce) — voir PanelLayout.
+  card: { ...panelCardStyle, flexDirection: 'column', alignItems: 'stretch', padding: 14, marginBottom: 10 },
   cardTitle: { fontSize: 15, fontFamily: 'GrandParis-Bold' },
   cardDetails: { fontSize: 12.5, fontFamily: 'GrandParis-Light', marginTop: 5, lineHeight: 18 },
   identityRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  identityIcon: { fontSize: 22 },
-  statusPill: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 3 },
+  identityIcon: { fontSize: 22, lineHeight: 28 },
+  statusPill: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4 },
   statusPillText: { fontSize: 11, fontFamily: 'GrandParis-Bold' },
-  eventRow: { flexDirection: 'row', alignItems: 'flex-start', borderWidth: 1, borderRadius: 12, padding: 10, marginBottom: 6, gap: 10 },
+  eventRow: { ...panelCardStyle, alignItems: 'flex-start', borderRadius: 16, padding: 11, marginBottom: 8, gap: 10 },
   eventDot: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   eventTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   eventStation: { fontSize: 13.5, fontFamily: 'GrandParis-Bold' },
