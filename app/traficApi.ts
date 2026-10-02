@@ -50,7 +50,8 @@ function comparerCodes(a: string, b: string): number {
 
 async function chargerLignesLourdes(signal?: AbortSignal): Promise<LigneBrute[]> {
   if (cacheLignes && Date.now() - cacheLignes.at < TTL_LIGNES_MS) return cacheLignes.lignes;
-  const modes = ['Metro', 'RapidTransit', 'LocalTrain', 'Tramway', 'Funicular'];
+  // Le câble C1 est un « téléphérique » (SuspendedCableCar) ; le funiculaire de Montmartre est à part.
+  const modes = ['Metro', 'RapidTransit', 'LocalTrain', 'Tramway', 'SuspendedCableCar', 'Funicular'];
   const filtre = modes.map(m => `physical_mode.id=physical_mode:${m}`).join(' or ');
   const url = `${NAVITIA_BASE}/lines?filter=${encodeURIComponent(filtre)}&count=200&depth=0&disable_geojson=true&disable_disruption=true`;
   const r = await fetch(url, { headers: { apiKey: NAVITIA_KEY }, signal });
