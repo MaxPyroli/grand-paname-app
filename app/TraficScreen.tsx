@@ -9,7 +9,7 @@ import TraficDetail from './TraficDetail';
 import { ListeFondue } from './ListeFondue';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
-import { chargerTrafic, oublierPerturbations, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
+import { chargerTrafic, oublierPerturbations, prechargerDetailLigne, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
 import { symboleLigne } from './symbolesLignes';
 import { FONDU_BAS } from './Fade';
 
@@ -43,7 +43,7 @@ function Pastille({ ligne, fond, sombre, onPress, onAppui }: { ligne: LigneTrafi
   );
   // Le 14 reste devant les lignes de l'easter egg qui sortent de derrière lui.
   const devant = ligne.mode === 'METRO' && ligne.code === '14' ? { zIndex: 2 } : null;
-  return onPress ? <TouchableOpacity activeOpacity={0.6} onPress={onPress} style={devant}>{contenu}</TouchableOpacity> : <View style={devant}>{contenu}</View>;
+  return onPress ? <TouchableOpacity activeOpacity={0.6} onPress={onPress} onPressIn={() => prechargerDetailLigne(ligne.id)} style={devant}>{contenu}</TouchableOpacity> : <View style={devant}>{contenu}</View>;
 }
 
 // « Métro 7 bis », « RER A », « Transilien J », « Tram T3a », « Câble C1 ».
@@ -117,7 +117,7 @@ function Squelette({ couleur }: { couleur: string }) {
   );
 }
 
-export default function TraficScreen({ actif, verre, retour }: { actif: boolean; verre?: boolean; retour?: number }) {
+export default function TraficScreen({ actif, verre, retour, onDetail }: { actif: boolean; verre?: boolean; retour?: number; onDetail?: (ouvert: boolean) => void }) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const [lignes, setLignes] = useState<LigneTrafic[] | null>(null);
@@ -164,6 +164,7 @@ export default function TraficScreen({ actif, verre, retour }: { actif: boolean;
     return () => clearTimeout(minuteur);
   }, [actif, fermerLigne]);
   // Toucher l'onglet Trafic alors qu'on est dans le détail d'une ligne ramène au menu principal.
+  useEffect(() => { onDetail?.(ligneOuverte !== null); }, [ligneOuverte, onDetail]);
   const retourVu = useRef(retour);
   useEffect(() => {
     if (retourVu.current === retour) return;
@@ -212,6 +213,18 @@ export default function TraficScreen({ actif, verre, retour }: { actif: boolean;
     const repetition = setInterval(() => charger(true, true), 60_000);
     return () => clearInterval(repetition);
   }, [actif, charger]);
+
+  // Les lignes perturbées sont les plus souvent ouvertes : leur détail est chargé à l'avance, une à une, quand le
+  // volet est ouvert (une seule fois par ouverture ; les autres lignes sont préchargées au toucher).
+  const prechauffe = useRef(false);
+  useEffect(() => {
+    if (!actif) { prechauffe.current = false; return; }
+    if (!lignes || prechauffe.current) return;
+    prechauffe.current = true;
+    const aCharger = lignes.filter(l => l.etat !== 'normal');
+    const minuteurs = aCharger.map((l, i) => setTimeout(() => prechargerDetailLigne(l.id), 800 + i * 350));
+    return () => minuteurs.forEach(clearTimeout);
+  }, [actif, lignes]);
 
   const nbPerturbees = (lignes ?? []).filter(l => l.etat !== 'normal').length;
   const sousTitre = lignes === null

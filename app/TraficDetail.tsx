@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, ScrollView, Animated, Easing, TouchableOpacity, StyleSheet } from 'react-native';
 import { useColors } from './theme';
 import { Icon } from './Icon';
 import { panelCardStyle, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
@@ -28,11 +28,40 @@ function Carte({ p }: { p: PerturbationLigne }) {
       <Text style={[styles.titre, { color: c.text }]}>{p.titre}</Text>
       {p.texte !== '' && (
         <Text style={[styles.texte, { color: c.textSub }]}>
-          {decouperSurligne(p.texte).map((seg, i) => seg.fort
-            ? <Text key={i} style={{ fontFamily: 'GrandParis-Bold', color: c.text, backgroundColor: hexToRgba(COULEUR_NIVEAU[p.niveau], 0.2) }}>{seg.texte}</Text>
-            : seg.texte)}
+          {/* Noms de stations, dates et horaires : entourés d'un contour arrondi (vues dans le texte). */}
+          {decouperSurligne(p.texte).map((seg, i) => seg.type === 'texte' ? seg.texte : (
+            <View key={i} style={[styles.puce, { borderColor: seg.type === 'station' ? c.accent : hexToRgba(c.text, 0.4) }]}>
+              <Text style={[styles.puceTexte, { color: c.text }]}>{seg.texte}</Text>
+            </View>
+          ))}
         </Text>
       )}
+    </View>
+  );
+}
+
+// Squelette pendant le chargement : trois cartes grises qui pulsent, à la place des perturbations.
+function SqueletteDetail({ couleur }: { couleur: string }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const boucle = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    boucle.start();
+    return () => boucle.stop();
+  }, [pulse]);
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.2] });
+  const bloc = (largeur: string | number, hauteur: number, marge = 0) => (
+    <Animated.View style={{ width: largeur as any, height: hauteur, borderRadius: 6, backgroundColor: couleur, opacity, marginTop: marge }} />
+  );
+  return (
+    <View style={{ paddingTop: PANEL_CONTENT_TOP_PAD }} pointerEvents="none">
+      {[0, 1, 2].map(i => (
+        <View key={i} style={[styles.carte, { borderColor: 'transparent' }]}>
+          {bloc(90, 10)}{bloc('85%', 14, 12)}{bloc('100%', 11, 12)}{bloc('70%', 11, 7)}
+        </View>
+      ))}
     </View>
   );
 }
@@ -62,7 +91,7 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
       </View>
     );
   }
-  if (detail === null) return <View style={styles.centre}><ActivityIndicator color={c.accent} /></View>;
+  if (detail === null) return <SqueletteDetail couleur={c.textSub} />;
   if (detail.enCours.length === 0 && detail.aVenir.length === 0) {
     return (
       <PanelEmptyState
@@ -96,5 +125,7 @@ const styles = StyleSheet.create({
   causeTexte: { fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.6 },
   periode: { fontSize: 12, fontFamily: 'GrandParis-Medium', flexShrink: 1, marginLeft: 10 },
   titre: { fontSize: 15, fontFamily: 'GrandParis-Bold', lineHeight: 20 },
-  texte: { fontSize: 13, fontFamily: 'GrandParis-Light', lineHeight: 19, marginTop: 6 },
+  texte: { fontSize: 13, fontFamily: 'GrandParis-Light', lineHeight: 24, marginTop: 6 },
+  puce: { height: 22, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 6, marginHorizontal: 1, justifyContent: 'center' },
+  puceTexte: { fontSize: 12.5, fontFamily: 'GrandParis-Bold', includeFontPadding: false },
 });

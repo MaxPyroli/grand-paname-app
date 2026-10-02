@@ -233,12 +233,27 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
 
 const cacheDetails = new Map<string, { at: number; detail: DetailLigne }>();
 
-export async function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promise<DetailLigne> {
+// Une seule requête en vol par ligne : le préchargement (doigt posé, lignes perturbées) et l'ouverture du détail la partagent.
+const detailsEnCours = new Map<string, Promise<DetailLigne>>();
+
+export function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promise<DetailLigne> {
   const connu = cacheDetails.get(idLigne);
-  if (connu && Date.now() - connu.at < TTL_PERTURBATIONS_MS) return connu.detail;
-  const r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(idLigne)}/line_reports?count=200&depth=0`, { headers: { apiKey: NAVITIA_KEY }, signal });
-  if (!r.ok && r.status !== 404) throw new Error(`HTTP ${r.status}`);
-  const detail = analyserDetailLigne(r.ok ? await r.json() : {});
-  cacheDetails.set(idLigne, { at: Date.now(), detail });
-  return detail;
+  if (connu && Date.now() - connu.at < TTL_PERTURBATIONS_MS) return Promise.resolve(connu.detail);
+  let enCours = detailsEnCours.get(idLigne);
+  if (!enCours) {
+    enCours = (async () => {
+      const r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(idLigne)}/line_reports?count=200&depth=0`, { headers: { apiKey: NAVITIA_KEY }, signal });
+      if (!r.ok && r.status !== 404) throw new Error(`HTTP ${r.status}`);
+      const detail = analyserDetailLigne(r.ok ? await r.json() : {});
+      cacheDetails.set(idLigne, { at: Date.now(), detail });
+      return detail;
+    })().finally(() => { detailsEnCours.delete(idLigne); });
+    detailsEnCours.set(idLigne, enCours);
+  }
+  return enCours;
+}
+
+// Charge le détail d'une ligne à l'avance, sans rien afficher ni signaler d'erreur.
+export function prechargerDetailLigne(idLigne: string): void {
+  chargerDetailLigne(idLigne).catch(() => {});
 }

@@ -2423,6 +2423,8 @@ function AppInner() {
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic' | 'gauche' | 'scanner'>('accueil');
   // Incrémenté quand on touche l'onglet Trafic alors qu'il est déjà ouvert : ramène le volet à son menu principal.
   const [retourTrafic, setRetourTrafic] = useState(0);
+  const traficDetailRef = useRef(false);
+  const onDetailTrafic = useCallback((ouvert: boolean) => { traficDetailRef.current = ouvert; }, []);
   const [scannerBeta, setScannerBeta] = useState(false);
   useEffect(() => { AsyncStorage.getItem('@gp_scanner_beta').then(v => { if (v === '1') setScannerBeta(true); }).catch(() => {}); }, []);
   useEffect(() => {
@@ -3258,6 +3260,8 @@ function AppInner() {
       if (showWhatsNewRef.current) { setShowWhatsNew(false); return true; }
       if (showUpdateModalRef.current) { handleUpdateDismiss(); return true; }
       if (panelIsOpenRef.current) { fermerPanelRef.current(); return true; }
+      // Dans le détail d'une ligne du Trafic, retour ferme d'abord le détail.
+      if (activeTabRef.current === 'trafic' && traficDetailRef.current) { setRetourTrafic(n => n + 1); return true; }
       if (activeTabRef.current !== 'accueil') { setActiveTab('accueil'); return true; }
       return false;
     });
@@ -3346,7 +3350,7 @@ function AppInner() {
           ]}>
             {!isWideLayout && flouTrafic && <CoucheVerre zone="tiroirs" />}
             <View style={[styles.cardContentWrapper, !isWideLayout && { paddingTop: 20, paddingBottom: 16 }]}>
-              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} retour={retourTrafic} />
+              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} retour={retourTrafic} onDetail={onDetailTrafic} />
             </View>
           </Animated.View>
         </>

@@ -1,8 +1,12 @@
 // Mise en avant des informations importantes d'une perturbation : jours, dates, horaires et tronçon fermé
-// (« entre Père-Lachaise et Barbès - Rochechouart »). Le texte est découpé en morceaux, ceux à surligner
-// sont marqués `fort`. Expressions écrites à la main (pas d'option « insensible à la casse » : elle ferait
-// reconnaître n'importe quel mot comme un nom de station).
-export type Segment = { texte: string; fort: boolean };
+// (« entre Père-Lachaise et Barbès - Rochechouart »). Le texte est découpé en morceaux typés. Expressions
+// écrites à la main (pas d'option « insensible à la casse » : elle ferait reconnaître n'importe quel mot comme un
+// nom de station).
+//   - `station` : un nom de station ou de gare ;
+//   - `quand`   : une date, un horaire ou un rythme (« en semaine ») ;
+//   - `texte`   : le reste. Chaque nom, date ou horaire est un morceau À PART (« du 12 » + « au 23 octobre » → deux
+//     morceaux marqués), pour pouvoir les entourer un par un.
+export type Segment = { texte: string; type: 'texte' | 'station' | 'quand' };
 
 const JOUR = '(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)';
 const MOIS = '(?:janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)';
@@ -31,6 +35,27 @@ const ARRET = `(?:desservi|desservie|fermée?)\\s+(?:à|en gare de|à la station
 
 const MOTIF = new RegExp(`(${TRONCON})|(${ARRET})|(${PERIODE})|(${PERIODE_COURTE})|(${HORAIRE})|(${RYTHME})`, 'g');
 
+// Découpe un morceau déjà repéré en sous-morceaux marqués d'un type (les dates d'une période, les heures d'un horaire…).
+function marquer(texte: string, motif: RegExp, type: Segment['type']): Segment[] {
+  const sortie: Segment[] = [];
+  let dernier = 0;
+  motif.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = motif.exec(texte)) !== null) {
+    if (m[0] === '') { motif.lastIndex++; continue; }
+    if (m.index > dernier) sortie.push({ texte: texte.slice(dernier, m.index), type: 'texte' });
+    sortie.push({ texte: m[0], type });
+    dernier = m.index + m[0].length;
+  }
+  if (dernier < texte.length) sortie.push({ texte: texte.slice(dernier), type: 'texte' });
+  return sortie;
+}
+
+const UNE_DATE = new RegExp(`(?:${JOUR}\\s+)?${NUM}(?:\\s+${MOIS})?(?:\\s+\\d{4})?`, 'g');
+const UNE_HEURE = new RegExp(HEURE, 'g');
+const DEUX_STATIONS = new RegExp(`^(entre\\s+)(${STATION})(\\s*(?:<>|<->|↔|et|à)\\s*)(${STATION})$`);
+const UNE_STATION = new RegExp(`^((?:desservi|desservie|fermée?)\\s+(?:à|en gare de|à la station)\\s+)(${STATION})$`);
+
 export function decouperSurligne(texte: string): Segment[] {
   const segments: Segment[] = [];
   let dernier = 0;
@@ -38,10 +63,24 @@ export function decouperSurligne(texte: string): Segment[] {
   let m: RegExpExecArray | null;
   while ((m = MOTIF.exec(texte)) !== null) {
     if (m[0] === '') { MOTIF.lastIndex++; continue; }
-    if (m.index > dernier) segments.push({ texte: texte.slice(dernier, m.index), fort: false });
-    segments.push({ texte: m[0], fort: true });
+    if (m.index > dernier) segments.push({ texte: texte.slice(dernier, m.index), type: 'texte' });
+    if (m[1]) {
+      const g = DEUX_STATIONS.exec(m[0]);
+      if (g) segments.push({ texte: g[1], type: 'texte' }, { texte: g[2], type: 'station' }, { texte: g[3], type: 'texte' }, { texte: g[4], type: 'station' });
+      else segments.push({ texte: m[0], type: 'texte' });
+    } else if (m[2]) {
+      const g = UNE_STATION.exec(m[0]);
+      if (g) segments.push({ texte: g[1], type: 'texte' }, { texte: g[2], type: 'station' });
+      else segments.push({ texte: m[0], type: 'texte' });
+    } else if (m[3] || m[4]) {
+      segments.push(...marquer(m[0], UNE_DATE, 'quand'));
+    } else if (m[5]) {
+      segments.push(...marquer(m[0], UNE_HEURE, 'quand'));
+    } else {
+      segments.push({ texte: m[0], type: 'quand' });
+    }
     dernier = m.index + m[0].length;
   }
-  if (dernier < texte.length) segments.push({ texte: texte.slice(dernier), fort: false });
+  if (dernier < texte.length) segments.push({ texte: texte.slice(dernier), type: 'texte' });
   return segments;
 }
