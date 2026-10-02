@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
 import { useColors } from './theme';
 import { Icon } from './Icon';
-import { panelCardStyle } from './PanelLayout';
+import { panelCardStyle, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
+import { ListeFondue } from './ListeFondue';
+import { FONDU_BAS, hexToRgba } from './Fade';
+import { decouperSurligne } from './traficTexte';
 import { PanelEmptyState } from './PanelEmptyState';
 import { chargerDetailLigne, DetailLigne, LigneTrafic, NiveauPerturbation, PerturbationLigne, CausePerturbation } from './traficApi';
 
@@ -23,12 +26,18 @@ function Carte({ p }: { p: PerturbationLigne }) {
         <Text style={[styles.periode, { color: c.textSub }]} numberOfLines={1}>{p.periode}</Text>
       </View>
       <Text style={[styles.titre, { color: c.text }]}>{p.titre}</Text>
-      {p.texte !== '' && <Text style={[styles.texte, { color: c.textSub }]}>{p.texte}</Text>}
+      {p.texte !== '' && (
+        <Text style={[styles.texte, { color: c.textSub }]}>
+          {decouperSurligne(p.texte).map((seg, i) => seg.fort
+            ? <Text key={i} style={{ fontFamily: 'GrandParis-Bold', color: c.text, backgroundColor: hexToRgba(COULEUR_NIVEAU[p.niveau], 0.2) }}>{seg.texte}</Text>
+            : seg.texte)}
+        </Text>
+      )}
     </View>
   );
 }
 
-export default function TraficDetail({ ligne }: { ligne: LigneTrafic }) {
+export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; verre?: boolean }) {
   const c = useColors();
   const [detail, setDetail] = useState<DetailLigne | null>(null);
   const [erreur, setErreur] = useState(false);
@@ -64,12 +73,14 @@ export default function TraficDetail({ ligne }: { ligne: LigneTrafic }) {
     );
   }
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 6, paddingBottom: 24 }}>
+    <ListeFondue verre={verre}>
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}>
       {detail.enCours.length > 0 && <Text style={[styles.section, { color: c.textSub }]}>EN COURS</Text>}
       {detail.enCours.map(p => <Carte key={p.id + p.titre} p={p} />)}
       {detail.aVenir.length > 0 && <Text style={[styles.section, { color: c.textSub, marginTop: detail.enCours.length > 0 ? 10 : 0 }]}>À VENIR</Text>}
       {detail.aVenir.map(p => <Carte key={p.id + p.titre} p={p} />)}
     </ScrollView>
+    </ListeFondue>
   );
 }
 

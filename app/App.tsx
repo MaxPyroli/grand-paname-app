@@ -44,6 +44,7 @@ import ScannerScreen from './ScannerScreen';
 import { FullPageModal } from './FullPageModal';
 import { Icon, IconScannerNavigoCouleur, IconAccueilCouleur, IconFavorisCouleur, IconInfoTraficCouleur, IconPositionCouleur } from './Icon';
 import TraficScreen from './TraficScreen';
+import { MaskedView, GardeMasque } from './ListeFondue';
 import { FadeBottom, FadeTop, hexToRgba, FONDU_HAUT, FONDU_BAS } from './Fade';
 import { definirRect, retirerRect, definirOrigine, definirEnvoyeur, renvoyerVerre } from './verreWeb';
 import type { RectVerre } from './verreWeb';
@@ -1746,17 +1747,6 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   );
 }
 
-// Masque de dégradé pour le fondu des bords de la liste des favoris sur le verre.
-// Module natif : absent d'un build de développement plus ancien que son
-// installation → on retombe sur les fondus de couleur (voir GardeMasque).
-let MaskedView: any = null;
-try { MaskedView = require('@react-native-masked-view/masked-view').default; } catch { MaskedView = null; }
-class GardeMasque extends React.Component<{ fallback: React.ReactNode; children: React.ReactNode }, { erreur: boolean }> {
-  state = { erreur: false };
-  static getDerivedStateFromError() { return { erreur: true }; }
-  render() { return this.state.erreur ? this.props.fallback : this.props.children; }
-}
-
 // ─── ÉCRAN FAVORIS ────────────────────────────────────────────────────────────
 const FAV_ITEM_H = 72;
 const FAV_GAP    = 10;
@@ -2431,6 +2421,8 @@ function AppInner() {
   // 'scanner' sont de vraies pages plein écran (FullPageModal) et n'existent que si le Scanner
   // Navigo (bêta) est activé dans Paramètres > Avancé.
   const [activeTab, setActiveTab] = useState<'accueil' | 'favoris' | 'trafic' | 'gauche' | 'scanner'>('accueil');
+  // Incrémenté quand on touche l'onglet Trafic alors qu'il est déjà ouvert : ramène le volet à son menu principal.
+  const [retourTrafic, setRetourTrafic] = useState(0);
   const [scannerBeta, setScannerBeta] = useState(false);
   useEffect(() => { AsyncStorage.getItem('@gp_scanner_beta').then(v => { if (v === '1') setScannerBeta(true); }).catch(() => {}); }, []);
   useEffect(() => {
@@ -3354,7 +3346,7 @@ function AppInner() {
           ]}>
             {!isWideLayout && flouTrafic && <CoucheVerre zone="tiroirs" />}
             <View style={[styles.cardContentWrapper, !isWideLayout && { paddingTop: 20, paddingBottom: 16 }]}>
-              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} />
+              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} retour={retourTrafic} />
             </View>
           </Animated.View>
         </>
@@ -3439,7 +3431,7 @@ function AppInner() {
             scanner: { label: 'Scanner', icone: actif ? <IconScannerNavigoCouleur size={22} dotColor={point} /> : <Icon name="scanner-navigo" size={22} color={c.textTab} /> },
           }[id];
           return (
-            <NavItem key={id} id={id} actif={actif} label={def.label} onPress={() => setActiveTab(id)} couleurTexte={actif ? c.text : c.textTab} icone={def.icone} />
+            <NavItem key={id} id={id} actif={actif} label={def.label} onPress={() => { if (id === 'trafic' && activeTab === 'trafic') setRetourTrafic(n => n + 1); setActiveTab(id); }} couleurTexte={actif ? c.text : c.textTab} icone={def.icone} />
           );
         })}
       </View>

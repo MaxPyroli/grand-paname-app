@@ -3,13 +3,15 @@ import { View, Text, ScrollView, Animated, Easing, InteractionManager, Touchable
 import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
-import { PanelLayout } from './PanelLayout';
+import { PanelLayout, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
 import { PanelIconAction, PanelPillAction } from './PanelHeader';
 import TraficDetail from './TraficDetail';
+import { ListeFondue } from './ListeFondue';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
 import { chargerTrafic, oublierPerturbations, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
 import { symboleLigne } from './symbolesLignes';
+import { FONDU_BAS } from './Fade';
 
 // Tiroir « Info trafic » — version simple (étape 1 du plan de la 3.4.0) : l'état de chaque ligne
 // lourde en un coup d'œil. Pas encore de détail au toucher ni de recherche de bus.
@@ -115,7 +117,7 @@ function Squelette({ couleur }: { couleur: string }) {
   );
 }
 
-export default function TraficScreen({ actif, verre }: { actif: boolean; verre?: boolean }) {
+export default function TraficScreen({ actif, verre, retour }: { actif: boolean; verre?: boolean; retour?: number }) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const [lignes, setLignes] = useState<LigneTrafic[] | null>(null);
@@ -135,17 +137,39 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
     }
   }, []);
   useEffect(() => () => { if (minuteurGeste.current) clearTimeout(minuteurGeste.current); }, []);
-  // Ouvrir une ligne ; le toucher qui termine le geste secret (appui de 3 s sur le 14) ne l'ouvre pas.
+  // Détail d'une ligne : il glisse par-dessus la liste (qui reste montée, donc ses symboles restent décodés et
+  // réapparaissent sans délai au retour) avec le ressort commun des volets. `ligneOuverte` = ligne voulue ;
+  // `ligneMontee` = ligne affichée, gardée le temps de l'animation de fermeture.
+  const [ligneMontee, setLigneMontee] = useState<LigneTrafic | null>(null);
+  const ouverture = useRef(new Animated.Value(0)).current;
   const ouvrirLigne = useCallback((l: LigneTrafic) => {
+    // Le toucher qui termine le geste secret (appui de 3 s sur le 14) n'ouvre pas la ligne.
     if (secretFait.current) { secretFait.current = false; return; }
+    setLigneMontee(l);
     setLigneOuverte(l);
-  }, []);
-  // Le volet qu'on referme revient à la liste (une fois l'animation de fermeture finie).
+    ouverture.stopAnimation();
+    Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true }).start();
+  }, [ouverture]);
+  const fermerLigne = useCallback((immediat = false) => {
+    setLigneOuverte(null);
+    ouverture.stopAnimation();
+    if (immediat) { ouverture.setValue(0); setLigneMontee(null); return; }
+    Animated.spring(ouverture, { toValue: 0, damping: 15, stiffness: 120, mass: 0.5, overshootClamping: true, useNativeDriver: true })
+      .start(({ finished }) => { if (finished) setLigneMontee(null); });
+  }, [ouverture]);
+  // Le volet qu'on referme revient à la liste (une fois l'animation de fermeture du volet finie).
   useEffect(() => {
     if (actif) return;
-    const minuteur = setTimeout(() => setLigneOuverte(null), 500);
+    const minuteur = setTimeout(() => fermerLigne(true), 500);
     return () => clearTimeout(minuteur);
-  }, [actif]);
+  }, [actif, fermerLigne]);
+  // Toucher l'onglet Trafic alors qu'on est dans le détail d'une ligne ramène au menu principal.
+  const retourVu = useRef(retour);
+  useEffect(() => {
+    if (retourVu.current === retour) return;
+    retourVu.current = retour;
+    fermerLigne();
+  }, [retour, fermerLigne]);
 
   const lignesAffichees = useMemo(() => {
     if (!lignes || !gpe) return lignes;
@@ -204,12 +228,15 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
       subtitle={ligneOuverte ? LIBELLE_ETAT[ligneOuverte.etat] : sousTitre}
       headerAlign="left"
       headerRight={ligneOuverte
-        ? <PanelPillAction label="Retour" onPress={() => setLigneOuverte(null)} />
+        ? <PanelPillAction label="Retour" onPress={() => fermerLigne()} />
         : <PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" />}
     >
-      {ligneOuverte ? (
-        <TraficDetail key={ligneOuverte.id} ligne={ligneOuverte} />
-      ) : lignes === null && !erreur ? (
+      <View style={{ flex: 1 }}>
+        <Animated.View
+          style={{ flex: 1, opacity: ouverture.interpolate({ inputRange: [0, 1], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, -28], extrapolate: 'clamp' }) }] }}
+          pointerEvents={ligneOuverte ? 'none' : 'auto'}
+        >
+      {lignes === null && !erreur ? (
         <Squelette couleur={c.textSub} />
       ) : lignes === null ? (
         <View style={styles.centre}>
@@ -223,9 +250,10 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
           </TouchableOpacity>
         </View>
       ) : lignesAffichees && (
+        <ListeFondue verre={verre}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 24 }}
+          contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}
         >
           <View style={styles.legende}>
             <View style={[styles.legendePoint, { backgroundColor: COULEUR_ETAT.perturbe! }]} />
@@ -258,7 +286,18 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
             );
           })}
         </ScrollView>
+        </ListeFondue>
       )}
+        </Animated.View>
+        {ligneMontee && (
+          <Animated.View
+            style={[StyleSheet.absoluteFill, { opacity: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [48, 0] }) }] }]}
+            pointerEvents={ligneOuverte ? 'auto' : 'none'}
+          >
+            <TraficDetail key={ligneMontee.id} ligne={ligneMontee} verre={verre} />
+          </Animated.View>
+        )}
+      </View>
     </PanelLayout>
   );
 }
@@ -268,7 +307,7 @@ const styles = StyleSheet.create({
   squeletteTitre: { height: 12, width: 110, borderRadius: 6, marginLeft: 4, marginBottom: 12 },
   reessayer: { height: 40, borderRadius: 20, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 40 },
   reessayerTexte: { color: '#fff', fontFamily: 'GrandParis-Bold', fontSize: 14 },
-  legende: { flexDirection: 'row', alignItems: 'center', marginTop: 10, marginBottom: 4, marginLeft: 4 },
+  legende: { flexDirection: 'row', alignItems: 'center', marginTop: 0, marginBottom: 4, marginLeft: 4 },
   legendePoint: { width: 9, height: 9, borderRadius: 4.5, marginRight: 6 },
   legendeTexte: { fontSize: 12, fontFamily: 'GrandParis-Medium' },
   section: { marginTop: 14 },

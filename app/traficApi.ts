@@ -157,7 +157,7 @@ export type DetailLigne = { enCours: PerturbationLigne[]; aVenir: PerturbationLi
 
 const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 const JOURS_A_VENIR = 45;           // les travaux plus lointains ne sont pas listés
-const JOURS_SANS_FIN = 180;         // au-delà, « jusqu'à nouvel ordre » (pannes enregistrées pour un an)
+const JOURS_SANS_FIN = 730;         // au-delà, « jusqu'à nouvel ordre » (les travaux de plusieurs mois ont une vraie date de fin)
 const ENTITES: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'", nbsp: ' ' };
 
 function jourMois(t: number): string {
