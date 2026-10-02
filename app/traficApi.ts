@@ -133,3 +133,112 @@ export function chargerTrafic(signal?: AbortSignal): Promise<LigneTrafic[]> {
 
 // Force une relecture (tirer pour actualiser) : vide les caches de perturbations.
 export function oublierPerturbations() { cachePerturbations = null; }
+
+// ── Détail d'une ligne ────────────────────────────────────────────────────────
+// Les perturbations « en masse » sont en anglais ; le détail vient donc de Navitia (`line_reports`, en français,
+// avec titre et texte). Une requête par ligne, à la demande, gardée 60 s.
+
+export type NiveauPerturbation = 'interrompu' | 'perturbe' | 'info';
+export type CausePerturbation = 'travaux' | 'perturbation' | 'information';
+
+export type PerturbationLigne = {
+  id: string;
+  titre: string;
+  texte: string;
+  cause: CausePerturbation;
+  niveau: NiveauPerturbation;
+  enCours: boolean;
+  debut: number;
+  fin: number;
+  periode: string;   // « Jusqu'au 19 décembre », « À partir du 12 octobre »…
+};
+
+export type DetailLigne = { enCours: PerturbationLigne[]; aVenir: PerturbationLigne[] };
+
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const JOURS_A_VENIR = 45;           // les travaux plus lointains ne sont pas listés
+const JOURS_SANS_FIN = 180;         // au-delà, « jusqu'à nouvel ordre » (pannes enregistrées pour un an)
+const ENTITES: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'", nbsp: ' ' };
+
+function jourMois(t: number): string {
+  const d = new Date(t);
+  return `${d.getDate() === 1 ? '1er' : d.getDate()} ${MOIS[d.getMonth()]}`;
+}
+
+// Texte d'une perturbation : les messages Navitia contiennent du HTML et des entités (« &#233; », « &lt; »).
+export function nettoyerTexte(brut: string): string {
+  return brut
+    .replace(/<\s*br\s*\/?>|<\/p>|<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+    .replace(/&([a-z]+);/gi, (m, nom) => ENTITES[nom.toLowerCase()] ?? m)
+    .replace(/[ \t\u00a0]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+const PANNE_EQUIPEMENT = /ascenseur|escalator|escalier m[ée]canique/i;
+
+// Perturbations d'une ligne à partir d'une réponse `line_reports`.
+export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailLigne {
+  const parId = new Map<string, PerturbationLigne>();
+  for (const d of data?.disruptions || []) {
+    if (d.status === 'past') continue;
+    const message = (...canaux: string[]): string => {
+      for (const canal of canaux) {
+        const m = (d.messages || []).find((x: any) => x?.channel?.name === canal && x?.text);
+        if (m) return nettoyerTexte(m.text);
+      }
+      return '';
+    };
+    const titre = message('titre', 'notification', 'cbiv');
+    if (!titre || PANNE_EQUIPEMENT.test(titre)) continue;   // les pannes d'ascenseur noieraient les vraies perturbations
+    const texte = message('moteur', 'email', 'web', 'mobile');
+
+    const periodes = ((d.application_periods || []) as any[]).map(p => [dateNavitia(p.begin), dateNavitia(p.end)]);
+    if (periodes.length === 0) continue;
+    const enCours = periodes.some(([a, b]) => a <= maintenant && maintenant <= b);
+    const debut = Math.min(...periodes.map(p => p[0]));
+    const fin = Math.max(...periodes.map(p => p[1]));
+    if (!enCours && debut - maintenant > JOURS_A_VENIR * 86_400_000) continue;
+
+    const nom = d.severity?.name;
+    const niveau: NiveauPerturbation = nom === 'bloquante' ? 'interrompu' : nom === 'perturbée' ? 'perturbe' : 'info';
+    const cause: CausePerturbation = d.cause === 'travaux' ? 'travaux' : d.cause === 'information' ? 'information' : 'perturbation';
+    const periode = enCours
+      ? (fin - maintenant > JOURS_SANS_FIN * 86_400_000 ? 'Jusqu\'à nouvel ordre' : `Jusqu'au ${jourMois(fin - 6 * 3_600_000)}`)   // une fin à 4 h 30 est la fin de la veille (journée de service)
+      : `À partir du ${jourMois(debut)}`;
+
+    // Une même annonce est souvent publiée plusieurs fois (une par période) : on la garde une fois.
+    const cle = titre + '|' + texte;
+    const existante = parId.get(cle);
+    if (existante) {
+      existante.enCours = existante.enCours || enCours;
+      existante.debut = Math.min(existante.debut, debut);
+      existante.fin = Math.max(existante.fin, fin);
+      if (existante.enCours) existante.periode = enCours ? periode : existante.periode;
+      continue;
+    }
+    parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, enCours, debut, fin, periode });
+  }
+  const gravite = { interrompu: 0, perturbe: 1, info: 2 };
+  const tout = [...parId.values()];
+  return {
+    enCours: tout.filter(p => p.enCours).sort((a, b) => gravite[a.niveau] - gravite[b.niveau] || a.debut - b.debut),
+    aVenir: tout.filter(p => !p.enCours).sort((a, b) => a.debut - b.debut),
+  };
+}
+
+const cacheDetails = new Map<string, { at: number; detail: DetailLigne }>();
+
+export async function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promise<DetailLigne> {
+  const connu = cacheDetails.get(idLigne);
+  if (connu && Date.now() - connu.at < TTL_PERTURBATIONS_MS) return connu.detail;
+  const r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(idLigne)}/line_reports?count=200&depth=0`, { headers: { apiKey: NAVITIA_KEY }, signal });
+  if (!r.ok && r.status !== 404) throw new Error(`HTTP ${r.status}`);
+  const detail = analyserDetailLigne(r.ok ? await r.json() : {});
+  cacheDetails.set(idLigne, { at: Date.now(), detail });
+  return detail;
+}

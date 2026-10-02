@@ -4,7 +4,8 @@ import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
 import { PanelLayout } from './PanelLayout';
-import { PanelIconAction } from './PanelHeader';
+import { PanelIconAction, PanelPillAction } from './PanelHeader';
+import TraficDetail from './TraficDetail';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
 import { chargerTrafic, oublierPerturbations, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
@@ -15,12 +16,13 @@ import { symboleLigne } from './symbolesLignes';
 const COULEUR_ETAT: Record<EtatTrafic, string | null> = { normal: null, perturbe: '#F39C12', interrompu: '#E5493E' };
 
 // Symbole officiel de la ligne ; à défaut (ligne inconnue), pastille aux couleurs de la ligne.
-function Pastille({ ligne, fond, sombre, onAppui }: { ligne: LigneTrafic; fond: string; sombre: boolean; onAppui?: (code: string, pose: boolean) => void }) {
+// `onPress` ouvre le détail de la ligne ; `onAppui` sert au geste secret (voir plus bas).
+function Pastille({ ligne, fond, sombre, onPress, onAppui }: { ligne: LigneTrafic; fond: string; sombre: boolean; onPress?: () => void; onAppui?: (code: string, pose: boolean) => void }) {
   const point = COULEUR_ETAT[ligne.etat];
   const symbole = symboleLigne(ligne.mode, ligne.code, sombre);
-  return (
+  const contenu = (
     <View
-      style={[styles.pastilleCase, ligne.mode === 'METRO' && ligne.code === '14' ? { zIndex: 2 } : null]}
+      style={styles.pastilleCase}
       {...(onAppui && ligne.mode === 'METRO' && DOIGTS_GPE.includes(ligne.code) ? {
         onTouchStart: () => onAppui(ligne.code, true),
         onTouchEnd: () => onAppui(ligne.code, false),
@@ -37,10 +39,23 @@ function Pastille({ ligne, fond, sombre, onAppui }: { ligne: LigneTrafic; fond: 
       {point && <View style={[styles.pastillePoint, { backgroundColor: point, borderColor: fond }]} />}
     </View>
   );
+  // Le 14 reste devant les lignes de l'easter egg qui sortent de derrière lui.
+  const devant = ligne.mode === 'METRO' && ligne.code === '14' ? { zIndex: 2 } : null;
+  return onPress ? <TouchableOpacity activeOpacity={0.6} onPress={onPress} style={devant}>{contenu}</TouchableOpacity> : <View style={devant}>{contenu}</View>;
 }
 
-// Squelette affiché tant que le premier chargement n'est pas fini (rare : les données sont préchargées au lancement).
-// Même mise en page que l'aperçu, avec des cases grises qui pulsent au lieu des symboles.
+// « Métro 7 bis », « RER A », « Transilien J », « Tram T3a », « Câble C1 ».
+function libelleLigne(l: LigneTrafic): string {
+  switch (l.mode) {
+    case 'METRO': return 'Métro ' + l.code.replace(/^(\d+)B$/i, '$1 bis');
+    case 'RER': return 'RER ' + l.code;
+    case 'TRAIN': return 'Transilien ' + l.code;
+    case 'TRAM': return 'Tram ' + l.code;
+    default: return 'Câble ' + l.code;
+  }
+}
+const LIBELLE_ETAT: Record<EtatTrafic, string> = { normal: 'Trafic normal', perturbe: 'Trafic perturbé', interrompu: 'Trafic interrompu' };
+
 // Easter egg : un appui de 3 secondes sur le symbole du métro 14 fait apparaître (ou disparaître)
 // les lignes 15 à 18 du Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
 const DOIGTS_GPE = ['14'];
@@ -107,14 +122,31 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
   const [erreur, setErreur] = useState(false);
   const derniere = useRef(0);
   const [gpe, setGpe] = useState(false);
+  const [ligneOuverte, setLigneOuverte] = useState<LigneTrafic | null>(null);
+  const secretFait = useRef(false);
   const [largeurGrille, setLargeurGrille] = useState(0);
   // Geste de l'easter egg : appui long (3 secondes, bien plus long qu'un appui long ordinaire) sur le symbole du métro 14.
   const minuteurGeste = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appuiSymbole = useCallback((_code: string, pose: boolean) => {
     if (minuteurGeste.current) { clearTimeout(minuteurGeste.current); minuteurGeste.current = null; }
-    if (pose) minuteurGeste.current = setTimeout(() => { minuteurGeste.current = null; setGpe(v => !v); }, 3000);
+    if (pose) {
+      secretFait.current = false;
+      minuteurGeste.current = setTimeout(() => { minuteurGeste.current = null; secretFait.current = true; setGpe(v => !v); }, 3000);
+    }
   }, []);
   useEffect(() => () => { if (minuteurGeste.current) clearTimeout(minuteurGeste.current); }, []);
+  // Ouvrir une ligne ; le toucher qui termine le geste secret (appui de 3 s sur le 14) ne l'ouvre pas.
+  const ouvrirLigne = useCallback((l: LigneTrafic) => {
+    if (secretFait.current) { secretFait.current = false; return; }
+    setLigneOuverte(l);
+  }, []);
+  // Le volet qu'on referme revient à la liste (une fois l'animation de fermeture finie).
+  useEffect(() => {
+    if (actif) return;
+    const minuteur = setTimeout(() => setLigneOuverte(null), 500);
+    return () => clearTimeout(minuteur);
+  }, [actif]);
+
   const lignesAffichees = useMemo(() => {
     if (!lignes || !gpe) return lignes;
     const dernierMetro = lignes.map(l => l.mode).lastIndexOf('METRO');
@@ -165,13 +197,19 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
 
   return (
     <PanelLayout
-      icon={<IconInfoTraficCouleur size={26} dotColor={c.text} />}
-      title="Info trafic"
-      subtitle={sousTitre}
+      icon={ligneOuverte
+        ? <ExpoImage source={{ uri: symboleLigne(ligneOuverte.mode, ligneOuverte.code, isDark) ?? '' }} style={{ width: 30, height: 30 }} contentFit="contain" />
+        : <IconInfoTraficCouleur size={26} dotColor={c.text} />}
+      title={ligneOuverte ? libelleLigne(ligneOuverte) : 'Info trafic'}
+      subtitle={ligneOuverte ? LIBELLE_ETAT[ligneOuverte.etat] : sousTitre}
       headerAlign="left"
-      headerRight={<PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" />}
+      headerRight={ligneOuverte
+        ? <PanelPillAction label="Retour" onPress={() => setLigneOuverte(null)} />
+        : <PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" />}
     >
-      {lignes === null && !erreur ? (
+      {ligneOuverte ? (
+        <TraficDetail key={ligneOuverte.id} ligne={ligneOuverte} />
+      ) : lignes === null && !erreur ? (
         <Squelette couleur={c.textSub} />
       ) : lignes === null ? (
         <View style={styles.centre}>
@@ -206,7 +244,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
                 </View>
                 <View style={styles.grille} onLayout={e => setLargeurGrille(e.nativeEvent.layout.width)}>
                   {deSection.map((l, i) => {
-                    const pastille = <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onAppui={appuiSymbole} />;
+                    const pastille = <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onPress={l.id.startsWith('gpe-') ? undefined : () => ouvrirLigne(l)} onAppui={appuiSymbole} />;
                     if (!l.id.startsWith('gpe-')) return pastille;
                     // Position (colonne, rangée) de chaque case dans la grille à cases de 50 px espacées de 6 px.
                     const colonnes = largeurGrille > 0 ? Math.max(1, Math.floor((largeurGrille + 6) / 56)) : 6;
