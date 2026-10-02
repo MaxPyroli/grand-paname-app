@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, GestureResponderEvent, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
@@ -34,8 +34,8 @@ function Pastille({ ligne, fond, sombre }: { ligne: LigneTrafic; fond: string; s
 
 // Squelette affiché tant que le premier chargement n'est pas fini (rare : les données sont préchargées au lancement).
 // Même mise en page que l'aperçu, avec des cases grises qui pulsent au lieu des symboles.
-// Easter egg : 5 touchers rapprochés sur le titre font apparaître (ou disparaître) les lignes 15 à 18 du
-// Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
+// Easter egg : tirer la liste vers le bas et garder le doigt posé 3 secondes fait apparaître (ou disparaître)
+// les lignes 15 à 18 du Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
 const LIGNES_GPE: LigneTrafic[] = ['15', '16', '17', '18'].map(code => ({
   id: 'gpe-' + code, code, color: '888888', textColor: 'FFFFFF', mode: 'METRO', etat: 'normal', nbPerturbations: 0,
 }));
@@ -80,13 +80,17 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
   const [actualise, setActualise] = useState(false);
   const derniere = useRef(0);
   const [gpe, setGpe] = useState(false);
-  const touchers = useRef({ n: 0, t: 0 });
-  const toucherTitre = useCallback(() => {
-    const maintenant = Date.now();
-    const x = touchers.current;
-    x.n = maintenant - x.t > 1500 ? 1 : x.n + 1;
-    x.t = maintenant;
-    if (x.n >= 5) { x.n = 0; setGpe(g => !g); }
+  // Geste de l'easter egg : doigt posé en haut de la liste, tiré d'au moins 60 px vers le bas, tenu 3 secondes.
+  const geste = useRef({ debut: 0, y0: 0, y: 0, enHaut: false });
+  const scrollY = useRef(0);
+  const debutGeste = useCallback((e: GestureResponderEvent) => {
+    geste.current = { debut: Date.now(), y0: e.nativeEvent.pageY, y: e.nativeEvent.pageY, enHaut: scrollY.current <= 0 };
+  }, []);
+  const mouvementGeste = useCallback((e: GestureResponderEvent) => { geste.current.y = e.nativeEvent.pageY; }, []);
+  const finGeste = useCallback(() => {
+    const g = geste.current;
+    geste.current = { debut: 0, y0: 0, y: 0, enHaut: false };
+    if (g.debut > 0 && g.enHaut && g.y - g.y0 >= 60 && Date.now() - g.debut >= 3000) setGpe(v => !v);
   }, []);
   const lignesAffichees = useMemo(() => {
     if (!lignes || !gpe) return lignes;
@@ -135,7 +139,6 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
       title="Info trafic"
       subtitle={sousTitre}
       headerAlign="left"
-      onTitlePress={toucherTitre}
       headerRight={<PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" />}
     >
       {lignes === null && !erreur ? (
@@ -153,6 +156,8 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
         </View>
       ) : lignesAffichees && (
         <ScrollView
+          onTouchStart={debutGeste} onTouchMove={mouvementGeste} onTouchEnd={finGeste} onTouchCancel={finGeste}
+          onScroll={e => { scrollY.current = e.nativeEvent.contentOffset.y; }} scrollEventThrottle={64}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 24 }}
           refreshControl={<RefreshControl refreshing={actualise} onRefresh={async () => { setActualise(true); await charger(true); setActualise(false); }} tintColor={c.accent} colors={[c.accent]} />}
