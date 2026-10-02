@@ -7,12 +7,19 @@ import { ListeFondue } from './ListeFondue';
 import { FONDU_BAS, hexToRgba } from './Fade';
 import { decouperSurligne } from './traficTexte';
 import { PanelEmptyState } from './PanelEmptyState';
-import { chargerDetailLigne, oublierDetailLigne, DetailLigne, LigneTrafic, NiveauPerturbation, PerturbationLigne, CausePerturbation } from './traficApi';
+import { chargerDetailLigne, oublierDetailLigne, DetailLigne, LigneTrafic, PerturbationLigne, CausePerturbation, TypePerturbation } from './traficApi';
 
 // Détail d'une ligne du volet Trafic (étape 1.3 du plan de la 3.4.0) : ses perturbations en cours puis à venir,
 // en français, venues de Navitia (voir `chargerDetailLigne`).
-export const COULEUR_NIVEAU: Record<NiveauPerturbation, string> = { interrompu: '#E5493E', perturbe: '#F39C12', info: '#3C91DC' };
-const LIBELLE_CAUSE: Record<CausePerturbation, string> = { travaux: 'Travaux', perturbation: 'Perturbation', information: 'Information' };
+// Une couleur et un libellé par nature de perturbation (voir `TypePerturbation`) ; la cause (travaux / incident) est
+// rappelée à part, dans une petite pastille.
+export const COULEUR_TYPE: Record<TypePerturbation, string> = {
+  interrompu: '#E5493E', fortement: '#E8710A', perturbe: '#F39C12', arret: '#8E5BD0', info: '#3C91DC',
+};
+const LIBELLE_TYPE: Record<TypePerturbation, string> = {
+  interrompu: 'Trafic interrompu', fortement: 'Trafic fortement perturbé', perturbe: 'Trafic perturbé', arret: 'Arrêt non desservi', info: 'Information',
+};
+const LIBELLE_CAUSE: Record<CausePerturbation, string> = { travaux: 'Travaux', perturbation: 'Incident', information: 'Info' };
 
 type Mot = { texte: string; puce: 'station' | 'quand' | null; espace: boolean };
 
@@ -66,11 +73,19 @@ function Carte({ p }: { p: PerturbationLigne }) {
     <View style={[styles.carte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
       <View style={styles.carteHaut}>
         <View style={styles.cause}>
-          <View style={[styles.point, { backgroundColor: COULEUR_NIVEAU[p.niveau] }]} />
-          <Text style={[styles.causeTexte, { color: c.textSub }]}>{LIBELLE_CAUSE[p.cause].toUpperCase()}</Text>
+          <View style={[styles.point, { backgroundColor: COULEUR_TYPE[p.type] }]} />
+          <Text style={[styles.causeTexte, { color: COULEUR_TYPE[p.type] }]} numberOfLines={1}>
+            {(p.type === 'arret' && p.arretsPluriel ? 'Arrêts non desservis' : LIBELLE_TYPE[p.type]).toUpperCase()}
+          </Text>
         </View>
-        <Text style={[styles.periode, { color: c.textSub }]} numberOfLines={1}>{p.periode}</Text>
+        {/* La cause n'est rappelée que si elle apporte quelque chose (« Information » + type Information = doublon). */}
+        {!(p.cause === 'information' && p.type === 'info') && (
+          <View style={[styles.pastilleCause, { borderColor: hexToRgba(c.text, 0.3) }]}>
+            <Text style={[styles.pastilleCauseTexte, { color: c.textSub }]}>{LIBELLE_CAUSE[p.cause]}</Text>
+          </View>
+        )}
       </View>
+      <Text style={[styles.periode, { color: c.textSub }]}>{p.periode}</Text>
       <Text style={[styles.titre, { color: c.text }]}>{p.titre}</Text>
       {p.texte !== '' && <TexteRiche texte={p.texte} />}
     </View>
@@ -166,11 +181,13 @@ const styles = StyleSheet.create({
   reessayerTexte: { color: '#fff', fontFamily: 'GrandParis-Bold', fontSize: 14 },
   section: { fontSize: 12, fontFamily: 'GrandParis-Bold', letterSpacing: 0.8, marginLeft: 4, marginBottom: 10 },
   carte: { ...panelCardStyle, flexDirection: 'column', alignItems: 'stretch', paddingVertical: 14, marginBottom: 10 },
-  carteHaut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  cause: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  carteHaut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  cause: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
   point: { width: 9, height: 9, borderRadius: 4.5 },
   causeTexte: { fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.6 },
-  periode: { fontSize: 12, fontFamily: 'GrandParis-Medium', flexShrink: 1, marginLeft: 10 },
+  periode: { fontSize: 12, fontFamily: 'GrandParis-Medium', marginBottom: 6 },
+  pastilleCause: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, height: 20, justifyContent: 'center', marginLeft: 8 },
+  pastilleCauseTexte: { fontSize: 11, fontFamily: 'GrandParis-Medium', includeFontPadding: false },
   titre: { fontSize: 15, fontFamily: 'GrandParis-Bold', lineHeight: 20 },
   texte: { fontSize: 13, fontFamily: 'GrandParis-Light', lineHeight: 24 },
   rangee: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },

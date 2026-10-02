@@ -140,6 +140,9 @@ export function oublierPerturbations() { cachePerturbations = null; }
 
 export type NiveauPerturbation = 'interrompu' | 'perturbe' | 'info';
 export type CausePerturbation = 'travaux' | 'perturbation' | 'information';
+// Nature de la perturbation, d'après l'étiquette officielle courte (canal « cbiv ») : « Trafic interrompu »,
+// « Trafic fortement perturbé », « Trafic perturbé », « Arrêt(s) non desservi(s) », « Autre » ; à défaut, la gravité.
+export type TypePerturbation = 'interrompu' | 'fortement' | 'perturbe' | 'arret' | 'info';
 
 export type PerturbationLigne = {
   id: string;
@@ -147,6 +150,8 @@ export type PerturbationLigne = {
   texte: string;
   cause: CausePerturbation;
   niveau: NiveauPerturbation;
+  type: TypePerturbation;
+  arretsPluriel: boolean;   // « Arrêt(s) non desservi(s) » : plusieurs arrêts
   enCours: boolean;
   debut: number;
   fin: number;
@@ -206,6 +211,15 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
 
     const nom = d.severity?.name;
     const niveau: NiveauPerturbation = nom === 'bloquante' ? 'interrompu' : nom === 'perturbée' ? 'perturbe' : 'info';
+    const etiquette = message('cbiv').toLowerCase();
+    const type: TypePerturbation =
+      /interrompu/.test(etiquette) ? 'interrompu'
+      : /fortement/.test(etiquette) ? 'fortement'
+      : /non desservi/.test(etiquette) ? 'arret'
+      : /perturb/.test(etiquette) ? 'perturbe'
+      : /autre|information/.test(etiquette) ? 'info'
+      : niveau === 'interrompu' ? 'interrompu' : niveau === 'perturbe' ? 'perturbe' : 'info';
+    const arretsPluriel = /\(s\)/.test(etiquette);
     const cause: CausePerturbation = d.cause === 'travaux' ? 'travaux' : d.cause === 'information' ? 'information' : 'perturbation';
     const periode = enCours
       ? (fin - maintenant > JOURS_SANS_FIN * 86_400_000 ? 'Jusqu\'à nouvel ordre' : `Jusqu'au ${jourMois(fin - 6 * 3_600_000)}`)   // une fin à 4 h 30 est la fin de la veille (journée de service)
@@ -221,12 +235,12 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
       if (existante.enCours) existante.periode = enCours ? periode : existante.periode;
       continue;
     }
-    parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, enCours, debut, fin, periode });
+    parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, type, arretsPluriel, enCours, debut, fin, periode });
   }
-  const gravite = { interrompu: 0, perturbe: 1, info: 2 };
+  const gravite: Record<TypePerturbation, number> = { interrompu: 0, fortement: 1, perturbe: 2, arret: 3, info: 4 };
   const tout = [...parId.values()];
   return {
-    enCours: tout.filter(p => p.enCours).sort((a, b) => gravite[a.niveau] - gravite[b.niveau] || a.debut - b.debut),
+    enCours: tout.filter(p => p.enCours).sort((a, b) => gravite[a.type] - gravite[b.type] || a.debut - b.debut),
     aVenir: tout.filter(p => !p.enCours).sort((a, b) => a.debut - b.debut),
   };
 }
