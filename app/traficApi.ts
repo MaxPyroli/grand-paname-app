@@ -119,10 +119,16 @@ export function etatDesLignes(lignes: LigneBrute[], bulk: any, maintenant = Date
 }
 
 // Toutes les lignes lourdes avec leur état, triées par mode puis par code.
-export async function chargerTrafic(signal?: AbortSignal): Promise<LigneTrafic[]> {
-  const [lignes, bulk] = await Promise.all([chargerLignesLourdes(signal), chargerPerturbations(signal)]);
-  return etatDesLignes(lignes, bulk).sort((a, b) =>
-    ORDRE_MODES.indexOf(a.mode) - ORDRE_MODES.indexOf(b.mode) || comparerCodes(a.code, b.code));
+// Un seul chargement à la fois : le préchargement au lancement et l'ouverture du volet partagent la même requête.
+let enCours: Promise<LigneTrafic[]> | null = null;
+export function chargerTrafic(signal?: AbortSignal): Promise<LigneTrafic[]> {
+  if (!enCours) {
+    enCours = Promise.all([chargerLignesLourdes(signal), chargerPerturbations(signal)])
+      .then(([lignes, bulk]) => etatDesLignes(lignes, bulk).sort((a, b) =>
+        ORDRE_MODES.indexOf(a.mode) - ORDRE_MODES.indexOf(b.mode) || comparerCodes(a.code, b.code)))
+      .finally(() => { enCours = null; });
+  }
+  return enCours;
 }
 
 // Force une relecture (tirer pour actualiser) : vide les caches de perturbations.

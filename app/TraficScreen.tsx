@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, RefreshControl, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
@@ -31,6 +31,40 @@ function Pastille({ ligne, fond, sombre }: { ligne: LigneTrafic; fond: string; s
   );
 }
 
+// Squelette affiché tant que le premier chargement n'est pas fini (rare : les données sont préchargées au lancement).
+// Même mise en page que l'aperçu, avec des cases grises qui pulsent au lieu des symboles.
+const NB_CASES_SQUELETTE: Record<string, number> = { TRAIN_RER: 14, METRO: 16, TRAM: 15, CABLE: 2 };
+
+function Squelette({ couleur }: { couleur: string }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const boucle = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    boucle.start();
+    return () => boucle.stop();
+  }, [pulse]);
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.24] });
+  return (
+    <View style={{ flex: 1, overflow: 'hidden' }} pointerEvents="none">
+      <View style={[styles.legende, { height: 16 }]} />
+      {SECTIONS_TRAFIC.map(section => (
+        <View key={section.cle} style={styles.section}>
+          <Animated.View style={[styles.squeletteTitre, { backgroundColor: couleur, opacity }]} />
+          <View style={styles.grille}>
+            {Array.from({ length: NB_CASES_SQUELETTE[section.cle] ?? 8 }, (_, i) => (
+              <View key={i} style={styles.pastilleCase}>
+                <Animated.View style={[styles.symbole, { borderRadius: 13, backgroundColor: couleur, opacity }]} />
+              </View>
+            ))}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function TraficScreen({ actif, verre }: { actif: boolean; verre?: boolean }) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
@@ -39,20 +73,32 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
   const [actualise, setActualise] = useState(false);
   const derniere = useRef(0);
 
-  const charger = useCallback(async (forcer = false) => {
+  // `silencieux` : préchargement en arrière-plan, une panne de réseau n'affiche pas d'erreur (le volet réessaiera à l'ouverture).
+  const charger = useCallback(async (forcer = false, silencieux = false) => {
     if (forcer) oublierPerturbations();
-    setErreur(false);
+    if (!silencieux) setErreur(false);
     try {
       setLignes(await chargerTrafic());
       derniere.current = Date.now();
     } catch {
-      setErreur(true);
+      if (!silencieux) setErreur(true);
     }
   }, []);
 
-  // Premier chargement à l'ouverture du tiroir, puis relecture quand on y revient après plus d'une minute.
+  // Préchargement peu après le lancement de l'app, pour que le volet soit déjà rempli quand on l'ouvre.
   useEffect(() => {
-    if (actif && Date.now() - derniere.current > 60_000) charger();
+    let minuteur: ReturnType<typeof setTimeout>;
+    const tache = InteractionManager.runAfterInteractions(() => { minuteur = setTimeout(() => charger(false, true), 1500); });
+    return () => { tache.cancel(); clearTimeout(minuteur); };
+  }, [charger]);
+
+  // À l'ouverture du tiroir : chargement si rien n'est encore là, sinon relecture si les données ont plus d'une minute.
+  // Quand des données sont déjà affichées, la relecture attend la fin de l'animation du tiroir pour ne pas la saccader.
+  useEffect(() => {
+    if (!actif || Date.now() - derniere.current <= 60_000) return;
+    if (derniere.current === 0) { charger(); return; }
+    const minuteur = setTimeout(() => charger(), 600);
+    return () => clearTimeout(minuteur);
   }, [actif, charger]);
 
   const nbPerturbees = (lignes ?? []).filter(l => l.etat !== 'normal').length;
@@ -69,7 +115,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
       headerAlign="left"
     >
       {lignes === null && !erreur ? (
-        <View style={styles.centre}><ActivityIndicator color={c.accent} /></View>
+        <Squelette couleur={c.textSub} />
       ) : lignes === null ? (
         <View style={styles.centre}>
           <PanelEmptyState
@@ -116,6 +162,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
 
 const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  squeletteTitre: { height: 12, width: 110, borderRadius: 6, marginLeft: 4, marginBottom: 12 },
   reessayer: { height: 40, borderRadius: 20, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 40 },
   reessayerTexte: { color: '#fff', fontFamily: 'GrandParis-Bold', fontSize: 14 },
   legende: { flexDirection: 'row', alignItems: 'center', marginTop: 10, marginBottom: 4, marginLeft: 4 },
