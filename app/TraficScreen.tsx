@@ -20,7 +20,7 @@ function Pastille({ ligne, fond, sombre, onAppui }: { ligne: LigneTrafic; fond: 
   const symbole = symboleLigne(ligne.mode, ligne.code, sombre);
   return (
     <View
-      style={styles.pastilleCase}
+      style={[styles.pastilleCase, ligne.mode === 'METRO' && ligne.code === '14' ? { zIndex: 2 } : null]}
       {...(onAppui && ligne.mode === 'METRO' && DOIGTS_GPE.includes(ligne.code) ? {
         onTouchStart: () => onAppui(ligne.code, true),
         onTouchEnd: () => onAppui(ligne.code, false),
@@ -48,13 +48,24 @@ const LIGNES_GPE: LigneTrafic[] = ['15', '16', '17', '18'].map(code => ({
   id: 'gpe-' + code, code, color: '888888', textColor: 'FFFFFF', mode: 'METRO', etat: 'normal', nbPerturbations: 0,
 }));
 
-// Les lignes de l'easter egg arrivent l'une après l'autre : fondu + petite montée, décalés selon leur rang.
-function Apparition({ rang, children }: { rang: number; children: React.ReactNode }) {
+// Les lignes de l'easter egg sortent de derrière le métro 14 : chacune part de la case du 14 (décalage `dx`, `dy`
+// en pixels), glisse jusqu'à sa place et apparaît en route, l'une après l'autre. Le 14 a un `zIndex` plus haut.
+function Apparition({ rang, dx, dy, children }: { rang: number; dx: number; dy: number; children: React.ReactNode }) {
   const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(v, { toValue: 1, duration: 380, delay: 150 + rang * 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    Animated.timing(v, { toValue: 1, duration: 550, delay: 200 + rang * 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, [v, rang]);
-  return <Animated.View style={{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>{children}</Animated.View>;
+  return (
+    <Animated.View style={{
+      zIndex: 1,
+      opacity: v.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 1, 1] }),
+      transform: [
+        { translateX: v.interpolate({ inputRange: [0, 1], outputRange: [dx, 0] }) },
+        { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [dy, 0] }) },
+        { scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) },
+      ],
+    }}>{children}</Animated.View>
+  );
 }
 
 const NB_CASES_SQUELETTE: Record<string, number> = { TRAIN_RER: 14, METRO: 16, TRAM: 15, CABLE: 2 };
@@ -96,6 +107,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
   const [erreur, setErreur] = useState(false);
   const derniere = useRef(0);
   const [gpe, setGpe] = useState(false);
+  const [largeurGrille, setLargeurGrille] = useState(0);
   // Geste de l'easter egg : appui long (3 secondes, bien plus long qu'un appui long ordinaire) sur le symbole du métro 14.
   const minuteurGeste = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appuiSymbole = useCallback((_code: string, pose: boolean) => {
@@ -192,10 +204,16 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
                   <ExpoImage source={{ uri: MODE_ICONS[section.icone] ?? MODE_ICONS['BUS'] }} style={[styles.sectionIcone, { tintColor: c.textSub }]} contentFit="contain" />
                   <Text style={[styles.sectionTexte, { color: c.textSub }]}>{section.libelle.toUpperCase()}</Text>
                 </View>
-                <View style={styles.grille}>
-                  {deSection.map(l => {
+                <View style={styles.grille} onLayout={e => setLargeurGrille(e.nativeEvent.layout.width)}>
+                  {deSection.map((l, i) => {
                     const pastille = <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onAppui={appuiSymbole} />;
-                    return l.id.startsWith('gpe-') ? <Apparition key={l.id} rang={+l.code - 15}>{pastille}</Apparition> : pastille;
+                    if (!l.id.startsWith('gpe-')) return pastille;
+                    // Position (colonne, rangée) de chaque case dans la grille à cases de 50 px espacées de 6 px.
+                    const colonnes = largeurGrille > 0 ? Math.max(1, Math.floor((largeurGrille + 6) / 56)) : 6;
+                    const i14 = deSection.findIndex(x => x.mode === 'METRO' && x.code === '14');
+                    const dx = ((i14 % colonnes) - (i % colonnes)) * 56;
+                    const dy = (Math.floor(i14 / colonnes) - Math.floor(i / colonnes)) * 56;
+                    return <Apparition key={l.id} rang={+l.code - 15} dx={dx} dy={dy}>{pastille}</Apparition>;
                   })}
                 </View>
               </View>
