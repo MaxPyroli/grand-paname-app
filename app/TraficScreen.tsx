@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, RefreshControl, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, GestureResponderEvent, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
@@ -77,19 +77,20 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
   const { isDark } = useContext(ThemeContext);
   const [lignes, setLignes] = useState<LigneTrafic[] | null>(null);
   const [erreur, setErreur] = useState(false);
-  const [actualise, setActualise] = useState(false);
   const derniere = useRef(0);
   const [gpe, setGpe] = useState(false);
-  // Geste de l'easter egg : doigt posé en haut de la liste, tiré assez bas pour déclencher « tirer pour actualiser »
-  // et tenu 3 secondes avant de relâcher. Sur Android, le composant natif de rafraîchissement annule les événements
-  // tactiles dès qu'il prend le geste : on mesure donc le temps entre la pose du doigt et le déclenchement du rafraîchissement.
-  const poseDoigt = useRef({ t: 0, enHaut: false });
+  // Geste de l'easter egg : doigt posé en haut de la liste, tiré d'au moins 60 px vers le bas et tenu 3 secondes.
+  const geste = useRef({ t: 0, y0: 0, y: 0, enHaut: false });
   const scrollY = useRef(0);
-  const debutGeste = useCallback(() => { poseDoigt.current = { t: Date.now(), enHaut: scrollY.current <= 0 }; }, []);
-  const gesteProloge = useCallback(() => {
-    const p = poseDoigt.current;
-    poseDoigt.current = { t: 0, enHaut: false };
-    return p.t > 0 && p.enHaut && Date.now() - p.t >= 3000;
+  const debutGeste = useCallback((e: GestureResponderEvent) => {
+    const y = e.nativeEvent.pageY;
+    geste.current = { t: Date.now(), y0: y, y, enHaut: scrollY.current <= 0 };
+  }, []);
+  const mouvementGeste = useCallback((e: GestureResponderEvent) => { geste.current.y = e.nativeEvent.pageY; }, []);
+  const finGeste = useCallback(() => {
+    const g = geste.current;
+    geste.current = { t: 0, y0: 0, y: 0, enHaut: false };
+    if (g.t > 0 && g.enHaut && g.y - g.y0 >= 60 && Date.now() - g.t >= 3000) setGpe(v => !v);
   }, []);
   const lignesAffichees = useMemo(() => {
     if (!lignes || !gpe) return lignes;
@@ -126,6 +127,13 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
     return () => clearTimeout(minuteur);
   }, [actif, charger]);
 
+  // Actualisation automatique toutes les minutes tant que le volet est ouvert (silencieuse : les données affichées restent).
+  useEffect(() => {
+    if (!actif) return;
+    const repetition = setInterval(() => charger(true, true), 60_000);
+    return () => clearInterval(repetition);
+  }, [actif, charger]);
+
   const nbPerturbees = (lignes ?? []).filter(l => l.etat !== 'normal').length;
   const sousTitre = lignes === null
     ? 'État du trafic en temps réel'
@@ -155,11 +163,10 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
         </View>
       ) : lignesAffichees && (
         <ScrollView
-          onTouchStart={debutGeste}
+          onTouchStart={debutGeste} onTouchMove={mouvementGeste} onTouchEnd={finGeste} onTouchCancel={finGeste}
           onScroll={e => { scrollY.current = e.nativeEvent.contentOffset.y; }} scrollEventThrottle={64}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 24 }}
-          refreshControl={<RefreshControl refreshing={actualise} onRefresh={async () => { if (gesteProloge()) setGpe(v => !v); setActualise(true); await charger(true); setActualise(false); }} tintColor={c.accent} colors={[c.accent]} />}
         >
           <View style={styles.legende}>
             <View style={[styles.legendePoint, { backgroundColor: COULEUR_ETAT.perturbe! }]} />
