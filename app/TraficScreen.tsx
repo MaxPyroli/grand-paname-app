@@ -221,8 +221,9 @@ export default function TraficScreen({ actif, verre, retour, onDetail }: { actif
     if (!actif) { prechauffe.current = false; return; }
     if (!lignes || prechauffe.current) return;
     prechauffe.current = true;
-    const aCharger = lignes.filter(l => l.etat !== 'normal');
-    const minuteurs = aCharger.map((l, i) => setTimeout(() => prechargerDetailLigne(l.id), 800 + i * 350));
+    // Espacés et plafonnés : le serveur refuse (429) les rafales de requêtes.
+    const aCharger = lignes.filter(l => l.etat !== 'normal').slice(0, 6);
+    const minuteurs = aCharger.map((l, i) => setTimeout(() => prechargerDetailLigne(l.id), 1200 + i * 900));
     return () => minuteurs.forEach(clearTimeout);
   }, [actif, lignes]);
 

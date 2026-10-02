@@ -7,12 +7,57 @@ import { ListeFondue } from './ListeFondue';
 import { FONDU_BAS, hexToRgba } from './Fade';
 import { decouperSurligne } from './traficTexte';
 import { PanelEmptyState } from './PanelEmptyState';
-import { chargerDetailLigne, DetailLigne, LigneTrafic, NiveauPerturbation, PerturbationLigne, CausePerturbation } from './traficApi';
+import { chargerDetailLigne, oublierDetailLigne, DetailLigne, LigneTrafic, NiveauPerturbation, PerturbationLigne, CausePerturbation } from './traficApi';
 
 // Détail d'une ligne du volet Trafic (étape 1.3 du plan de la 3.4.0) : ses perturbations en cours puis à venir,
 // en français, venues de Navitia (voir `chargerDetailLigne`).
 export const COULEUR_NIVEAU: Record<NiveauPerturbation, string> = { interrompu: '#E5493E', perturbe: '#F39C12', info: '#3C91DC' };
 const LIBELLE_CAUSE: Record<CausePerturbation, string> = { travaux: 'Travaux', perturbation: 'Perturbation', information: 'Information' };
+
+type Mot = { texte: string; puce: 'station' | 'quand' | null; espace: boolean };
+
+// Texte d'une perturbation avec un contour arrondi autour des noms de stations, des dates et des horaires.
+// Un paragraphe sans contour reste un simple texte (retour à la ligne naturel). Un paragraphe avec contours est posé
+// mot à mot dans une rangée qui passe à la ligne : les contours sont alors alignés sur les mots de façon sûre
+// (des vues glissées dans un texte se décalent selon la police et la ligne).
+function TexteRiche({ texte }: { texte: string }) {
+  const c = useColors();
+  return (
+    <View style={{ marginTop: 6 }}>
+      {texte.split('\n').filter(l => l.trim() !== '').map((paragraphe, i) => {
+        const segments = decouperSurligne(paragraphe);
+        const espace = i > 0 ? { marginTop: 4 } : null;
+        if (!segments.some(s => s.type !== 'texte')) {
+          return <Text key={i} style={[styles.texte, { color: c.textSub }, espace]}>{paragraphe}</Text>;
+        }
+        const mots: Mot[] = [];
+        let blanc = false;
+        for (const seg of segments) {
+          if (seg.type === 'texte') {
+            for (const morceau of seg.texte.match(/\S+|\s+/g) ?? []) {
+              if (/^\s+$/.test(morceau)) blanc = true;
+              else { mots.push({ texte: morceau, puce: null, espace: blanc }); blanc = false; }
+            }
+          } else {
+            mots.push({ texte: seg.texte.trim(), puce: seg.type, espace: blanc });
+            blanc = false;
+          }
+        }
+        return (
+          <View key={i} style={[styles.rangee, espace]}>
+            {mots.map((m, j) => m.puce ? (
+              <View key={j} style={[styles.puce, { marginLeft: m.espace ? 4 : 0, borderColor: m.puce === 'station' ? c.accent : hexToRgba(c.text, 0.4) }]}>
+                <Text style={[styles.puceTexte, { color: c.text }]}>{m.texte}</Text>
+              </View>
+            ) : (
+              <Text key={j} style={[styles.texte, { color: c.textSub, marginTop: 0, marginLeft: m.espace ? 4 : 0 }]}>{m.texte}</Text>
+            ))}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 function Carte({ p }: { p: PerturbationLigne }) {
   const c = useColors();
@@ -26,16 +71,7 @@ function Carte({ p }: { p: PerturbationLigne }) {
         <Text style={[styles.periode, { color: c.textSub }]} numberOfLines={1}>{p.periode}</Text>
       </View>
       <Text style={[styles.titre, { color: c.text }]}>{p.titre}</Text>
-      {p.texte !== '' && (
-        <Text style={[styles.texte, { color: c.textSub }]}>
-          {/* Noms de stations, dates et horaires : entourés d'un contour arrondi (vues dans le texte). */}
-          {decouperSurligne(p.texte).map((seg, i) => seg.type === 'texte' ? seg.texte : (
-            <View key={i} style={[styles.puce, { borderColor: seg.type === 'station' ? c.accent : hexToRgba(c.text, 0.4) }]}>
-              <Text style={[styles.puceTexte, { color: c.text }]}>{seg.texte}</Text>
-            </View>
-          ))}
-        </Text>
-      )}
+      {p.texte !== '' && <TexteRiche texte={p.texte} />}
     </View>
   );
 }
@@ -73,8 +109,18 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
 
   const charger = useCallback(async () => {
     setErreur(false);
-    try { setDetail(await chargerDetailLigne(ligne.id)); } catch { setErreur(true); }
-  }, [ligne.id]);
+    try {
+      let d = await chargerDetailLigne(ligne.id);
+      // Une ligne perturbée sans aucune perturbation dans le détail est suspecte (réponse incomplète du serveur) :
+      // on la relit une fois avant de conclure qu'il n'y a rien à signaler.
+      if (ligne.etat !== 'normal' && d.enCours.length === 0 && d.aVenir.length === 0) {
+        oublierDetailLigne(ligne.id);
+        await new Promise(res => setTimeout(res, 1200));
+        d = await chargerDetailLigne(ligne.id);
+      }
+      setDetail(d);
+    } catch { setErreur(true); }
+  }, [ligne.id, ligne.etat]);
   useEffect(() => { charger(); }, [charger]);
 
   if (erreur) {
@@ -125,7 +171,8 @@ const styles = StyleSheet.create({
   causeTexte: { fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.6 },
   periode: { fontSize: 12, fontFamily: 'GrandParis-Medium', flexShrink: 1, marginLeft: 10 },
   titre: { fontSize: 15, fontFamily: 'GrandParis-Bold', lineHeight: 20 },
-  texte: { fontSize: 13, fontFamily: 'GrandParis-Light', lineHeight: 24, marginTop: 6 },
-  puce: { height: 22, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 6, marginHorizontal: 1, justifyContent: 'center' },
+  texte: { fontSize: 13, fontFamily: 'GrandParis-Light', lineHeight: 24 },
+  rangee: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  puce: { height: 22, borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 6, justifyContent: 'center' },
   puceTexte: { fontSize: 12.5, fontFamily: 'GrandParis-Bold', includeFontPadding: false },
 });

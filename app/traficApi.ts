@@ -242,8 +242,15 @@ export function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promi
   let enCours = detailsEnCours.get(idLigne);
   if (!enCours) {
     enCours = (async () => {
-      const r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(idLigne)}/line_reports?count=200&depth=0`, { headers: { apiKey: NAVITIA_KEY }, signal });
-      if (!r.ok && r.status !== 404) throw new Error(`HTTP ${r.status}`);
+      // Le serveur répond « 429 » (trop de requêtes) si on en envoie trop vite, et parfois 5xx : on réessaie
+      // jusqu'à 3 fois en espaçant, plutôt que d'afficher une erreur ou un détail vide.
+      let r: Response | null = null;
+      for (let essai = 0; essai < 4; essai++) {
+        r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(idLigne)}/line_reports?count=200&depth=0`, { headers: { apiKey: NAVITIA_KEY }, signal });
+        if (r.ok || r.status === 404 || (r.status !== 429 && r.status < 500)) break;
+        await new Promise(res => setTimeout(res, 600 * (essai + 1)));
+      }
+      if (!r || (!r.ok && r.status !== 404)) throw new Error(`HTTP ${r?.status}`);
       const detail = analyserDetailLigne(r.ok ? await r.json() : {});
       cacheDetails.set(idLigne, { at: Date.now(), detail });
       return detail;
@@ -252,6 +259,9 @@ export function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promi
   }
   return enCours;
 }
+
+// Oublie le détail gardé d'une ligne (pour forcer une relecture).
+export function oublierDetailLigne(idLigne: string) { cacheDetails.delete(idLigne); }
 
 // Charge le détail d'une ligne à l'avance, sans rien afficher ni signaler d'erreur.
 export function prechargerDetailLigne(idLigne: string): void {

@@ -1,15 +1,15 @@
-// Mise en avant des informations importantes d'une perturbation : jours, dates, horaires et tronçon fermé
-// (« entre Père-Lachaise et Barbès - Rochechouart »). Le texte est découpé en morceaux typés. Expressions
-// écrites à la main (pas d'option « insensible à la casse » : elle ferait reconnaître n'importe quel mot comme un
-// nom de station).
+// Mise en avant des informations importantes d'une perturbation : jours, dates, horaires et stations.
+// Le texte est découpé en morceaux typés :
 //   - `station` : un nom de station ou de gare ;
 //   - `quand`   : une date, un horaire ou un rythme (« en semaine ») ;
-//   - `texte`   : le reste. Chaque nom, date ou horaire est un morceau À PART (« du 12 » + « au 23 octobre » → deux
-//     morceaux marqués), pour pouvoir les entourer un par un.
+//   - `texte`   : le reste.
+// Chaque nom, date ou horaire est un morceau À PART (« du lundi 21 septembre au vendredi 02 octobre » → deux
+// morceaux marqués), pour pouvoir les entourer un par un. Expressions écrites à la main : pas d'option
+// « insensible à la casse », elle ferait reconnaître n'importe quel mot comme un nom de station.
 export type Segment = { texte: string; type: 'texte' | 'station' | 'quand' };
 
-const JOUR = '(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)';
-const MOIS = '(?:janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)';
+const JOUR = '(?:[Ll]undi|[Mm]ardi|[Mm]ercredi|[Jj]eudi|[Vv]endredi|[Ss]amedi|[Dd]imanche)';
+const MOIS = '(?:[Jj]anvier|[Ff]évrier|[Mm]ars|[Aa]vril|[Mm]ai|[Jj]uin|[Jj]uillet|[Aa]oût|[Ss]eptembre|[Oo]ctobre|[Nn]ovembre|[Dd]écembre)';
 const NUM = '\\d{1,2}(?:er)?';
 const DEBUT = "(?:[Dd]u|[Ll]e|[Jj]usqu['’]au|[Àà] partir du)";
 const DATE_COMPLETE = `(?:${JOUR}\\s+)?${NUM}\\s+${MOIS}(?:\\s+\\d{4})?`;
@@ -22,20 +22,34 @@ const RYTHME = '(?:en semaine|le week-end|les week-ends|tous les jours|tous les 
 // « 22h10 », « de 10h00 à 16h00 », « à partir de 21h15 »
 const HEURE = '\\d{1,2}\\s?h(?:\\d{2})?';
 const HORAIRE = `(?:(?:de|à partir de|jusqu['’]à|dès|vers|après|avant)\\s+)?${HEURE}(?:\\s+(?:à|et|jusqu['’]à)\\s+${HEURE})?`;
-// Nom de station : mots à majuscule, reliés au besoin par « de », « du », « la », « sur », un tiret entouré d'espaces…
+
+// Nom de station : mots à majuscule reliés au besoin par « de », « du », « la », « sur », un tiret entouré d'espaces…
+// Les abréviations usuelles (« Aérop. », « St. ») gardent leur point ; sinon pas de point : « Eaubonne. Les »
+// s'arrête à « Eaubonne ». Les tirets longs (« Cergy–Le Haut ») et les chiffres en fin de nom (« Gaulle 2 ») sont admis.
 const MAJ = 'A-ZÀ-ÖØ-Þ';
-const MIN = 'a-zà-öø-ÿ';
-const MOT = `[${MAJ}][${MAJ}${MIN}0-9'’\\-]*`;   // pas de point : « Eaubonne. Les » s'arrête à « Eaubonne »
-const LIEN = `(?:\\s+-\\s+|\\s+(?:(?:de|du|des|la|le|les|sur|sous|en|aux?|l['’]|d['’])\\s*)*)`;
-const STATION = `${MOT}(?:${LIEN}${MOT})*`;
+const MIN = 'a-zà-öø-ÿœ';
+const ABREV = '(?:Aérop|Aéro|St|Ste|Av|Bd|Pl|Pte|Gal|Mal)\\.';
+const MOT_DEBUT = `(?:${ABREV}|[${MAJ}][${MAJ}${MIN}0-9'’\\-–]*)`;
+const MOT_SUITE = `(?:${ABREV}|[${MAJ}0-9][${MAJ}${MIN}0-9'’\\-–]*)`;
+const LIEN = `(?:\\s+[-–]\\s+|\\s+(?:(?:de|du|des|la|le|les|sur|sous|en|aux?|l['’]|d['’])\\s*)*)`;
+const STATION = `${MOT_DEBUT}(?:${LIEN}${MOT_SUITE})*`;
+const SEP_STATIONS = '(?:<>|<->|↔|et|à)';
+const SEP_LISTE = '(?:\\s*,\\s*|\\s+et\\s+)';
 // « entre Père-Lachaise et Barbès - Rochechouart », « entre Argenteuil <> Ermont Eaubonne »
-const TRONCON = `entre\\s+${STATION}\\s*(?:<>|<->|↔|et|à)\\s*${STATION}`;
+const TRONCON = `entre\\s+${STATION}\\s*${SEP_STATIONS}\\s*${STATION}`;
+// « les gares de Bois Colombes, Colombes et Le Stade »
+const GARES = `gares?\\s+(?:de\\s+|d['’])?${STATION}(?:${SEP_LISTE}${STATION})*`;
+// « Asnières sur Seine <> Argenteuil », « Paris Saint-Lazare vers Ermont Eaubonne »
+const PAIRE = `${STATION}(?:\\s*(?:<>|<->|↔)\\s*|\\s+vers\\s+)${STATION}`;
 // « l'arrêt n'est pas desservi à Saint-Michel »
 const ARRET = `(?:desservi|desservie|fermée?)\\s+(?:à|en gare de|à la station)\\s+${STATION}`;
+// « au départ de Cergy–Le Haut », « jusqu'à Maisons-Laffitte », « vers Paris », « à Sartrouville » (mais pas « du RER B »)
+const SOLO = `(?:au départ de|jusqu['’]à|depuis|vers|à|de)\\s+(?!(?:RER|Métro|Transilien|Tram|Tramway|Bus|Ligne|Île|France)\\b)${STATION}`;
 
-const MOTIF = new RegExp(`(${TRONCON})|(${ARRET})|(${PERIODE})|(${PERIODE_COURTE})|(${HORAIRE})|(${RYTHME})`, 'g');
+const MOTIF = new RegExp(
+  `(${TRONCON})|(${GARES})|(${PAIRE})|(${ARRET})|(${PERIODE})|(${PERIODE_COURTE})|(${HORAIRE})|(${RYTHME})|(${SOLO})`, 'g');
 
-// Découpe un morceau déjà repéré en sous-morceaux marqués d'un type (les dates d'une période, les heures d'un horaire…).
+// Découpe un morceau déjà repéré en sous-morceaux marqués d'un type (les dates d'une période, les noms d'un tronçon…).
 function marquer(texte: string, motif: RegExp, type: Segment['type']): Segment[] {
   const sortie: Segment[] = [];
   let dernier = 0;
@@ -53,8 +67,7 @@ function marquer(texte: string, motif: RegExp, type: Segment['type']): Segment[]
 
 const UNE_DATE = new RegExp(`(?:${JOUR}\\s+)?${NUM}(?:\\s+${MOIS})?(?:\\s+\\d{4})?`, 'g');
 const UNE_HEURE = new RegExp(HEURE, 'g');
-const DEUX_STATIONS = new RegExp(`^(entre\\s+)(${STATION})(\\s*(?:<>|<->|↔|et|à)\\s*)(${STATION})$`);
-const UNE_STATION = new RegExp(`^((?:desservi|desservie|fermée?)\\s+(?:à|en gare de|à la station)\\s+)(${STATION})$`);
+const UNE_STATION = new RegExp(STATION, 'g');
 
 export function decouperSurligne(texte: string): Segment[] {
   const segments: Segment[] = [];
@@ -64,21 +77,10 @@ export function decouperSurligne(texte: string): Segment[] {
   while ((m = MOTIF.exec(texte)) !== null) {
     if (m[0] === '') { MOTIF.lastIndex++; continue; }
     if (m.index > dernier) segments.push({ texte: texte.slice(dernier, m.index), type: 'texte' });
-    if (m[1]) {
-      const g = DEUX_STATIONS.exec(m[0]);
-      if (g) segments.push({ texte: g[1], type: 'texte' }, { texte: g[2], type: 'station' }, { texte: g[3], type: 'texte' }, { texte: g[4], type: 'station' });
-      else segments.push({ texte: m[0], type: 'texte' });
-    } else if (m[2]) {
-      const g = UNE_STATION.exec(m[0]);
-      if (g) segments.push({ texte: g[1], type: 'texte' }, { texte: g[2], type: 'station' });
-      else segments.push({ texte: m[0], type: 'texte' });
-    } else if (m[3] || m[4]) {
-      segments.push(...marquer(m[0], UNE_DATE, 'quand'));
-    } else if (m[5]) {
-      segments.push(...marquer(m[0], UNE_HEURE, 'quand'));
-    } else {
-      segments.push({ texte: m[0], type: 'quand' });
-    }
+    if (m[1] || m[2] || m[3] || m[4] || m[9]) segments.push(...marquer(m[0], UNE_STATION, 'station'));
+    else if (m[5] || m[6]) segments.push(...marquer(m[0], UNE_DATE, 'quand'));
+    else if (m[7]) segments.push(...marquer(m[0], UNE_HEURE, 'quand'));
+    else segments.push({ texte: m[0], type: 'quand' });
     dernier = m.index + m[0].length;
   }
   if (dernier < texte.length) segments.push({ texte: texte.slice(dernier), type: 'texte' });
