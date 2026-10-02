@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
@@ -41,12 +41,21 @@ function Pastille({ ligne, fond, sombre, onAppui }: { ligne: LigneTrafic; fond: 
 
 // Squelette affiché tant que le premier chargement n'est pas fini (rare : les données sont préchargées au lancement).
 // Même mise en page que l'aperçu, avec des cases grises qui pulsent au lieu des symboles.
-// Easter egg : tenir 3 secondes, à trois doigts, les symboles des métros 1, 4 et 14 fait apparaître (ou disparaître)
+// Easter egg : un appui de 3 secondes sur le symbole du métro 14 fait apparaître (ou disparaître)
 // les lignes 15 à 18 du Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
-const DOIGTS_GPE = ['1', '4', '14'];
+const DOIGTS_GPE = ['14'];
 const LIGNES_GPE: LigneTrafic[] = ['15', '16', '17', '18'].map(code => ({
   id: 'gpe-' + code, code, color: '888888', textColor: 'FFFFFF', mode: 'METRO', etat: 'normal', nbPerturbations: 0,
 }));
+
+// Les lignes de l'easter egg arrivent l'une après l'autre : fondu + petite montée, décalés selon leur rang.
+function Apparition({ rang, children }: { rang: number; children: React.ReactNode }) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(v, { toValue: 1, duration: 380, delay: 150 + rang * 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [v, rang]);
+  return <Animated.View style={{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>{children}</Animated.View>;
+}
 
 const NB_CASES_SQUELETTE: Record<string, number> = { TRAIN_RER: 14, METRO: 16, TRAM: 15, CABLE: 2 };
 
@@ -87,17 +96,11 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
   const [erreur, setErreur] = useState(false);
   const derniere = useRef(0);
   const [gpe, setGpe] = useState(false);
-  // Geste de l'easter egg : poser en même temps trois doigts sur les symboles des métros 1, 4 et 14 (les lignes
-  // automatiques) et les tenir 3 secondes. Les événements tactiles bruts sont utilisés (pas de bouton) car un
-  // bouton ne gère qu'un doigt à la fois.
-  const doigts = useRef(new Set<string>());
+  // Geste de l'easter egg : appui long (3 secondes, bien plus long qu'un appui long ordinaire) sur le symbole du métro 14.
   const minuteurGeste = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const appuiSymbole = useCallback((code: string, pose: boolean) => {
-    if (pose) doigts.current.add(code); else doigts.current.delete(code);
+  const appuiSymbole = useCallback((_code: string, pose: boolean) => {
     if (minuteurGeste.current) { clearTimeout(minuteurGeste.current); minuteurGeste.current = null; }
-    if (pose && doigts.current.size === DOIGTS_GPE.length) {
-      minuteurGeste.current = setTimeout(() => { minuteurGeste.current = null; setGpe(v => !v); }, 3000);
-    }
+    if (pose) minuteurGeste.current = setTimeout(() => { minuteurGeste.current = null; setGpe(v => !v); }, 3000);
   }, []);
   useEffect(() => () => { if (minuteurGeste.current) clearTimeout(minuteurGeste.current); }, []);
   const lignesAffichees = useMemo(() => {
@@ -190,7 +193,10 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
                   <Text style={[styles.sectionTexte, { color: c.textSub }]}>{section.libelle.toUpperCase()}</Text>
                 </View>
                 <View style={styles.grille}>
-                  {deSection.map(l => <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onAppui={appuiSymbole} />)}
+                  {deSection.map(l => {
+                    const pastille = <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onAppui={appuiSymbole} />;
+                    return l.id.startsWith('gpe-') ? <Apparition key={l.id} rang={+l.code - 15}>{pastille}</Apparition> : pastille;
+                  })}
                 </View>
               </View>
             );
