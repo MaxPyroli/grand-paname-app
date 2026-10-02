@@ -19,7 +19,8 @@ type Mot = { texte: string; puce: 'station' | 'quand' | null; espace: boolean };
 // Texte d'une perturbation avec un contour arrondi autour des noms de stations, des dates et des horaires.
 // Un paragraphe sans contour reste un simple texte (retour à la ligne naturel). Un paragraphe avec contours est posé
 // mot à mot dans une rangée qui passe à la ligne : les contours sont alors alignés sur les mots de façon sûre
-// (des vues glissées dans un texte se décalent selon la police et la ligne).
+// (des vues glissées dans un texte se décalent selon la police et la ligne). L'espace entre deux mots est une marge
+// à DROITE du premier : une marge à gauche décalait de 4 px tout contour qui commence une ligne.
 function TexteRiche({ texte }: { texte: string }) {
   const c = useColors();
   return (
@@ -46,11 +47,11 @@ function TexteRiche({ texte }: { texte: string }) {
         return (
           <View key={i} style={[styles.rangee, espace]}>
             {mots.map((m, j) => m.puce ? (
-              <View key={j} style={[styles.puce, { marginLeft: m.espace ? 4 : 0, borderColor: m.puce === 'station' ? c.accent : hexToRgba(c.text, 0.4) }]}>
+              <View key={j} style={[styles.puce, { marginRight: mots[j + 1]?.espace ? 4 : 0, borderColor: m.puce === 'station' ? c.accent : hexToRgba(c.text, 0.4) }]}>
                 <Text style={[styles.puceTexte, { color: c.text }]}>{m.texte}</Text>
               </View>
             ) : (
-              <Text key={j} style={[styles.texte, { color: c.textSub, marginTop: 0, marginLeft: m.espace ? 4 : 0 }]}>{m.texte}</Text>
+              <Text key={j} style={[styles.texte, { color: c.textSub, marginRight: mots[j + 1]?.espace ? 4 : 0 }]}>{m.texte}</Text>
             ))}
           </View>
         );
