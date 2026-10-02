@@ -23,11 +23,17 @@ export type LigneTrafic = {
 
 type LigneBrute = { id: string; code: string; color: string; textColor: string; mode: ModeTrafic };
 
-// Ordre d'affichage des modes dans l'aperçu.
+// Ordre de tri des lignes dans l'aperçu (les RER avant les Transilien).
 export const ORDRE_MODES: ModeTrafic[] = ['RER', 'TRAIN', 'METRO', 'TRAM', 'CABLE'];
-export const LIBELLE_MODE: Record<ModeTrafic, string> = {
-  RER: 'RER', TRAIN: 'Transilien', METRO: 'Métro', TRAM: 'Tramway', CABLE: 'Câble',
-};
+
+// Sections de l'aperçu : RER et Transilien sont regroupés sous « Train / RER », comme dans les autres appli.
+// `icone` = clé de l'icône dans `modeIcons.ts`.
+export const SECTIONS_TRAFIC: { cle: string; libelle: string; icone: string; modes: ModeTrafic[] }[] = [
+  { cle: 'TRAIN_RER', libelle: 'Train / RER', icone: 'TRAIN_RER', modes: ['RER', 'TRAIN'] },
+  { cle: 'METRO', libelle: 'Métro', icone: 'METRO', modes: ['METRO'] },
+  { cle: 'TRAM', libelle: 'Tramway', icone: 'TRAM', modes: ['TRAM'] },
+  { cle: 'CABLE', libelle: 'Câble', icone: 'CABLE', modes: ['CABLE'] },
+];
 
 let cacheLignes: { at: number; lignes: LigneBrute[] } | null = null;
 let cachePerturbations: { at: number; data: any } | null = null;
