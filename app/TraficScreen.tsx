@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
@@ -34,6 +34,12 @@ function Pastille({ ligne, fond, sombre }: { ligne: LigneTrafic; fond: string; s
 
 // Squelette affiché tant que le premier chargement n'est pas fini (rare : les données sont préchargées au lancement).
 // Même mise en page que l'aperçu, avec des cases grises qui pulsent au lieu des symboles.
+// Easter egg : 5 touchers rapprochés sur le titre font apparaître (ou disparaître) les lignes 15 à 18 du
+// Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
+const LIGNES_GPE: LigneTrafic[] = ['15', '16', '17', '18'].map(code => ({
+  id: 'gpe-' + code, code, color: '888888', textColor: 'FFFFFF', mode: 'METRO', etat: 'normal', nbPerturbations: 0,
+}));
+
 const NB_CASES_SQUELETTE: Record<string, number> = { TRAIN_RER: 14, METRO: 16, TRAM: 15, CABLE: 2 };
 
 function Squelette({ couleur }: { couleur: string }) {
@@ -73,6 +79,21 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
   const [erreur, setErreur] = useState(false);
   const [actualise, setActualise] = useState(false);
   const derniere = useRef(0);
+  const [gpe, setGpe] = useState(false);
+  const touchers = useRef({ n: 0, t: 0 });
+  const toucherTitre = useCallback(() => {
+    const maintenant = Date.now();
+    const x = touchers.current;
+    x.n = maintenant - x.t > 1500 ? 1 : x.n + 1;
+    x.t = maintenant;
+    if (x.n >= 5) { x.n = 0; setGpe(g => !g); }
+  }, []);
+  const lignesAffichees = useMemo(() => {
+    if (!lignes || !gpe) return lignes;
+    const dernierMetro = lignes.map(l => l.mode).lastIndexOf('METRO');
+    const absentes = LIGNES_GPE.filter(g => !lignes.some(l => l.mode === 'METRO' && l.code === g.code));
+    return [...lignes.slice(0, dernierMetro + 1), ...absentes, ...lignes.slice(dernierMetro + 1)];
+  }, [lignes, gpe]);
 
   // `silencieux` : préchargement en arrière-plan, une panne de réseau n'affiche pas d'erreur (le volet réessaiera à l'ouverture).
   const charger = useCallback(async (forcer = false, silencieux = false) => {
@@ -114,6 +135,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
       title="Info trafic"
       subtitle={sousTitre}
       headerAlign="left"
+      onTitlePress={toucherTitre}
       headerRight={<PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" />}
     >
       {lignes === null && !erreur ? (
@@ -129,7 +151,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
             <Text style={styles.reessayerTexte}>Réessayer</Text>
           </TouchableOpacity>
         </View>
-      ) : (
+      ) : lignesAffichees && (
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 24 }}
@@ -142,7 +164,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
             <Text style={[styles.legendeTexte, { color: c.textSub }]}>Interrompu</Text>
           </View>
           {SECTIONS_TRAFIC.map(section => {
-            const deSection = lignes.filter(l => section.modes.includes(l.mode));
+            const deSection = lignesAffichees.filter(l => section.modes.includes(l.mode));
             if (deSection.length === 0) return null;
             return (
               <View key={section.cle} style={styles.section}>
