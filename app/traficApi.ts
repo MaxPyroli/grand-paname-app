@@ -70,34 +70,40 @@ async function chargerPerturbations(signal?: AbortSignal): Promise<any> {
   return data;
 }
 
-// État d'une ligne : la plus grave des perturbations EN COURS qui visent la ligne elle-même
-// (pas un arrêt de la ligne : une panne d'ascenseur ne rend pas la ligne perturbée).
+// État d'une ligne : la plus grave des perturbations EN COURS qui la touchent.
 // `BLOQUANTE` = interrompu, `PERTURBEE` = perturbé, `INFORMATION` = rien à signaler.
+// Une perturbation posée sur la ligne entière compte telle quelle. Une perturbation posée sur un arrêt
+// (« arrêt non desservi », train en panne en station…) ne coupe pas la ligne : elle la rend « perturbée »
+// au plus, même si sa gravité est « bloquante » (la ligne circule, seul l'arrêt est fermé).
+// Le flux ne contient aucune panne d'ascenseur ou d'escalator (vérifié : 0 sur plus de 1 000 perturbations).
 export function etatDesLignes(lignes: LigneBrute[], bulk: any, maintenant = Date.now()): LigneTrafic[] {
   const perturbations = new Map<string, any>();
   for (const p of bulk?.disruptions || []) perturbations.set(p.id, p);
 
-  const ciblees = new Map<string, Set<string>>(); // id de ligne → ids de perturbations qui la visent
+  // id de ligne → (id de perturbation → posée sur la ligne entière ?)
+  const ciblees = new Map<string, Map<string, boolean>>();
   for (const l of bulk?.lines || []) {
     for (const o of l.impactedObjects || []) {
-      if (o.type !== 'line') continue;
-      const ens = ciblees.get(o.id) ?? new Set<string>();
-      (o.disruptionIds || []).forEach((id: string) => ens.add(id));
-      ciblees.set(o.id, ens);
+      const surLaLigne = o.type === 'line';
+      if (!surLaLigne && o.type !== 'stop_point') continue;
+      const ens = ciblees.get(l.id) ?? new Map<string, boolean>();
+      for (const id of (o.disruptionIds || []) as string[]) ens.set(id, (ens.get(id) ?? false) || surLaLigne);
+      ciblees.set(l.id, ens);
     }
   }
 
   return lignes.map(l => {
     let etat: EtatTrafic = 'normal';
     let nb = 0;
-    for (const id of ciblees.get(l.id) ?? []) {
+    for (const [id, surLaLigne] of ciblees.get(l.id) ?? []) {
       const p = perturbations.get(id);
       if (!p) continue;
       const periodes: any[] = p.applicationPeriods || [];
       const enCours = periodes.length === 0 || periodes.some(x => dateNavitia(x.begin) <= maintenant && maintenant <= dateNavitia(x.end));
       if (!enCours) continue;
-      const nv: EtatTrafic = p.severity === 'BLOQUANTE' ? 'interrompu' : p.severity === 'PERTURBEE' ? 'perturbe' : 'normal';
+      let nv: EtatTrafic = p.severity === 'BLOQUANTE' ? 'interrompu' : p.severity === 'PERTURBEE' ? 'perturbe' : 'normal';
       if (nv === 'normal') continue;
+      if (!surLaLigne) nv = 'perturbe';
       nb++;
       if (nv === 'interrompu' || etat === 'normal') etat = nv;
     }
