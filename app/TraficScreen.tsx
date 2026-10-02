@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, GestureResponderEvent, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
@@ -15,11 +15,18 @@ import { symboleLigne } from './symbolesLignes';
 const COULEUR_ETAT: Record<EtatTrafic, string | null> = { normal: null, perturbe: '#F39C12', interrompu: '#E5493E' };
 
 // Symbole officiel de la ligne ; à défaut (ligne inconnue), pastille aux couleurs de la ligne.
-function Pastille({ ligne, fond, sombre }: { ligne: LigneTrafic; fond: string; sombre: boolean }) {
+function Pastille({ ligne, fond, sombre, onAppui }: { ligne: LigneTrafic; fond: string; sombre: boolean; onAppui?: (code: string, pose: boolean) => void }) {
   const point = COULEUR_ETAT[ligne.etat];
   const symbole = symboleLigne(ligne.mode, ligne.code, sombre);
   return (
-    <View style={styles.pastilleCase}>
+    <View
+      style={styles.pastilleCase}
+      {...(onAppui && ligne.mode === 'METRO' && DOIGTS_GPE.includes(ligne.code) ? {
+        onTouchStart: () => onAppui(ligne.code, true),
+        onTouchEnd: () => onAppui(ligne.code, false),
+        onTouchCancel: () => onAppui(ligne.code, false),
+      } : null)}
+    >
       {symbole ? (
         <ExpoImage source={{ uri: symbole }} style={styles.symbole} contentFit="contain" />
       ) : (
@@ -34,8 +41,9 @@ function Pastille({ ligne, fond, sombre }: { ligne: LigneTrafic; fond: string; s
 
 // Squelette affiché tant que le premier chargement n'est pas fini (rare : les données sont préchargées au lancement).
 // Même mise en page que l'aperçu, avec des cases grises qui pulsent au lieu des symboles.
-// Easter egg : tirer la liste vers le bas et garder le doigt posé 3 secondes fait apparaître (ou disparaître)
+// Easter egg : tenir 3 secondes, à trois doigts, les symboles des métros 1, 4 et 14 fait apparaître (ou disparaître)
 // les lignes 15 à 18 du Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
+const DOIGTS_GPE = ['1', '4', '14'];
 const LIGNES_GPE: LigneTrafic[] = ['15', '16', '17', '18'].map(code => ({
   id: 'gpe-' + code, code, color: '888888', textColor: 'FFFFFF', mode: 'METRO', etat: 'normal', nbPerturbations: 0,
 }));
@@ -79,19 +87,19 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
   const [erreur, setErreur] = useState(false);
   const derniere = useRef(0);
   const [gpe, setGpe] = useState(false);
-  // Geste de l'easter egg : doigt posé en haut de la liste, tiré d'au moins 60 px vers le bas et tenu 3 secondes.
-  const geste = useRef({ t: 0, y0: 0, y: 0, enHaut: false });
-  const scrollY = useRef(0);
-  const debutGeste = useCallback((e: GestureResponderEvent) => {
-    const y = e.nativeEvent.pageY;
-    geste.current = { t: Date.now(), y0: y, y, enHaut: scrollY.current <= 0 };
+  // Geste de l'easter egg : poser en même temps trois doigts sur les symboles des métros 1, 4 et 14 (les lignes
+  // automatiques) et les tenir 3 secondes. Les événements tactiles bruts sont utilisés (pas de bouton) car un
+  // bouton ne gère qu'un doigt à la fois.
+  const doigts = useRef(new Set<string>());
+  const minuteurGeste = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appuiSymbole = useCallback((code: string, pose: boolean) => {
+    if (pose) doigts.current.add(code); else doigts.current.delete(code);
+    if (minuteurGeste.current) { clearTimeout(minuteurGeste.current); minuteurGeste.current = null; }
+    if (pose && doigts.current.size === DOIGTS_GPE.length) {
+      minuteurGeste.current = setTimeout(() => { minuteurGeste.current = null; setGpe(v => !v); }, 3000);
+    }
   }, []);
-  const mouvementGeste = useCallback((e: GestureResponderEvent) => { geste.current.y = e.nativeEvent.pageY; }, []);
-  const finGeste = useCallback(() => {
-    const g = geste.current;
-    geste.current = { t: 0, y0: 0, y: 0, enHaut: false };
-    if (g.t > 0 && g.enHaut && g.y - g.y0 >= 60 && Date.now() - g.t >= 3000) setGpe(v => !v);
-  }, []);
+  useEffect(() => () => { if (minuteurGeste.current) clearTimeout(minuteurGeste.current); }, []);
   const lignesAffichees = useMemo(() => {
     if (!lignes || !gpe) return lignes;
     const dernierMetro = lignes.map(l => l.mode).lastIndexOf('METRO');
@@ -163,8 +171,6 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
         </View>
       ) : lignesAffichees && (
         <ScrollView
-          onTouchStart={debutGeste} onTouchMove={mouvementGeste} onTouchEnd={finGeste} onTouchCancel={finGeste}
-          onScroll={e => { scrollY.current = e.nativeEvent.contentOffset.y; }} scrollEventThrottle={64}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 24 }}
         >
@@ -184,7 +190,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
                   <Text style={[styles.sectionTexte, { color: c.textSub }]}>{section.libelle.toUpperCase()}</Text>
                 </View>
                 <View style={styles.grille}>
-                  {deSection.map(l => <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} />)}
+                  {deSection.map(l => <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onAppui={appuiSymbole} />)}
                 </View>
               </View>
             );
