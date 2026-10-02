@@ -6,6 +6,7 @@ import IconPosition from './assets/icons/mono/icon-position.svg';
 import IconRecherche from './assets/icons/mono/icon-recherche.svg';
 import IconInfoTrafic from './assets/icons/mono/icon-info-trafic.svg';
 import IconScannerNavigo from './assets/icons/mono/icon-scanner-navigo.svg';
+import IconNotifications from './assets/icons/mono/icon-notifications.svg';
 import IconAvancer from './assets/icons/mono/icon-avancer.svg';
 import IconReculer from './assets/icons/mono/icon-reculer.svg';
 import IconValider from './assets/icons/mono/icon-valider.svg';
@@ -19,6 +20,7 @@ const ICONS = {
   recherche: IconRecherche,
   'info-trafic': IconInfoTrafic,
   'scanner-navigo': IconScannerNavigo,
+  notifications: IconNotifications,
   avancer: IconAvancer,
   reculer: IconReculer,
   valider: IconValider,

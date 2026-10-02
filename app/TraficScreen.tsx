@@ -4,6 +4,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
 import { PanelLayout } from './PanelLayout';
+import { PanelIconAction } from './PanelHeader';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
 import { chargerTrafic, oublierPerturbations, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
@@ -113,6 +114,7 @@ export default function TraficScreen({ actif, verre }: { actif: boolean; verre?:
       title="Info trafic"
       subtitle={sousTitre}
       headerAlign="left"
+      headerRight={<PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" />}
     >
       {lignes === null && !erreur ? (
         <Squelette couleur={c.textSub} />

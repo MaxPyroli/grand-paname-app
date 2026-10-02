@@ -80,7 +80,7 @@ Règle : plus l'élément est grand et flottant, plus le rayon est grand ; un é
 ## 5 ter. Gabarit des volets (Favoris, Trafic et suivants)
 
 Tout volet latéral se construit avec `PanelLayout` (`app/PanelLayout.tsx`) : en-tête (`PanelHeader`), actions, contenu, pied. Ne jamais recopier des styles.
-- **En-tête** : icône 26 px + titre 24 px (`PANEL_TITLE_SIZE`) sur une ligne de 32 px (`PANEL_TITLE_LINE`), sous-titre 13 px Light, marge basse 6 px. Action à droite : `PanelPillAction` (pastille 32 px, alignée sur le titre ; état actif = fond accent).
+- **En-tête** : icône 26 px + titre 24 px (`PANEL_TITLE_SIZE`) sur une ligne de 32 px (`PANEL_TITLE_LINE`), sous-titre 13 px Light, marge basse 6 px. Action à droite : `PanelPillAction` (pastille 32 px, alignée sur le titre ; état actif = fond accent). Action à icône seule : `PanelIconAction` (pastille ronde 32 px, icône de 18 px couleur accent, fond `pillCenter` ; sans `onPress` elle ne réagit pas au toucher) — première utilisation : la cloche des alertes du volet Trafic.
 - **Cartes** : `panelCardStyle` (rayon 20, bordure `borderCard`, ombre douce) + `panelChipStyle` (puce 42 px, icône accent sur `iconGareBg`). Hauteur fixe 72 px pour les listes réorganisables.
 - **État vide** : `PanelEmptyState` (icône 44 px, titre 17 px, description 14 px).
 - **Liste** : début à 16 px sous l'en-tête (`FONDU_HAUT`) ; fondu des bords par masque de dégradé (`MaskedView`) aux longueurs standard ci-dessous.

@@ -60,6 +60,18 @@ export function PanelPillAction({ label, onPress, actif }: { label: string; onPr
   );
 }
 
+// Bouton d'action d'en-tête en forme de pastille ronde avec une icône (ex: la cloche des alertes du volet
+// Trafic) : même hauteur que la ligne du titre. Sans `onPress`, la pastille s'affiche sans réagir au toucher.
+export function PanelIconAction({ icon, onPress, label }: { icon: React.ReactNode; onPress?: () => void; label: string }) {
+  const c = useColors();
+  const style = [styles.pillIcon, { backgroundColor: c.pillCenter }];
+  return onPress ? (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={style} accessibilityRole="button" accessibilityLabel={label}>{icon}</TouchableOpacity>
+  ) : (
+    <View style={style} accessibilityLabel={label}>{icon}</View>
+  );
+}
+
 // Dimensions communes à tous les volets (ne pas les redéfinir dans un écran).
 export const PANEL_TITLE_SIZE = 24;
 export const PANEL_TITLE_LINE = 32;
@@ -72,5 +84,6 @@ const styles = StyleSheet.create({
   titleWithIconRight: { marginRight: 8 },
   titleBadgeWrap: { marginLeft: 8 },
   subtitle: { fontSize: 13, fontFamily: 'GrandParis-Light', marginTop: 2 },
+  pillIcon: { width: PANEL_TITLE_LINE, height: PANEL_TITLE_LINE, borderRadius: PANEL_TITLE_LINE / 2, alignItems: 'center', justifyContent: 'center' },
   pill: { height: PANEL_TITLE_LINE, paddingHorizontal: 14, borderRadius: PANEL_TITLE_LINE / 2, alignItems: 'center', justifyContent: 'center' },
 });
