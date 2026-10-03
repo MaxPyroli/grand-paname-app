@@ -224,7 +224,8 @@ async function main() {
     const m = composerMessage(nouvelles, ab.suivies, francais);
     if (m) messages.push({ to: ab.token, sound: 'default', channelId: 'trafic', priority: 'high', ttl: 3600, ...m });
   }
-  for (const m of messages) console.log(`→ ${m.to.slice(0, 22)}… | ${m.title} | ${m.body}`);
+  // Pas de jeton dans les journaux : le dépôt est public, les journaux d'exécution de GitHub le sont aussi.
+  for (const m of messages) console.log(`→ ${m.title} | ${m.body}`);
 
   if (reel && messages.length > 0) {
     const invalides = await envoyerExpo(messages);
