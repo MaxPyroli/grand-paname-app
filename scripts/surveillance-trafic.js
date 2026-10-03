@@ -161,7 +161,8 @@ async function envoyerExpo(messages) {
     const json = await r.json();
     (json.data || []).forEach((t, k) => {
       if (t.status === 'error') {
-        console.warn(`Envoi refusé (${t.details && t.details.error}) : ${t.message}`);
+        // Le message d'erreur d'Expo contient le jeton : on ne garde que le code (journaux publics).
+        console.warn(`Envoi refusé (${t.details && t.details.error}).`);
         if (t.details && t.details.error === 'DeviceNotRegistered') invalides.push(lot[k].to);
       }
     });
