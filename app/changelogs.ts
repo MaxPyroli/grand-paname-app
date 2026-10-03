@@ -12,6 +12,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
     content: `**🚀 Nouveautés**
 * Scanner Navigo (bêta) : lis ton passe Navigo (contrats, validations, incidents) avec le NFC de ton téléphone. À activer dans Paramètres > Avancé, il ajoute un onglet « Scanner » à la barre de navigation.
 * Info trafic : l'état de toutes les lignes de Train / RER, métro, tramway et câble en un coup d'œil, avec les symboles officiels des lignes, dans le volet Trafic.
+* Alertes trafic : choisis tes lignes avec la cloche du volet Trafic et reçois une notification quand leur trafic est interrompu ou fortement perturbé.
 
 **🛠️ Améliorations et Corrections**
 * Des animations ont été ajoutées sur les icônes de la barre de navigation lors du changement d'onglet.
