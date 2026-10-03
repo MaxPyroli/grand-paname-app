@@ -6,6 +6,8 @@ import { Icon, IconInfoTraficCouleur } from './Icon';
 import { PanelLayout, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
 import { PanelIconAction, PanelPillAction } from './PanelHeader';
 import TraficDetail from './TraficDetail';
+import AlertesTrafic, { EtatAlertes } from './AlertesTrafic';
+import { lireLignesSuivies, enregistrerLignesSuivies } from './notifications';
 import { ListeFondue } from './ListeFondue';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
@@ -117,14 +119,21 @@ function Squelette({ couleur }: { couleur: string }) {
   );
 }
 
-export default function TraficScreen({ actif, verre, retour, onDetail }: { actif: boolean; verre?: boolean; retour?: number; onDetail?: (ouvert: boolean) => void }) {
+// Ce que le volet peut montrer par-dessus la liste : le détail d'une ligne ou le réglage des alertes.
+type Vue = { genre: 'ligne'; ligne: LigneTrafic } | { genre: 'alertes' };
+
+export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId }: {
+  actif: boolean; verre?: boolean; retour?: number; onDetail?: (ouvert: boolean) => void;
+  // Ligne à ouvrir (toucher d'une notification d'alerte) ; `n` change à chaque demande.
+  ouvrirId?: { id: string; n: number } | null;
+}) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const [lignes, setLignes] = useState<LigneTrafic[] | null>(null);
   const [erreur, setErreur] = useState(false);
   const derniere = useRef(0);
   const [gpe, setGpe] = useState(false);
-  const [ligneOuverte, setLigneOuverte] = useState<LigneTrafic | null>(null);
+  const [vueOuverte, setVueOuverte] = useState<Vue | null>(null);
   const secretFait = useRef(false);
   const [largeurGrille, setLargeurGrille] = useState(0);
   // Geste de l'easter egg : appui long (3 secondes, bien plus long qu'un appui long ordinaire) sur le symbole du métro 14.
@@ -137,26 +146,54 @@ export default function TraficScreen({ actif, verre, retour, onDetail }: { actif
     }
   }, []);
   useEffect(() => () => { if (minuteurGeste.current) clearTimeout(minuteurGeste.current); }, []);
-  // Détail d'une ligne : il glisse par-dessus la liste (qui reste montée, donc ses symboles restent décodés et
-  // réapparaissent sans délai au retour) avec le ressort commun des volets. `ligneOuverte` = ligne voulue ;
-  // `ligneMontee` = ligne affichée, gardée le temps de l'animation de fermeture.
-  const [ligneMontee, setLigneMontee] = useState<LigneTrafic | null>(null);
+  // Détail d'une ligne ou réglage des alertes : la vue glisse par-dessus la liste (qui reste montée, donc ses symboles
+  // restent décodés et réapparaissent sans délai au retour) avec le ressort commun des volets. `vueOuverte` = vue
+  // voulue ; `vueMontee` = vue affichée, gardée le temps de l'animation de fermeture.
+  const [vueMontee, setVueMontee] = useState<Vue | null>(null);
   const ouverture = useRef(new Animated.Value(0)).current;
-  const ouvrirLigne = useCallback((l: LigneTrafic) => {
-    // Le toucher qui termine le geste secret (appui de 3 s sur le 14) n'ouvre pas la ligne.
-    if (secretFait.current) { secretFait.current = false; return; }
-    setLigneMontee(l);
-    setLigneOuverte(l);
+  const ouvrirVue = useCallback((v: Vue) => {
+    setVueMontee(v);
+    setVueOuverte(v);
     ouverture.stopAnimation();
     Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true }).start();
   }, [ouverture]);
+  const ouvrirLigne = useCallback((l: LigneTrafic) => {
+    // Le toucher qui termine le geste secret (appui de 3 s sur le 14) n'ouvre pas la ligne.
+    if (secretFait.current) { secretFait.current = false; return; }
+    ouvrirVue({ genre: 'ligne', ligne: l });
+  }, [ouvrirVue]);
   const fermerLigne = useCallback((immediat = false) => {
-    setLigneOuverte(null);
+    setVueOuverte(null);
     ouverture.stopAnimation();
-    if (immediat) { ouverture.setValue(0); setLigneMontee(null); return; }
+    if (immediat) { ouverture.setValue(0); setVueMontee(null); return; }
     Animated.spring(ouverture, { toValue: 0, damping: 15, stiffness: 120, mass: 0.5, overshootClamping: true, useNativeDriver: true })
-      .start(({ finished }) => { if (finished) setLigneMontee(null); });
+      .start(({ finished }) => { if (finished) setVueMontee(null); });
   }, [ouverture]);
+
+  // Lignes suivies pour les alertes : gardées sur le téléphone et envoyées au serveur (un envoi 0,8 s après le
+  // dernier choix, pour ne pas écrire à chaque toucher). Renvoyées au lancement au cas où le serveur les aurait perdues.
+  const [suivies, setSuivies] = useState<string[]>([]);
+  const suiviesRef = useRef<string[]>([]);
+  const [etatAlertes, setEtatAlertes] = useState<EtatAlertes>('ok');
+  const minuteurAlertes = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    let annule = false;
+    lireLignesSuivies().then(l => {
+      if (annule) return;
+      suiviesRef.current = l;
+      setSuivies(l);
+      if (l.length > 0) minuteurAlertes.current = setTimeout(() => { enregistrerLignesSuivies(l).then(e => { if (!annule) setEtatAlertes(e); }); }, 4000);
+    });
+    return () => { annule = true; if (minuteurAlertes.current) clearTimeout(minuteurAlertes.current); };
+  }, []);
+  const basculerSuivie = useCallback((id: string) => {
+    const avant = suiviesRef.current;
+    const apres = avant.includes(id) ? avant.filter(x => x !== id) : [...avant, id];
+    suiviesRef.current = apres;
+    setSuivies(apres);
+    if (minuteurAlertes.current) clearTimeout(minuteurAlertes.current);
+    minuteurAlertes.current = setTimeout(() => { enregistrerLignesSuivies(apres).then(setEtatAlertes); }, 800);
+  }, []);
   // Le volet qu'on referme revient à la liste (une fois l'animation de fermeture du volet finie).
   useEffect(() => {
     if (actif) return;
@@ -164,7 +201,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail }: { actif
     return () => clearTimeout(minuteur);
   }, [actif, fermerLigne]);
   // Toucher l'onglet Trafic alors qu'on est dans le détail d'une ligne ramène au menu principal.
-  useEffect(() => { onDetail?.(ligneOuverte !== null); }, [ligneOuverte, onDetail]);
+  useEffect(() => { onDetail?.(vueOuverte !== null); }, [vueOuverte, onDetail]);
   const retourVu = useRef(retour);
   useEffect(() => {
     if (retourVu.current === retour) return;
@@ -227,6 +264,17 @@ export default function TraficScreen({ actif, verre, retour, onDetail }: { actif
     return () => minuteurs.forEach(clearTimeout);
   }, [actif, lignes]);
 
+  // Toucher d'une notification d'alerte : ouvre la ligne concernée (dès que la liste des lignes est chargée).
+  const idTraite = useRef(0);
+  useEffect(() => {
+    if (!ouvrirId || !lignes || idTraite.current === ouvrirId.n) return;
+    const ligne = lignes.find(l => l.id === ouvrirId.id);
+    idTraite.current = ouvrirId.n;
+    if (ligne) ouvrirVue({ genre: 'ligne', ligne });
+  }, [ouvrirId, lignes, ouvrirVue]);
+
+  const ligneOuverte = vueOuverte?.genre === 'ligne' ? vueOuverte.ligne : null;
+  const alertesOuvertes = vueOuverte?.genre === 'alertes';
   const nbPerturbees = (lignes ?? []).filter(l => l.etat !== 'normal').length;
   const sousTitre = lignes === null
     ? 'État du trafic en temps réel'
@@ -237,18 +285,22 @@ export default function TraficScreen({ actif, verre, retour, onDetail }: { actif
     <PanelLayout
       icon={ligneOuverte
         ? <ExpoImage source={{ uri: symboleLigne(ligneOuverte.mode, ligneOuverte.code, isDark) ?? '' }} style={{ width: 30, height: 30 }} contentFit="contain" />
-        : <IconInfoTraficCouleur size={26} dotColor={c.text} />}
-      title={ligneOuverte ? libelleLigne(ligneOuverte) : 'Info trafic'}
-      subtitle={ligneOuverte ? LIBELLE_ETAT[ligneOuverte.etat] : sousTitre}
+        : alertesOuvertes
+          ? <Icon name="notifications" size={26} color={c.accent} />
+          : <IconInfoTraficCouleur size={26} dotColor={c.text} />}
+      title={ligneOuverte ? libelleLigne(ligneOuverte) : alertesOuvertes ? 'Alertes trafic' : 'Info trafic'}
+      subtitle={ligneOuverte ? LIBELLE_ETAT[ligneOuverte.etat]
+        : alertesOuvertes ? (suivies.length === 0 ? 'Aucune ligne suivie' : `${suivies.length} ligne${suivies.length > 1 ? 's' : ''} suivie${suivies.length > 1 ? 's' : ''}`)
+        : sousTitre}
       headerAlign="left"
-      headerRight={ligneOuverte
+      headerRight={vueOuverte
         ? <PanelPillAction label="Retour" onPress={() => fermerLigne()} />
-        : <PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" />}
+        : <PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" onPress={() => ouvrirVue({ genre: 'alertes' })} />}
     >
       <View style={{ flex: 1 }}>
         <Animated.View
           style={{ flex: 1, opacity: ouverture.interpolate({ inputRange: [0, 1], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, -28], extrapolate: 'clamp' }) }] }}
-          pointerEvents={ligneOuverte ? 'none' : 'auto'}
+          pointerEvents={vueOuverte ? 'none' : 'auto'}
         >
       {lignes === null && !erreur ? (
         <Squelette couleur={c.textSub} />
@@ -303,12 +355,14 @@ export default function TraficScreen({ actif, verre, retour, onDetail }: { actif
         </ListeFondue>
       )}
         </Animated.View>
-        {ligneMontee && (
+        {vueMontee && (
           <Animated.View
             style={[StyleSheet.absoluteFill, { opacity: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [48, 0] }) }] }]}
-            pointerEvents={ligneOuverte ? 'auto' : 'none'}
+            pointerEvents={vueOuverte ? 'auto' : 'none'}
           >
-            <TraficDetail key={ligneMontee.id} ligne={ligneMontee} verre={verre} />
+            {vueMontee.genre === 'ligne'
+              ? <TraficDetail key={vueMontee.ligne.id} ligne={vueMontee.ligne} verre={verre} />
+              : <AlertesTrafic lignes={lignes} suivies={suivies} onBasculer={basculerSuivie} etat={etatAlertes} verre={verre} />}
           </Animated.View>
         )}
       </View>

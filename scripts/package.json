@@ -4,7 +4,8 @@
   "type": "commonjs",
   "scripts": {
     "send-notification": "node send-notification.js",
-    "notifications": "node notifications-ui.js --ouvrir"
+    "notifications": "node notifications-ui.js --ouvrir",
+    "surveillance-trafic": "node surveillance-trafic.js"
   },
   "dependencies": {
     "firebase-admin": "^13.0.0"

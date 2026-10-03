@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { firebaseConfig } from './firebaseConfig';
 import { APP_VERSION } from './constants';
 import { logger } from './logger';
@@ -58,13 +59,15 @@ async function saveTokenToFirestore(token: string) {
     const db = getFirestore(firebaseApp());
     // Le token sert d'ID de doc : ré-enregistrer le même appareil met juste à
     // jour la ligne existante au lieu d'en créer une nouvelle à chaque lancement.
+    // `merge` : ne pas effacer les autres champs du document (ex. `alertesLignes`, les lignes suivies pour les
+    // alertes trafic) à chaque lancement de l'app.
     await setDoc(doc(db, 'pushTokens', token), {
       token,
       platform: Platform.OS,
       appVersion: APP_VERSION,
       deviceKey: cleAppareil(),
       updatedAt: serverTimestamp(),
-    });
+    }, { merge: true });
   } catch (e: any) {
     logger.warn(`saveTokenToFirestore: ${e?.message}`);
   }
@@ -124,4 +127,48 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     logger.warn(`registerForPushNotificationsAsync: ${e?.message}`);
     return null;
   }
+}
+
+// ── Alertes trafic ────────────────────────────────────────────────────────────
+// Les lignes que l'utilisateur suit sont gardées sur le téléphone ET dans son document `pushTokens` (champ
+// `alertesLignes`) : c'est ce champ que lit le programme de surveillance (scripts/surveillance-trafic.js) pour
+// savoir qui prévenir. Rien de personnel n'est enregistré, seulement des identifiants de lignes.
+const CLE_LIGNES_SUIVIES = '@gp_alertes_lignes';
+
+export async function lireLignesSuivies(): Promise<string[]> {
+  try {
+    const brut = await AsyncStorage.getItem(CLE_LIGNES_SUIVIES);
+    const liste = brut ? JSON.parse(brut) : [];
+    return Array.isArray(liste) ? liste.filter((x: unknown) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+// Enregistre la liste (téléphone puis serveur). Renvoie 'ok', 'refuse' (notifications refusées par le téléphone :
+// aucune alerte ne pourra arriver) ou 'erreur' (réseau : la liste est gardée sur le téléphone, à renvoyer plus tard).
+export async function enregistrerLignesSuivies(lignes: string[]): Promise<'ok' | 'refuse' | 'erreur'> {
+  try { await AsyncStorage.setItem(CLE_LIGNES_SUIVIES, JSON.stringify(lignes)); } catch { /* sans gravité */ }
+  const token = await registerForPushNotificationsAsync();
+  if (!token) return lignes.length > 0 ? 'refuse' : 'ok';
+  try {
+    const db = getFirestore(firebaseApp());
+    await setDoc(doc(db, 'pushTokens', token), { alertesLignes: lignes, alertesMiseAJour: serverTimestamp() }, { merge: true });
+    return 'ok';
+  } catch (e: any) {
+    logger.warn(`enregistrerLignesSuivies: ${e?.message}`);
+    return 'erreur';
+  }
+}
+
+// Appelle `quand(idLigne)` quand l'utilisateur touche une notification d'alerte trafic (app ouverte, en arrière-plan
+// ou fermée : dans ce dernier cas, la notification qui a lancé l'app est relue au démarrage).
+export function ecouterToucherAlerteTrafic(quand: (idLigne: string) => void): () => void {
+  const traiter = (reponse: Notifications.NotificationResponse | null) => {
+    const data: any = reponse?.notification?.request?.content?.data;
+    if (data?.type === 'trafic' && typeof data.ligneId === 'string') quand(data.ligneId);
+  };
+  const abonnement = Notifications.addNotificationResponseReceivedListener(traiter);
+  Notifications.getLastNotificationResponseAsync().then(traiter).catch(() => {});
+  return () => abonnement.remove();
 }

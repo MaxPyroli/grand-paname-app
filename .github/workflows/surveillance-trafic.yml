@@ -1,0 +1,43 @@
+# Surveillance du trafic : toutes les 5 minutes, prévient par notification les appareils qui suivent une ligne
+# dont le trafic vient d'être interrompu ou fortement perturbé (voir scripts/surveillance-trafic.js).
+#
+# Réglages à faire dans GitHub (Settings > Secrets and variables > Actions) :
+#   - secret  PRIM_API_KEY              : clé de l'API PRIM (Île-de-France Mobilités)
+#   - secret  FIREBASE_SERVICE_ACCOUNT  : contenu du fichier firebase-service-account.json
+#   - variable ALERTES_REELLES = 1      : active l'envoi RÉEL. Sans elle, le programme tourne en simulation
+#                                         (il lit tout, n'envoie rien et n'écrit rien).
+# Une tâche planifiée ne tourne que depuis la branche par défaut du dépôt (main).
+name: Surveillance du trafic
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+# Jamais deux passages en même temps : ils pourraient envoyer deux fois la même alerte.
+concurrency:
+  group: surveillance-trafic
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  surveiller:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+      - run: npm ci
+        working-directory: scripts
+      - run: node surveillance-trafic.js
+        working-directory: scripts
+        env:
+          PRIM_API_KEY: ${{ secrets.PRIM_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ENVOI_REEL: ${{ vars.ALERTES_REELLES == '1' && '1' || '0' }}

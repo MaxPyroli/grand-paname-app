@@ -35,7 +35,7 @@ import { useAudioPlayer } from 'expo-audio';
 import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS, useFrameCallback } from 'react-native-reanimated';
-import { registerForPushNotificationsAsync } from './notifications';
+import { registerForPushNotificationsAsync, ecouterToucherAlerteTrafic } from './notifications';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
 import { PanelLayout, panelCardStyle, panelChipStyle, PANEL_CARD_RADIUS } from './PanelLayout';
 import { PanelHeader, PanelPillAction } from './PanelHeader';
@@ -2507,6 +2507,9 @@ function AppInner() {
   // https://expo.dev/notifications, de le coller et d'envoyer.
   const [pushToken, setPushToken] = useState<string | null>(null);
   useEffect(() => { registerForPushNotificationsAsync().then(setPushToken); }, []);
+  // Toucher une notification d'alerte trafic : ouvre le volet Trafic sur la ligne concernée.
+  const [ligneAOuvrir, setLigneAOuvrir] = useState<{ id: string; n: number } | null>(null);
+  useEffect(() => ecouterToucherAlerteTrafic(id => { setActiveTab('trafic'); setLigneAOuvrir({ id, n: Date.now() }); }), []);
 
   // ── Mise à jour Play Store depuis l'app ──────────────────────────────────
   // require() différé partout ci-dessous : ces deux libs plantent à l'évaluation
@@ -3350,7 +3353,7 @@ function AppInner() {
           ]}>
             {!isWideLayout && flouTrafic && <CoucheVerre zone="tiroirs" />}
             <View style={[styles.cardContentWrapper, !isWideLayout && { paddingTop: 20, paddingBottom: 16 }]}>
-              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} retour={retourTrafic} onDetail={onDetailTrafic} />
+              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} retour={retourTrafic} onDetail={onDetailTrafic} ouvrirId={ligneAOuvrir} />
             </View>
           </Animated.View>
         </>
