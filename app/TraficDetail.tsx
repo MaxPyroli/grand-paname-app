@@ -193,7 +193,7 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}>
                 {detail.enCours.length > 0 && <Text style={[styles.section, { color: c.textSub }]}>EN COURS</Text>}
                 {detail.enCours.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
-                {detail.aVenir.length > 0 && <Text style={[styles.section, { color: c.textSub, marginTop: detail.enCours.length > 0 ? 10 : 0 }]}>À VENIR</Text>}
+                {detail.aVenir.length > 0 && <Text style={[styles.section, { color: c.textSub, marginTop: detail.enCours.length > 0 ? 10 : 0 }]}>PLUS TARD</Text>}
                 {detail.aVenir.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
               </ScrollView>
             </ListeFondue>
