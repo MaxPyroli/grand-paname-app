@@ -251,7 +251,11 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     if (forcer) oublierPerturbations();
     if (!silencieux) setErreur(false);
     try {
-      setLignes(await chargerTrafic());
+      const nouvelles = await chargerTrafic();
+      // Mêmes lignes, mêmes états : on garde l'ancien tableau (aucun nouveau rendu des 47 pastilles toutes les minutes).
+      setLignes(avant => avant && avant.length === nouvelles.length
+        && avant.every((l, i) => l.id === nouvelles[i].id && l.etat === nouvelles[i].etat && l.nbPerturbations === nouvelles[i].nbPerturbations)
+        ? avant : nouvelles);
       derniere.current = Date.now();
     } catch {
       if (!silencieux) setErreur(true);
@@ -310,6 +314,52 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     ? 'État du trafic en temps réel'
     : nbPerturbees === 0 ? (nbTravaux > 0 ? `Trafic normal${partieTravaux}` : 'Trafic normal sur toutes les lignes')
     : `${nbPerturbees} ligne${nbPerturbees > 1 ? 's' : ''} perturbée${nbPerturbees > 1 ? 's' : ''}${partieTravaux}`;
+
+  // La liste (47 symboles) est construite UNE fois et réutilisée tant que ses données ne changent pas : ouvrir une ligne
+  // change l'état du volet mais ne doit pas redessiner les 47 pastilles (le thread JavaScript, occupé, retardait le
+  // départ de l'animation : « parfois ça met 1 seconde et ça s'affiche sans animation »).
+  const contenuListe = useMemo(() => lignesAffichees ? (
+        <ListeFondue verre={verre}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}
+        >
+          {/* Légende : chaque rond avec son mot forme un bloc ; les blocs passent à la ligne si l'écran est étroit. */}
+          <View style={styles.legende}>
+            {([['interrompu', 'Interrompu', 9], ['perturbe', 'Perturbé', 9], ['travaux', 'Travaux', 11], ['info', 'Info', 9]] as const).map(([etat, libelle, taille]) => (
+              <View key={etat} style={styles.legendeItem}>
+                <View style={styles.legendePoint}><PointEtat etat={etat} taille={taille} /></View>
+                <Text style={[styles.legendeTexte, { color: c.textSub }]}>{libelle}</Text>
+              </View>
+            ))}
+          </View>
+          {SECTIONS_TRAFIC.map(section => {
+            const deSection = lignesAffichees.filter(l => section.modes.includes(l.mode));
+            if (deSection.length === 0) return null;
+            return (
+              <View key={section.cle} style={styles.section}>
+                <View style={styles.sectionTitre}>
+                  <ExpoImage source={{ uri: MODE_ICONS[section.icone] ?? MODE_ICONS['BUS'] }} style={[styles.sectionIcone, { tintColor: c.textSub }]} contentFit="contain" />
+                  <Text style={[styles.sectionTexte, { color: c.textSub }]}>{section.libelle.toUpperCase()}</Text>
+                </View>
+                <View style={styles.grille} onLayout={e => setLargeurGrille(e.nativeEvent.layout.width)}>
+                  {deSection.map((l, i) => {
+                    const pastille = <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onPress={l.id.startsWith('gpe-') ? undefined : () => ouvrirLigne(l)} onAppui={appuiSymbole} />;
+                    if (!l.id.startsWith('gpe-')) return pastille;
+                    // Position (colonne, rangée) de chaque case dans la grille à cases de 50 px espacées de 6 px.
+                    const colonnes = largeurGrille > 0 ? Math.max(1, Math.floor((largeurGrille + 6) / 56)) : 6;
+                    const i14 = deSection.findIndex(x => x.mode === 'METRO' && x.code === '14');
+                    const dx = ((i14 % colonnes) - (i % colonnes)) * 56;
+                    const dy = (Math.floor(i14 / colonnes) - Math.floor(i / colonnes)) * 56;
+                    return <Apparition key={l.id} rang={+l.code - 15} dx={dx} dy={dy}>{pastille}</Apparition>;
+                  })}
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+        </ListeFondue>
+  ) : null, [lignesAffichees, verre, isDark, c, largeurGrille, ouvrirLigne, appuiSymbole]);
 
   // EN-TÊTE À DEUX COUCHES, pilotées par la MÊME animation que le glissement (valeur native `ouverture`), sans aucune
 // bascule de texte à un instant précis : « Info trafic » (liste) s'efface sur le premier tiers, puis l'en-tête de la vue
@@ -381,48 +431,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
             <Text style={styles.reessayerTexte}>Réessayer</Text>
           </TouchableOpacity>
         </View>
-      ) : lignesAffichees && (
-        <ListeFondue verre={verre}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}
-        >
-          {/* Légende : chaque rond avec son mot forme un bloc ; les blocs passent à la ligne si l'écran est étroit. */}
-          <View style={styles.legende}>
-            {([['interrompu', 'Interrompu', 9], ['perturbe', 'Perturbé', 9], ['travaux', 'Travaux', 11], ['info', 'Info', 9]] as const).map(([etat, libelle, taille]) => (
-              <View key={etat} style={styles.legendeItem}>
-                <View style={styles.legendePoint}><PointEtat etat={etat} taille={taille} /></View>
-                <Text style={[styles.legendeTexte, { color: c.textSub }]}>{libelle}</Text>
-              </View>
-            ))}
-          </View>
-          {SECTIONS_TRAFIC.map(section => {
-            const deSection = lignesAffichees.filter(l => section.modes.includes(l.mode));
-            if (deSection.length === 0) return null;
-            return (
-              <View key={section.cle} style={styles.section}>
-                <View style={styles.sectionTitre}>
-                  <ExpoImage source={{ uri: MODE_ICONS[section.icone] ?? MODE_ICONS['BUS'] }} style={[styles.sectionIcone, { tintColor: c.textSub }]} contentFit="contain" />
-                  <Text style={[styles.sectionTexte, { color: c.textSub }]}>{section.libelle.toUpperCase()}</Text>
-                </View>
-                <View style={styles.grille} onLayout={e => setLargeurGrille(e.nativeEvent.layout.width)}>
-                  {deSection.map((l, i) => {
-                    const pastille = <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onPress={l.id.startsWith('gpe-') ? undefined : () => ouvrirLigne(l)} onAppui={appuiSymbole} />;
-                    if (!l.id.startsWith('gpe-')) return pastille;
-                    // Position (colonne, rangée) de chaque case dans la grille à cases de 50 px espacées de 6 px.
-                    const colonnes = largeurGrille > 0 ? Math.max(1, Math.floor((largeurGrille + 6) / 56)) : 6;
-                    const i14 = deSection.findIndex(x => x.mode === 'METRO' && x.code === '14');
-                    const dx = ((i14 % colonnes) - (i % colonnes)) * 56;
-                    const dy = (Math.floor(i14 / colonnes) - Math.floor(i / colonnes)) * 56;
-                    return <Apparition key={l.id} rang={+l.code - 15} dx={dx} dy={dy}>{pastille}</Apparition>;
-                  })}
-                </View>
-              </View>
-            );
-          })}
-        </ScrollView>
-        </ListeFondue>
-      )}
+      ) : contenuListe}
         </Animated.View>
         {vueMontee && (
           <Animated.View
