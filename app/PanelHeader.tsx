@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { useColors } from './theme';
 
@@ -26,42 +26,26 @@ type PanelHeaderProps = {
   cle?: string;
 };
 
-// Fondu glissé entre deux contenus : l'ancien monte et s'efface, le nouveau monte depuis le bas en apparaissant.
-// Ne s'anime que quand `cle` change (pas au premier affichage, pas quand le texte se met à jour avec la même clé).
-function Transition({ cle, children, ancrage = 'left', style }: { cle: string; children: React.ReactNode; ancrage?: 'left' | 'right'; style?: any }) {
+// Apparition douce du nouveau contenu quand `cle` change : il monte de 8 px en apparaissant. L'ancien contenu est
+// remplacé tout de suite (jamais deux textes superposés, même une fraction de seconde : les versions qui gardaient
+// l'ancien pour le faire s'effacer donnaient des textes qui se chevauchent). Pas d'animation au premier affichage, ni
+// quand le texte se met à jour avec la même clé.
+function Transition({ cle, children, style }: { cle: string; children: React.ReactNode; ancrage?: 'left' | 'right'; style?: any }) {
   const v = useRef(new Animated.Value(1)).current;
-  const dernier = useRef<{ cle: string; children: React.ReactNode }>({ cle, children });
-  const [precedent, setPrecedent] = useState<React.ReactNode>(null);
+  const derniereCle = useRef(cle);
   // Avant l'affichage : le nouveau contenu est mis à transparent dans la même image, sans éclair.
   useLayoutEffect(() => {
-    if (dernier.current.cle !== cle) {
-      setPrecedent(dernier.current.children);
-      v.stopAnimation();
-      v.setValue(0);
-      Animated.timing(v, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true })
-        .start(({ finished }) => { if (finished) setPrecedent(null); });
-    }
-    dernier.current = { cle, children };
-  });
+    if (derniereCle.current === cle) return;
+    derniereCle.current = cle;
+    v.stopAnimation();
+    v.setValue(0);
+    Animated.timing(v, { toValue: 1, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [cle, v]);
   return (
     <View style={style}>
-      <Animated.View style={{ opacity: v.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 0, 1] }), transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
+      <Animated.View style={{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }}>
         {children}
       </Animated.View>
-      {precedent !== null && (
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            // Large boîte transparente : sans largeur, l'ancien texte était mesuré dans la largeur du NOUVEAU (plus
-            // étroit) et passait sur deux lignes pendant qu'il s'effaçait.
-            position: 'absolute', top: 0, [ancrage]: 0, width: 600, alignItems: ancrage === 'left' ? 'flex-start' : 'flex-end',
-            opacity: v.interpolate({ inputRange: [0, 0.3], outputRange: [1, 0], extrapolate: 'clamp' }),
-            transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }) }],
-          }}
-        >
-          {precedent}
-        </Animated.View>
-      )}
     </View>
   );
 }

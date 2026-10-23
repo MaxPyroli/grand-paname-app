@@ -327,7 +327,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     >
       <View style={{ flex: 1 }}>
         <Animated.View
-          style={{ flex: 1, opacity: ouverture.interpolate({ inputRange: [0, 0.4], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, -28], extrapolate: 'clamp' }) }] }}
+          style={{ flex: 1, opacity: ouverture.interpolate({ inputRange: [0, 0.25], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, -28], extrapolate: 'clamp' }) }] }}
           pointerEvents={vueOuverte ? 'none' : 'auto'}
         >
       {lignes === null && !erreur ? (
@@ -388,7 +388,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
         </Animated.View>
         {vueMontee && (
           <Animated.View
-            style={[StyleSheet.absoluteFill, { opacity: ouverture.interpolate({ inputRange: [0.2, 0.8], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [48, 0] }) }] }]}
+            style={[StyleSheet.absoluteFill, { opacity: ouverture.interpolate({ inputRange: [0.4, 0.9], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [48, 0] }) }] }]}
             pointerEvents={vueOuverte ? 'auto' : 'none'}
           >
             {vueMontee.genre === 'ligne'
