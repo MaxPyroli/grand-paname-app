@@ -52,7 +52,9 @@ function Transition({ cle, children, ancrage = 'left', style }: { cle: string; c
         <Animated.View
           pointerEvents="none"
           style={{
-            position: 'absolute', top: 0, [ancrage]: 0,
+            // Large boîte transparente : sans largeur, l'ancien texte était mesuré dans la largeur du NOUVEAU (plus
+            // étroit) et passait sur deux lignes pendant qu'il s'effaçait.
+            position: 'absolute', top: 0, [ancrage]: 0, width: 600, alignItems: ancrage === 'left' ? 'flex-start' : 'flex-end',
             opacity: v.interpolate({ inputRange: [0, 0.3], outputRange: [1, 0], extrapolate: 'clamp' }),
             transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }) }],
           }}

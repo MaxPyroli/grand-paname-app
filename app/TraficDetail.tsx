@@ -109,7 +109,8 @@ function SqueletteDetail() {
   return (
     <View style={{ paddingTop: PANEL_CONTENT_TOP_PAD }} pointerEvents="none">
       {[0, 1, 2].map(i => (
-        <View key={i} style={[styles.carte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
+        // Sans ombre : une ombre (élévation) sous une couche qui s'estompe se dessine comme un halo sale sur Android.
+        <View key={i} style={[styles.carte, { backgroundColor: c.bgCard, borderColor: c.borderCard, shadowOpacity: 0, elevation: 0 }]}>
           {bloc(90, 10)}{bloc('85%', 14, 12)}{bloc('100%', 11, 12)}{bloc('70%', 11, 7)}
         </View>
       ))}
