@@ -142,7 +142,7 @@ export type NiveauPerturbation = 'interrompu' | 'perturbe' | 'info';
 export type CausePerturbation = 'travaux' | 'perturbation' | 'information';
 // Nature de la perturbation, d'après l'étiquette officielle courte (canal « cbiv ») : « Trafic interrompu »,
 // « Trafic fortement perturbé », « Trafic perturbé », « Arrêt(s) non desservi(s) », « Autre » ; à défaut, la gravité.
-export type TypePerturbation = 'interrompu' | 'partielle' | 'fortement' | 'perturbe' | 'arret' | 'info';
+export type TypePerturbation = 'interrompu' | 'fortement' | 'perturbe' | 'arret' | 'info';
 
 export type PerturbationLigne = {
   id: string;
@@ -228,13 +228,13 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
         : /perturb/.test(etiquette) ? 'perturbe'
         : /autre|information/.test(etiquette) ? 'info'
         : niveau === 'perturbe' ? 'perturbe' : 'info';
-      // Le texte annonce une interruption de la ligne elle-même alors que le code dit « perturbée » : on le dit, mais
-      // comme « interruption partielle » — pas « trafic interrompu », qui est réservé au code (pas « interrompu sur une
-      // autre ligne »).
+      // Le texte annonce une interruption de la ligne elle-même (même sur un tronçon) alors que le code dit « perturbée » :
+      // une ligne coupée est « Trafic interrompu » (décision de l'utilisateur) — sauf si c'est une AUTRE ligne qui est
+      // interrompue (« interrompu sur le RER A »).
       const lu = `${titre} ${texte}`;
       if (type !== 'info'
         && (/(?:trafic|circulation|service)\s+(?:est\s+|sera\s+)?interrompu(?!\s+sur\s+(?:la\s+ligne|le\s+(?:rer|m[eé]tro|tram)|les\s+rer|ligne))/i.test(lu) || /interrompu\s+entre/i.test(lu))) {
-        type = 'partielle';
+        type = 'interrompu';
       }
     }
     const arretsPluriel = /\(s\)/.test(etiquette);
@@ -256,7 +256,7 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
     parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, type, arretsPluriel, enCours, debut, fin, periode });
   }
   const rangCause: Record<CausePerturbation, number> = { perturbation: 0, travaux: 1, information: 2 };
-  const gravite: Record<TypePerturbation, number> = { interrompu: 0, partielle: 1, fortement: 2, perturbe: 3, arret: 4, info: 5 };
+  const gravite: Record<TypePerturbation, number> = { interrompu: 0, fortement: 1, perturbe: 2, arret: 3, info: 4 };
   const tout = [...parId.values()];
   return {
     // Les plus graves d'abord ; à gravité égale, un incident avant des travaux, et le plus récent d'abord.
