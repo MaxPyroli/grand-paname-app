@@ -293,7 +293,10 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     if (!lignes || prechauffe.current) return;
     prechauffe.current = true;
     // Espacés et plafonnés : le serveur refuse (429) les rafales de requêtes.
-    const aCharger = lignes.filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').slice(0, 3);
+    // D'abord les lignes que l'utilisateur suit (alertes), puis les plus perturbées ; trois au plus.
+    const suivies3 = lignes.filter(l => suiviesRef.current.includes(l.id));
+    const graves = lignes.filter(l => (l.etat === 'perturbe' || l.etat === 'interrompu') && !suiviesRef.current.includes(l.id));
+    const aCharger = [...suivies3, ...graves].slice(0, 3);
     const minuteurs = aCharger.map((l, i) => setTimeout(() => prechargerDetailLigne(l.id), 1500 + i * 1400));
     return () => minuteurs.forEach(clearTimeout);
   }, [actif, lignes]);

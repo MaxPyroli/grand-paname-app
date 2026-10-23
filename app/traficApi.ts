@@ -302,6 +302,7 @@ export function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promi
       const stationsEnParallele = chargerStationsLigne(idLigne, signal);
       // Le serveur répond « 429 » (trop de requêtes) si on en envoie trop vite, et parfois 5xx : on réessaie
       // jusqu'à 3 fois en espaçant, plutôt que d'afficher une erreur ou un détail vide.
+      const t0 = Date.now();
       let r: Response | null = null;
       for (let essai = 0; essai < 4; essai++) {
         r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(idLigne)}/line_reports?count=200&depth=0`, { headers: { apiKey: NAVITIA_KEY }, signal });
@@ -309,10 +310,15 @@ export function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promi
         await new Promise(res => setTimeout(res, 400 * (essai + 1)));
       }
       if (!r || (!r.ok && r.status !== 404)) throw new Error(`HTTP ${r?.status}`);
-      const detail = analyserDetailLigne(r.ok ? await r.json() : {});
+      const t1 = Date.now();
+      const json = r.ok ? await r.json() : {};
+      const t2 = Date.now();
+      const detail = analyserDetailLigne(json);
       // Les stations ne servent qu'à repérer des noms dans les textes : inutile s'il n'y a aucun texte.
       if (detail.enCours.length + detail.aVenir.length > 0) detail.stations = await stationsEnParallele;
       cacheDetails.set(idLigne, { at: Date.now(), detail });
+      // Mesure (développement seulement) : où part le temps sur le téléphone ? `adb logcat -s ReactNativeJS`
+      if (__DEV__) console.log(`[trafic] détail ${idLigne} : réseau ${t1 - t0} ms, lecture JSON ${t2 - t1} ms, analyse + stations ${Date.now() - t2} ms`);
       return detail;
     })().finally(() => { detailsEnCours.delete(idLigne); });
     detailsEnCours.set(idLigne, enCours);
