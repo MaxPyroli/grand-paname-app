@@ -17,7 +17,7 @@ import { FONDU_BAS } from './Fade';
 
 // Tiroir « Info trafic » — version simple (étape 1 du plan de la 3.4.0) : l'état de chaque ligne
 // lourde en un coup d'œil. Pas encore de détail au toucher ni de recherche de bus.
-const COULEUR_ETAT: Record<EtatTrafic, string | null> = { normal: null, perturbe: '#F39C12', interrompu: '#E5493E' };
+const COULEUR_ETAT: Record<EtatTrafic, string | null> = { normal: null, info: '#3C91DC', perturbe: '#F39C12', interrompu: '#E5493E' };
 
 // Symbole officiel de la ligne ; à défaut (ligne inconnue), pastille aux couleurs de la ligne.
 // `onPress` ouvre le détail de la ligne ; `onAppui` sert au geste secret (voir plus bas).
@@ -58,7 +58,7 @@ function libelleLigne(l: LigneTrafic): string {
     default: return 'Câble ' + l.code;
   }
 }
-const LIBELLE_ETAT: Record<EtatTrafic, string> = { normal: 'Trafic normal', perturbe: 'Trafic perturbé', interrompu: 'Trafic interrompu' };
+const LIBELLE_ETAT: Record<EtatTrafic, string> = { normal: 'Trafic normal', info: 'Information', perturbe: 'Trafic perturbé', interrompu: 'Trafic interrompu' };
 
 // Easter egg : un appui de 3 secondes sur le symbole du métro 14 fait apparaître (ou disparaître)
 // les lignes 15 à 18 du Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
@@ -269,7 +269,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     if (!lignes || prechauffe.current) return;
     prechauffe.current = true;
     // Espacés et plafonnés : le serveur refuse (429) les rafales de requêtes.
-    const aCharger = lignes.filter(l => l.etat !== 'normal').slice(0, 6);
+    const aCharger = lignes.filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').slice(0, 6);
     const minuteurs = aCharger.map((l, i) => setTimeout(() => prechargerDetailLigne(l.id), 1200 + i * 900));
     return () => minuteurs.forEach(clearTimeout);
   }, [actif, lignes]);
@@ -285,7 +285,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
 
   const ligneOuverte = vueOuverte?.genre === 'ligne' ? vueOuverte.ligne : null;
   const alertesOuvertes = vueOuverte?.genre === 'alertes';
-  const nbPerturbees = (lignes ?? []).filter(l => l.etat !== 'normal').length;
+  const nbPerturbees = (lignes ?? []).filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').length;
   const sousTitre = lignes === null
     ? 'État du trafic en temps réel'
     : nbPerturbees === 0 ? 'Trafic normal sur toutes les lignes'
@@ -337,6 +337,8 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
             <Text style={[styles.legendeTexte, { color: c.textSub }]}>Perturbé</Text>
             <View style={[styles.legendePoint, { backgroundColor: COULEUR_ETAT.interrompu!, marginLeft: 14 }]} />
             <Text style={[styles.legendeTexte, { color: c.textSub }]}>Interrompu</Text>
+            <View style={[styles.legendePoint, { backgroundColor: COULEUR_ETAT.info!, marginLeft: 14 }]} />
+            <Text style={[styles.legendeTexte, { color: c.textSub }]}>Info</Text>
           </View>
           {SECTIONS_TRAFIC.map(section => {
             const deSection = lignesAffichees.filter(l => section.modes.includes(l.mode));

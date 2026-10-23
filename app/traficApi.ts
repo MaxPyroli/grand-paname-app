@@ -8,7 +8,7 @@ const URL_PERTURBATIONS = 'https://prim.iledefrance-mobilites.fr/marketplace/dis
 const TTL_PERTURBATIONS_MS = 60_000;
 const TTL_LIGNES_MS = 24 * 3600 * 1000;
 
-export type EtatTrafic = 'normal' | 'perturbe' | 'interrompu';
+export type EtatTrafic = 'normal' | 'info' | 'perturbe' | 'interrompu';
 export type ModeTrafic = 'RER' | 'TRAIN' | 'METRO' | 'TRAM' | 'CABLE';
 
 export type LigneTrafic = {
@@ -77,12 +77,14 @@ async function chargerPerturbations(signal?: AbortSignal): Promise<any> {
   return data;
 }
 
-// État d'une ligne : la plus grave des perturbations EN COURS qui la touchent.
-// `BLOQUANTE` = interrompu, `PERTURBEE` = perturbé, `INFORMATION` = rien à signaler.
-// Une perturbation posée sur la ligne entière compte telle quelle. Une perturbation posée sur un arrêt
-// (« arrêt non desservi », train en panne en station…) ne coupe pas la ligne : elle la rend « perturbée »
-// au plus, même si sa gravité est « bloquante » (la ligne circule, seul l'arrêt est fermé).
+// État d'une ligne : la plus grave des perturbations EN COURS qui la touchent. MÊMES RÈGLES que le détail d'une ligne
+// (`analyserDetailLigne`), pour que le point de la liste et le type affiché dans le détail ne se contredisent pas :
+//   gravité « bloquante » sur la ligne → interrompu ; « bloquante » sur un arrêt (station fermée…) → perturbé ;
+//   cause « information » (match, manifestation) → info ; « perturbée » → perturbé ; « information » → info.
+//   Exception étroite : un titre qui commence par « Traffic interrupted » (la version anglaise du flux en masse de
+//   « Trafic interrompu ») est une interruption même codé « perturbée ».
 // Le flux ne contient aucune panne d'ascenseur ou d'escalator (vérifié : 0 sur plus de 1 000 perturbations).
+const RANG_ETAT: Record<EtatTrafic, number> = { normal: 0, info: 1, perturbe: 2, interrompu: 3 };
 export function etatDesLignes(lignes: LigneBrute[], bulk: any, maintenant = Date.now()): LigneTrafic[] {
   const perturbations = new Map<string, any>();
   for (const p of bulk?.disruptions || []) perturbations.set(p.id, p);
@@ -108,11 +110,12 @@ export function etatDesLignes(lignes: LigneBrute[], bulk: any, maintenant = Date
       const periodes: any[] = p.applicationPeriods || [];
       const enCours = periodes.length === 0 || periodes.some(x => dateNavitia(x.begin) <= maintenant && maintenant <= dateNavitia(x.end));
       if (!enCours) continue;
-      let nv: EtatTrafic = p.severity === 'BLOQUANTE' ? 'interrompu' : p.severity === 'PERTURBEE' ? 'perturbe' : 'normal';
-      if (nv === 'normal') continue;
-      if (!surLaLigne) nv = 'perturbe';
+      let nv: EtatTrafic = p.severity === 'BLOQUANTE' ? (surLaLigne ? 'interrompu' : 'perturbe')
+        : p.cause === 'INFORMATION' ? 'info'
+        : p.severity === 'PERTURBEE' ? 'perturbe' : 'info';
+      if (nv === 'perturbe' && surLaLigne && /^\s*traffic\s+interrupted/i.test(String(p.title || ''))) nv = 'interrompu';
       nb++;
-      if (nv === 'interrompu' || etat === 'normal') etat = nv;
+      if (RANG_ETAT[nv] > RANG_ETAT[etat]) etat = nv;
     }
     return { ...l, etat, nbPerturbations: nb };
   });
