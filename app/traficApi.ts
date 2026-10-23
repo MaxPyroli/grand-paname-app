@@ -216,7 +216,8 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
     // Vérifié sur toutes les lignes lourdes (voir journal du 2026-10-23) : « bloquante » posée sur la LIGNE = trafic
     // réellement interrompu (32 cas sur 32, textes concordants) ; « bloquante » posée sur un ARRÊT = station fermée ou
     // arrêt non desservi, jamais une ligne coupée. En revanche beaucoup d'interruptions de tronçon (travaux de nuit,
-    // incidents) sont codées « perturbée » : le code ne les voit pas, seul le texte les annonce.
+    // incidents) sont codées « perturbée » : elles restent « perturbé » / « arrêts non desservis » (décision : on s'en
+    // tient au code, pas à la lecture du texte).
     const surLaLigne = ((d.impacted_objects || []) as any[]).some(o => o?.pt_object?.embedded_type === 'line');
     let type: TypePerturbation;
     if (nom === 'bloquante') {
@@ -228,14 +229,6 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
         : /perturb/.test(etiquette) ? 'perturbe'
         : /autre|information/.test(etiquette) ? 'info'
         : niveau === 'perturbe' ? 'perturbe' : 'info';
-      // Le texte annonce une interruption de la ligne elle-même (même sur un tronçon) alors que le code dit « perturbée » :
-      // une ligne coupée est « Trafic interrompu » (décision de l'utilisateur) — sauf si c'est une AUTRE ligne qui est
-      // interrompue (« interrompu sur le RER A »).
-      const lu = `${titre} ${texte}`;
-      if (type !== 'info'
-        && (/(?:trafic|circulation|service)\s+(?:est\s+|sera\s+)?interrompu(?!\s+sur\s+(?:la\s+ligne|le\s+(?:rer|m[eé]tro|tram)|les\s+rer|ligne))/i.test(lu) || /interrompu\s+entre/i.test(lu))) {
-        type = 'interrompu';
-      }
     }
     const arretsPluriel = /\(s\)/.test(etiquette);
     const cause: CausePerturbation = d.cause === 'travaux' ? 'travaux' : d.cause === 'information' ? 'information' : 'perturbation';
