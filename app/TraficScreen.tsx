@@ -152,9 +152,12 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   const [vueMontee, setVueMontee] = useState<Vue | null>(null);
   const ouverture = useRef(new Animated.Value(0)).current;
   const ouvrirVue = useCallback((v: Vue) => {
+    // Repart toujours de zéro : si une fermeture était en cours, la valeur gardée côté JavaScript peut être en retard
+    // sur la valeur réelle (animation native) et laisser entrevoir, une image ou deux, l'ancien contenu.
+    ouverture.stopAnimation();
+    ouverture.setValue(0);
     setVueMontee(v);
     setVueOuverte(v);
-    ouverture.stopAnimation();
     Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true }).start();
   }, [ouverture]);
   // Ouvrir une ligne : si son détail n'est pas déjà en mémoire, on l'attend jusqu'à 300 ms AVANT de lancer l'animation
@@ -177,7 +180,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     ouverture.stopAnimation();
     if (immediat) { ouverture.setValue(0); setVueMontee(null); return; }
     Animated.spring(ouverture, { toValue: 0, damping: 15, stiffness: 120, mass: 0.5, overshootClamping: true, useNativeDriver: true })
-      .start(({ finished }) => { if (finished) setVueMontee(null); });
+      .start(({ finished }) => { if (finished) { ouverture.setValue(0); setVueMontee(null); } });
   }, [ouverture]);
 
   // Lignes suivies pour les alertes : gardées sur le téléphone et envoyées au serveur (un envoi 0,8 s après le

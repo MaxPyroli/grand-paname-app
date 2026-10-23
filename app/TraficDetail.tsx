@@ -125,9 +125,11 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
   const [erreur, setErreur] = useState(false);
   // Sinon (réponse longue à venir) : le squelette tout de suite — l'écran qui ouvre la ligne a déjà attendu la réponse
   // un court instant (voir `ouvrirLigne`), il n'y a donc plus de blanc ni de squelette qui ne dure qu'un éclair.
-  const apparition = useRef(new Animated.Value(detail ? 1 : 0)).current;
+  // Le contenu part toujours de transparent et se fond en 160 ms, même s'il est déjà en mémoire : si le téléphone
+  // réutilise une vue de la ligne précédente, son ancien contenu n'est jamais visible.
+  const apparition = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (detail) Animated.timing(apparition, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+    if (detail) Animated.timing(apparition, { toValue: 1, duration: 160, useNativeDriver: true }).start();
   }, [detail, apparition]);
   const analyse = useMemo(() => creerAnalyseStations(detail?.stations ?? []), [detail]);
 
