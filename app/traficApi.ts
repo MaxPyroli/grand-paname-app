@@ -213,13 +213,21 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
     const nom = d.severity?.name;
     const niveau: NiveauPerturbation = nom === 'bloquante' ? 'interrompu' : nom === 'perturbée' ? 'perturbe' : 'info';
     const etiquette = message('cbiv').toLowerCase();
-    const type: TypePerturbation =
+    let type: TypePerturbation =
       /interrompu/.test(etiquette) ? 'interrompu'
       : /fortement/.test(etiquette) ? 'fortement'
       : /non desservi/.test(etiquette) ? 'arret'
       : /perturb/.test(etiquette) ? 'perturbe'
       : /autre|information/.test(etiquette) ? 'info'
       : niveau === 'interrompu' ? 'interrompu' : niveau === 'perturbe' ? 'perturbe' : 'info';
+    // L'étiquette de la source n'est pas toujours exacte (« fortement perturbé » alors que le texte dit « le trafic est
+    // interrompu entre Orsay-Ville et Gif-sur-Yvette », « arrêts non desservis » pour un tronçon coupé) : quand le
+    // texte annonce une interruption de la ligne elle-même, c'est une interruption (pas « interrompu sur une autre ligne »).
+    const lu = `${titre} ${texte}`;
+    if (type !== 'interrompu' && type !== 'info'
+      && (/(?:trafic|circulation|service)\s+(?:est\s+|sera\s+)?interrompu(?!\s+sur\s+(?:la\s+ligne|le\s+(?:rer|m[eé]tro|tram)|les\s+rer|ligne))/i.test(lu) || /interrompu\s+entre/i.test(lu))) {
+      type = 'interrompu';
+    }
     const arretsPluriel = /\(s\)/.test(etiquette);
     const cause: CausePerturbation = d.cause === 'travaux' ? 'travaux' : d.cause === 'information' ? 'information' : 'perturbation';
     const periode = enCours
@@ -238,10 +246,12 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
     }
     parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, type, arretsPluriel, enCours, debut, fin, periode });
   }
+  const rangCause: Record<CausePerturbation, number> = { perturbation: 0, travaux: 1, information: 2 };
   const gravite: Record<TypePerturbation, number> = { interrompu: 0, fortement: 1, perturbe: 2, arret: 3, info: 4 };
   const tout = [...parId.values()];
   return {
-    enCours: tout.filter(p => p.enCours).sort((a, b) => gravite[a.type] - gravite[b.type] || a.debut - b.debut),
+    // Les plus graves d'abord ; à gravité égale, un incident avant des travaux, et le plus récent d'abord.
+    enCours: tout.filter(p => p.enCours).sort((a, b) => gravite[a.type] - gravite[b.type] || rangCause[a.cause] - rangCause[b.cause] || b.debut - a.debut),
     aVenir: tout.filter(p => !p.enCours).sort((a, b) => a.debut - b.debut),
     stations: [],
   };

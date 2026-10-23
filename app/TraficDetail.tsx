@@ -74,7 +74,7 @@ function Carte({ p, analyse }: { p: PerturbationLigne; analyse: AnalyseStations 
       <View style={styles.carteHaut}>
         <View style={styles.cause}>
           <View style={[styles.point, { backgroundColor: COULEUR_TYPE[p.type] }]} />
-          <Text style={[styles.causeTexte, { color: COULEUR_TYPE[p.type] }]} numberOfLines={1}>
+          <Text style={[styles.causeTexte, { color: COULEUR_TYPE[p.type] }]}>
             {(p.type === 'arret' && p.arretsPluriel ? 'Arrêts non desservis' : LIBELLE_TYPE[p.type]).toUpperCase()}
           </Text>
         </View>
@@ -196,11 +196,11 @@ const styles = StyleSheet.create({
   section: { fontSize: 12, fontFamily: 'GrandParis-Bold', letterSpacing: 0.8, marginLeft: 4, marginBottom: 10 },
   carte: { ...panelCardStyle, flexDirection: 'column', alignItems: 'stretch', paddingVertical: 14, marginBottom: 10 },
   carteHaut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  cause: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
+  cause: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
   point: { width: 9, height: 9, borderRadius: 4.5 },
-  causeTexte: { fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.6 },
+  causeTexte: { fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.6, flexShrink: 1 },
   periode: { fontSize: 12, fontFamily: 'GrandParis-Medium', marginBottom: 6 },
-  pastilleCause: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, height: 20, justifyContent: 'center', marginLeft: 8 },
+  pastilleCause: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, height: 20, justifyContent: 'center', marginLeft: 8, flexShrink: 0 },
   pastilleCauseTexte: { fontSize: 11, fontFamily: 'GrandParis-Medium', includeFontPadding: false },
   titre: { fontSize: 15, fontFamily: 'GrandParis-Bold', lineHeight: 20 },
   texte: { fontSize: 13, fontFamily: 'GrandParis-Light', lineHeight: 24 },
