@@ -8,7 +8,9 @@ const URL_PERTURBATIONS = 'https://prim.iledefrance-mobilites.fr/marketplace/dis
 const TTL_PERTURBATIONS_MS = 60_000;
 const TTL_LIGNES_MS = 24 * 3600 * 1000;
 
-export type EtatTrafic = 'normal' | 'info' | 'perturbe' | 'interrompu';
+// `travaux` = des travaux EN COURS qui touchent la ligne en ce moment (les travaux prévus plus tard ne comptent pas), sans
+// incident en direct par-dessus.
+export type EtatTrafic = 'normal' | 'info' | 'travaux' | 'perturbe' | 'interrompu';
 export type ModeTrafic = 'RER' | 'TRAIN' | 'METRO' | 'TRAM' | 'CABLE';
 
 export type LigneTrafic = {
@@ -84,7 +86,7 @@ async function chargerPerturbations(signal?: AbortSignal): Promise<any> {
 //   Exception étroite : un titre qui commence par « Traffic interrupted » (la version anglaise du flux en masse de
 //   « Trafic interrompu ») est une interruption même codé « perturbée ».
 // Le flux ne contient aucune panne d'ascenseur ou d'escalator (vérifié : 0 sur plus de 1 000 perturbations).
-const RANG_ETAT: Record<EtatTrafic, number> = { normal: 0, info: 1, perturbe: 2, interrompu: 3 };
+const RANG_ETAT: Record<EtatTrafic, number> = { normal: 0, info: 1, travaux: 2, perturbe: 3, interrompu: 4 };
 export function etatDesLignes(lignes: LigneBrute[], bulk: any, maintenant = Date.now()): LigneTrafic[] {
   const perturbations = new Map<string, any>();
   for (const p of bulk?.disruptions || []) perturbations.set(p.id, p);
@@ -115,6 +117,9 @@ export function etatDesLignes(lignes: LigneBrute[], bulk: any, maintenant = Date
         : p.severity === 'PERTURBEE' ? 'perturbe' : 'info';
       if (nv === 'perturbe' && surLaLigne && /^\s*traffic\s+interrupted/i.test(String(p.title || ''))) nv = 'interrompu';
       nb++;
+      // Des travaux en cours ne sont ni un incident ni une interruption « en direct » : ils ont leur propre état, plus
+      // faible qu'un incident en direct (la ligne affiche l'incident s'il y en a un) et plus fort qu'une simple info.
+      if (p.cause === 'TRAVAUX') nv = 'travaux';
       if (RANG_ETAT[nv] > RANG_ETAT[etat]) etat = nv;
     }
     return { ...l, etat, nbPerturbations: nb };

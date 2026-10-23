@@ -17,12 +17,27 @@ import { FONDU_BAS } from './Fade';
 
 // Tiroir « Info trafic » — version simple (étape 1 du plan de la 3.4.0) : l'état de chaque ligne
 // lourde en un coup d'œil. Pas encore de détail au toucher ni de recherche de bus.
-const COULEUR_ETAT: Record<EtatTrafic, string | null> = { normal: null, info: '#3C91DC', perturbe: '#F39C12', interrompu: '#E5493E' };
+const COULEUR_ETAT: Record<EtatTrafic, string | null> = { normal: null, info: '#3C91DC', travaux: null, perturbe: '#F39C12', interrompu: '#E5493E' };
+
+// Point d'état : rond de couleur ; les travaux en cours ont un rond NOIR à centre JAUNE (comme la signalisation de chantier).
+// `fond` = couleur du fond derrière, pour détacher le point du symbole ; sans `fond` (légende), pas de liseré.
+function PointEtat({ etat, fond, taille }: { etat: EtatTrafic; fond?: string; taille: number }) {
+  const liseré = fond ? { borderWidth: 2, borderColor: fond } : null;
+  if (etat === 'travaux') {
+    return (
+      <View style={[{ width: taille, height: taille, borderRadius: taille / 2, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center' }, liseré]}>
+        <View style={{ width: taille * 0.46, height: taille * 0.46, borderRadius: taille * 0.23, backgroundColor: '#FFC400' }} />
+      </View>
+    );
+  }
+  const couleur = COULEUR_ETAT[etat];
+  if (!couleur) return null;
+  return <View style={[{ width: taille, height: taille, borderRadius: taille / 2, backgroundColor: couleur }, liseré]} />;
+}
 
 // Symbole officiel de la ligne ; à défaut (ligne inconnue), pastille aux couleurs de la ligne.
 // `onPress` ouvre le détail de la ligne ; `onAppui` sert au geste secret (voir plus bas).
 function Pastille({ ligne, fond, sombre, onPress, onAppui }: { ligne: LigneTrafic; fond: string; sombre: boolean; onPress?: () => void; onAppui?: (code: string, pose: boolean) => void }) {
-  const point = COULEUR_ETAT[ligne.etat];
   const symbole = symboleLigne(ligne.mode, ligne.code, sombre);
   const contenu = (
     <View
@@ -40,7 +55,7 @@ function Pastille({ ligne, fond, sombre, onPress, onAppui }: { ligne: LigneTrafi
           <Text style={[styles.pastilleTexte, { color: '#' + ligne.textColor }]} numberOfLines={1}>{ligne.code}</Text>
         </View>
       )}
-      {point && <View style={[styles.pastillePoint, { backgroundColor: point, borderColor: fond }]} />}
+      {ligne.etat !== 'normal' && <View style={styles.pastillePoint}><PointEtat etat={ligne.etat} fond={fond} taille={ligne.etat === 'travaux' ? 16 : 14} /></View>}
     </View>
   );
   // Le 14 reste devant les lignes de l'easter egg qui sortent de derrière lui.
@@ -58,7 +73,7 @@ function libelleLigne(l: LigneTrafic): string {
     default: return 'Câble ' + l.code;
   }
 }
-const LIBELLE_ETAT: Record<EtatTrafic, string> = { normal: 'Trafic normal', info: 'Information', perturbe: 'Trafic perturbé', interrompu: 'Trafic interrompu' };
+const LIBELLE_ETAT: Record<EtatTrafic, string> = { normal: 'Trafic normal', info: 'Information', travaux: 'Travaux en cours', perturbe: 'Trafic perturbé', interrompu: 'Trafic interrompu' };
 
 // Easter egg : un appui de 3 secondes sur le symbole du métro 14 fait apparaître (ou disparaître)
 // les lignes 15 à 18 du Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
@@ -286,10 +301,12 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   const ligneOuverte = vueOuverte?.genre === 'ligne' ? vueOuverte.ligne : null;
   const alertesOuvertes = vueOuverte?.genre === 'alertes';
   const nbPerturbees = (lignes ?? []).filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').length;
+  const nbTravaux = (lignes ?? []).filter(l => l.etat === 'travaux').length;
+  const partieTravaux = nbTravaux > 0 ? ` · ${nbTravaux} avec travaux` : '';
   const sousTitre = lignes === null
     ? 'État du trafic en temps réel'
-    : nbPerturbees === 0 ? 'Trafic normal sur toutes les lignes'
-    : `${nbPerturbees} ligne${nbPerturbees > 1 ? 's' : ''} perturbée${nbPerturbees > 1 ? 's' : ''}`;
+    : nbPerturbees === 0 ? (nbTravaux > 0 ? `Trafic normal${partieTravaux}` : 'Trafic normal sur toutes les lignes')
+    : `${nbPerturbees} ligne${nbPerturbees > 1 ? 's' : ''} perturbée${nbPerturbees > 1 ? 's' : ''}${partieTravaux}`;
 
   return (
     <PanelLayout
@@ -333,12 +350,14 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
           contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}
         >
           <View style={styles.legende}>
-            <View style={[styles.legendePoint, { backgroundColor: COULEUR_ETAT.perturbe! }]} />
+            <View style={styles.legendePoint}><PointEtat etat="perturbe" taille={9} /></View>
             <Text style={[styles.legendeTexte, { color: c.textSub }]}>Perturbé</Text>
-            <View style={[styles.legendePoint, { backgroundColor: COULEUR_ETAT.interrompu!, marginLeft: 14 }]} />
+            <View style={[styles.legendePoint, { marginLeft: 14 }]}><PointEtat etat="interrompu" taille={9} /></View>
             <Text style={[styles.legendeTexte, { color: c.textSub }]}>Interrompu</Text>
-            <View style={[styles.legendePoint, { backgroundColor: COULEUR_ETAT.info!, marginLeft: 14 }]} />
+            <View style={[styles.legendePoint, { marginLeft: 14 }]}><PointEtat etat="info" taille={9} /></View>
             <Text style={[styles.legendeTexte, { color: c.textSub }]}>Info</Text>
+            <View style={[styles.legendePoint, { marginLeft: 14 }]}><PointEtat etat="travaux" taille={11} /></View>
+            <Text style={[styles.legendeTexte, { color: c.textSub }]}>Travaux</Text>
           </View>
           {SECTIONS_TRAFIC.map(section => {
             const deSection = lignesAffichees.filter(l => section.modes.includes(l.mode));
@@ -389,7 +408,7 @@ const styles = StyleSheet.create({
   reessayer: { height: 40, borderRadius: 20, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 40 },
   reessayerTexte: { color: '#fff', fontFamily: 'GrandParis-Bold', fontSize: 14 },
   legende: { flexDirection: 'row', alignItems: 'center', marginTop: 0, marginBottom: 4, marginLeft: 4 },
-  legendePoint: { width: 9, height: 9, borderRadius: 4.5, marginRight: 6 },
+  legendePoint: { marginRight: 6 },
   legendeTexte: { fontSize: 12, fontFamily: 'GrandParis-Medium' },
   section: { marginTop: 14 },
   sectionTitre: { flexDirection: 'row', alignItems: 'center', marginLeft: 4, marginBottom: 10, gap: 8 },
@@ -401,5 +420,5 @@ const styles = StyleSheet.create({
   symbole: { width: 42, height: 42 },
   pastille: { minWidth: 48, height: 32, borderRadius: 12, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
   pastilleTexte: { fontSize: 14, fontFamily: 'GrandParis-Bold' },
-  pastillePoint: { position: 'absolute', top: 2, right: 2, width: 14, height: 14, borderRadius: 7, borderWidth: 2 },
+  pastillePoint: { position: 'absolute', top: 1, right: 1 },
 });
