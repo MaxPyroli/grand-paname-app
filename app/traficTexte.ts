@@ -69,7 +69,38 @@ const UNE_DATE = new RegExp(`(?:${JOUR}\\s+)?${NUM}(?:\\s+${MOIS})?(?:\\s+\\d{4}
 const UNE_HEURE = new RegExp(HEURE, 'g');
 const UNE_STATION = new RegExp(STATION, 'g');
 
-export function decouperSurligne(texte: string): Segment[] {
+// ── Stations réelles de la ligne ──────────────────────────────────────────────────────────────────────────────────
+// Le repérage par la forme ne sait pas dire si « Grande Couronne » est une station : on ne garde donc que les noms
+// qui correspondent à une station de la ligne (« Paris St-Lazare » ↔ « Paris Saint-Lazare », « Aérop. » ↔ « Aéroport »).
+const MOTS_VIDES = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'sur', 'sous', 'en', 'au', 'aux', 'et', 'paris', 'gare', 'station', 'l', 'd']);
+function mots(nom: string): string[] {
+  return nom
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[-–'’().,]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(m => (m === 'saint' ? 'st' : m === 'sainte' ? 'ste' : m));
+}
+const significatifs = (nom: string) => mots(nom).filter(m => !MOTS_VIDES.has(m) && (m.length > 1 || /\d/.test(m)));
+const memeMot = (a: string, b: string) => a === b || (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)));
+
+export function creerFiltreStations(noms: string[]): (candidat: string) => boolean {
+  const stations = noms.map(n => significatifs(n));
+  return (candidat: string) => {
+    const mc = significatifs(candidat);
+    if (mc.length === 0) return false;
+    return stations.some(ms => mc.every(m => ms.some(s => memeMot(m, s))));
+  };
+}
+
+export function decouperSurligne(texte: string, estStation?: (candidat: string) => boolean): Segment[] {
+  const segments = decouperBrut(texte);
+  if (!estStation) return segments;
+  return segments.map(s => (s.type === 'station' && !estStation(s.texte) ? { texte: s.texte, type: 'texte' as const } : s));
+}
+
+function decouperBrut(texte: string): Segment[] {
   const segments: Segment[] = [];
   let dernier = 0;
   MOTIF.lastIndex = 0;

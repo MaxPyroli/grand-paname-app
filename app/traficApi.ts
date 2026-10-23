@@ -158,7 +158,8 @@ export type PerturbationLigne = {
   periode: string;   // « Jusqu'au 19 décembre », « À partir du 12 octobre »…
 };
 
-export type DetailLigne = { enCours: PerturbationLigne[]; aVenir: PerturbationLigne[] };
+// `stations` : noms des stations de la ligne, pour ne repérer dans les textes que les VRAIS noms de stations de la ligne.
+export type DetailLigne = { enCours: PerturbationLigne[]; aVenir: PerturbationLigne[]; stations: string[] };
 
 const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 const JOURS_A_VENIR = 45;           // les travaux plus lointains ne sont pas listés
@@ -242,10 +243,34 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
   return {
     enCours: tout.filter(p => p.enCours).sort((a, b) => gravite[a.type] - gravite[b.type] || a.debut - b.debut),
     aVenir: tout.filter(p => !p.enCours).sort((a, b) => a.debut - b.debut),
+    stations: [],
   };
 }
 
 const cacheDetails = new Map<string, { at: number; detail: DetailLigne }>();
+
+// Détail déjà en mémoire (frais) : permet d'afficher une ligne tout de suite, sans écran de chargement.
+export function detailEnCache(idLigne: string): DetailLigne | null {
+  const connu = cacheDetails.get(idLigne);
+  return connu && Date.now() - connu.at < TTL_PERTURBATIONS_MS ? connu.detail : null;
+}
+
+// Noms des stations d'une ligne (change quasiment jamais : gardés 24 h). Échec réseau → liste vide, sans erreur :
+// les textes s'afficheront simplement sans contour autour des stations.
+const cacheStations = new Map<string, { at: number; noms: string[] }>();
+async function chargerStationsLigne(idLigne: string, signal?: AbortSignal): Promise<string[]> {
+  const connu = cacheStations.get(idLigne);
+  if (connu && Date.now() - connu.at < 24 * 3600 * 1000) return connu.noms;
+  try {
+    const r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(idLigne)}/stop_areas?count=1000&depth=0&disable_geojson=true&disable_disruption=true`, { headers: { apiKey: NAVITIA_KEY }, signal });
+    if (!r.ok) return [];
+    const noms: string[] = ((await r.json()).stop_areas || []).map((s: any) => String(s.name || '')).filter(Boolean);
+    cacheStations.set(idLigne, { at: Date.now(), noms });
+    return noms;
+  } catch {
+    return [];
+  }
+}
 
 // Une seule requête en vol par ligne : le préchargement (doigt posé, lignes perturbées) et l'ouverture du détail la partagent.
 const detailsEnCours = new Map<string, Promise<DetailLigne>>();
@@ -266,6 +291,8 @@ export function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promi
       }
       if (!r || (!r.ok && r.status !== 404)) throw new Error(`HTTP ${r?.status}`);
       const detail = analyserDetailLigne(r.ok ? await r.json() : {});
+      // Les stations ne servent qu'à repérer des noms dans les textes : inutile s'il n'y a aucun texte.
+      if (detail.enCours.length + detail.aVenir.length > 0) detail.stations = await chargerStationsLigne(idLigne, signal);
       cacheDetails.set(idLigne, { at: Date.now(), detail });
       return detail;
     })().finally(() => { detailsEnCours.delete(idLigne); });
