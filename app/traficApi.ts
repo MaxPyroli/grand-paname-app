@@ -263,9 +263,12 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
 const cacheDetails = new Map<string, { at: number; detail: DetailLigne }>();
 
 // Détail déjà en mémoire (frais) : permet d'afficher une ligne tout de suite, sans écran de chargement.
+// Un détail vu il y a moins de 3 minutes s'affiche tout de suite ; au-delà d'une minute il est relu en arrière-plan et
+// l'écran se met à jour quand la réponse arrive (voir `chargerDetailLigne`, qui ne réutilise que les données de moins d'une minute).
+const DUREE_AFFICHAGE_DETAIL_MS = 3 * 60_000;
 export function detailEnCache(idLigne: string): DetailLigne | null {
   const connu = cacheDetails.get(idLigne);
-  return connu && Date.now() - connu.at < TTL_PERTURBATIONS_MS ? connu.detail : null;
+  return connu && Date.now() - connu.at < DUREE_AFFICHAGE_DETAIL_MS ? connu.detail : null;
 }
 
 // Noms des stations d'une ligne (change quasiment jamais : gardés 24 h). Échec réseau → liste vide, sans erreur :
