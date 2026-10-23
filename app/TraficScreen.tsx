@@ -4,7 +4,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
 import { PanelLayout, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
-import { PanelIconAction, PanelPillAction } from './PanelHeader';
+import { PanelHeader, PanelIconAction, PanelPillAction } from './PanelHeader';
 import TraficDetail from './TraficDetail';
 import AlertesTrafic, { EtatAlertes } from './AlertesTrafic';
 import { lireLignesSuivies, enregistrerLignesSuivies } from './notifications';
@@ -303,8 +303,6 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     if (ligne) ouvrirVue({ genre: 'ligne', ligne });
   }, [ouvrirId, lignes, ouvrirVue]);
 
-  const ligneOuverte = vueOuverte?.genre === 'ligne' ? vueOuverte.ligne : null;
-  const alertesOuvertes = vueOuverte?.genre === 'alertes';
   const nbPerturbees = (lignes ?? []).filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').length;
   const nbTravaux = (lignes ?? []).filter(l => l.etat === 'travaux').length;
   const partieTravaux = nbTravaux > 0 ? ` · ${nbTravaux} avec travaux` : '';
@@ -313,27 +311,57 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     : nbPerturbees === 0 ? (nbTravaux > 0 ? `Trafic normal${partieTravaux}` : 'Trafic normal sur toutes les lignes')
     : `${nbPerturbees} ligne${nbPerturbees > 1 ? 's' : ''} perturbée${nbPerturbees > 1 ? 's' : ''}${partieTravaux}`;
 
-  return (
-    <PanelLayout
-      icon={ligneOuverte
-        // Même image, même taille (42 px) que dans la liste, réduite à 30 px par une mise à l'échelle : elle est déjà
-        // décodée par la liste, donc elle apparaît tout de suite (à 30 px elle devait être redécodée : « le logo met du temps »).
+  // EN-TÊTE À DEUX COUCHES, pilotées par la MÊME animation que le glissement (valeur native `ouverture`), sans aucune
+// bascule de texte à un instant précis : « Info trafic » (liste) s'efface sur le premier tiers, puis l'en-tête de la vue
+// (nom de la ligne, ou « Alertes trafic ») apparaît. La couche de la vue garde son contenu pendant toute la fermeture
+// (`vueMontee`) : plus d'image où l'on verrait l'ancien titre.
+  const ligneMontee = vueMontee?.genre === 'ligne' ? vueMontee.ligne : null;
+  const enteteListe = (
+    <PanelHeader
+      cle="liste"
+      icon={<IconInfoTraficCouleur size={26} dotColor={c.text} />}
+      title="Info trafic"
+      subtitle={sousTitre}
+      right={<PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" onPress={() => ouvrirVue({ genre: 'alertes' })} />}
+    />
+  );
+  const enteteVue = vueMontee ? (
+    <PanelHeader
+      cle="vue"
+      icon={ligneMontee
+        // Même image, même taille (42 px) que dans la liste, réduite à 30 px par une mise à l'échelle : déjà décodée.
         ? <View style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
-            <ExpoImage source={{ uri: symboleLigne(ligneOuverte.mode, ligneOuverte.code, isDark) ?? '' }} style={{ width: 42, height: 42, transform: [{ scale: 30 / 42 }] }} contentFit="contain" />
+            <ExpoImage source={{ uri: symboleLigne(ligneMontee.mode, ligneMontee.code, isDark) ?? '' }} style={{ width: 42, height: 42, transform: [{ scale: 30 / 42 }] }} contentFit="contain" />
           </View>
-        : alertesOuvertes
-          ? <Icon name="notifications" size={26} color={c.accent} />
-          : <IconInfoTraficCouleur size={26} dotColor={c.text} />}
-      title={ligneOuverte ? libelleLigne(ligneOuverte) : alertesOuvertes ? 'Alertes trafic' : 'Info trafic'}
-      subtitle={ligneOuverte ? LIBELLE_ETAT[ligneOuverte.etat]
-        : alertesOuvertes ? (suivies.length === 0 ? 'Aucune ligne suivie' : `${suivies.length} ligne${suivies.length > 1 ? 's' : ''} suivie${suivies.length > 1 ? 's' : ''}`)
-        : sousTitre}
-      headerAlign="left"
-      subtitleIcon={ligneOuverte && ligneOuverte.etat !== 'normal' ? <PointEtat etat={ligneOuverte.etat} taille={ligneOuverte.etat === 'travaux' ? 13 : 10} /> : undefined}
-      headerCle={vueOuverte ? (ligneOuverte ? 'ligne-' + ligneOuverte.id : 'alertes') : 'liste'}
-      headerRight={vueOuverte
-        ? <PanelPillAction label="Retour" onPress={() => fermerLigne()} />
-        : <PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" onPress={() => ouvrirVue({ genre: 'alertes' })} />}
+        : <Icon name="notifications" size={26} color={c.accent} />}
+      title={ligneMontee ? libelleLigne(ligneMontee) : 'Alertes trafic'}
+      subtitle={ligneMontee ? LIBELLE_ETAT[ligneMontee.etat]
+        : (suivies.length === 0 ? 'Aucune ligne suivie' : `${suivies.length} ligne${suivies.length > 1 ? 's' : ''} suivie${suivies.length > 1 ? 's' : ''}`)}
+      subtitleIcon={ligneMontee && ligneMontee.etat !== 'normal' ? <PointEtat etat={ligneMontee.etat} taille={ligneMontee.etat === 'travaux' ? 13 : 10} /> : undefined}
+      right={<PanelPillAction label="Retour" onPress={() => fermerLigne()} />}
+    />
+  ) : null;
+  const entete = (
+    <View>
+      <Animated.View
+        style={{ opacity: ouverture.interpolate({ inputRange: [0, 0.3], outputRange: [1, 0], extrapolate: 'clamp' }) }}
+        pointerEvents={vueOuverte ? 'none' : 'auto'}
+      >
+        {enteteListe}
+      </Animated.View>
+      {enteteVue && (
+        <Animated.View
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, opacity: ouverture.interpolate({ inputRange: [0.3, 0.7], outputRange: [0, 1], extrapolate: 'clamp' }) }}
+          pointerEvents={vueOuverte ? 'auto' : 'none'}
+        >
+          {enteteVue}
+        </Animated.View>
+      )}
+    </View>
+  );
+
+  return (
+    <PanelLayout title="" entete={entete}
     >
       <View style={{ flex: 1 }}>
         <Animated.View

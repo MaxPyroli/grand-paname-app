@@ -44,6 +44,8 @@ type PanelLayoutProps = {
   headerRight?: React.ReactNode;
   headerAlign?: 'left' | 'right';
   headerCle?: string;
+  // En-tête déjà construit (remplace celui que PanelLayout fabrique à partir de icon / title / subtitle…).
+  entete?: React.ReactNode;
   subtitleIcon?: React.ReactNode;
   onTitlePress?: () => void;
   actions?: React.ReactNode;
@@ -51,8 +53,8 @@ type PanelLayoutProps = {
   children: React.ReactNode;
 };
 
-export function PanelLayout({ icon, title, titleBadge, subtitle, headerRight, headerAlign, headerCle, subtitleIcon, onTitlePress, actions, footer, children }: PanelLayoutProps) {
-  const header = <PanelHeader icon={icon} title={title} titleBadge={titleBadge} subtitle={subtitle} right={headerRight} align={headerAlign} cle={headerCle} subtitleIcon={subtitleIcon} />;
+export function PanelLayout({ icon, title, titleBadge, subtitle, headerRight, headerAlign, headerCle, subtitleIcon, entete, onTitlePress, actions, footer, children }: PanelLayoutProps) {
+  const header = entete ?? <PanelHeader icon={icon} title={title} titleBadge={titleBadge} subtitle={subtitle} right={headerRight} align={headerAlign} cle={headerCle} subtitleIcon={subtitleIcon} />;
   return (
     <View style={styles.container}>
       {onTitlePress ? (
