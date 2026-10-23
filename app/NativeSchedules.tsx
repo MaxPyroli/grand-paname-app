@@ -407,13 +407,36 @@ async function fetchEtatLigne(lineId: string, signal: AbortSignal): Promise<Etat
     const nv: EtatLigne['niveau'] = effet === 'NO_SERVICE' ? 'arret' : 'perturbe';
     if (ORDRE_ETAT[nv] > ORDRE_ETAT[niveau]) {
       niveau = nv;
-      const texte: string | undefined = (d.messages || []).find((m: any) => m?.text)?.text;
+      // Le texte complet (canal « moteur ») d'abord : le premier message est souvent le simple titre.
+      const texte: string | undefined = ((d.messages || []).find((m: any) => m?.channel?.name === 'moteur' && m?.text) || (d.messages || []).find((m: any) => m?.text))?.text;
       message = texte ? texte.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : undefined;
     }
   }
   const etat: EtatLigne = { niveau, message };
   etatLigneCache.set(lineId, { at: Date.now(), etat });
   return etat;
+}
+
+// Câbles et funiculaires qui desservent une station, même sans aucun départ. Quand un câble est à l'arrêt (tempête,
+// panne), Navitia ne renvoie plus AUCUN départ pour lui : sans cette liste, sa carte — et donc le bandeau « arrêt de
+// la ligne » — n'existerait pas du tout. La liste ne change quasiment jamais : gardée 24 h. Échec réseau ou station
+// sans câble (404) → liste vide.
+const cablesDuStopCache = new Map<string, { at: number; lignes: { id: string; code: string; color: string }[] }>();
+async function fetchCablesDuStop(stopId: string, signal: AbortSignal): Promise<{ id: string; code: string; color: string }[]> {
+  const connu = cablesDuStopCache.get(stopId);
+  if (connu && Date.now() - connu.at < 24 * 3600 * 1000) return connu.lignes;
+  try {
+    const filtre = encodeURIComponent('physical_mode.id=physical_mode:SuspendedCableCar or physical_mode.id=physical_mode:Funicular');
+    const r = await fetch(`${NAVITIA_BASE}/stop_areas/${stopId}/lines?filter=${filtre}&depth=0&disable_geojson=true&disable_disruption=true&count=10`, { headers: { apiKey: NAVITIA_KEY }, signal });
+    const data = r.ok ? await r.json() : {};
+    if (!r.ok && r.status !== 404) return [];
+    const lignes = (data.lines || []).map((l: any) => ({ id: l.id as string, code: (l.code || l.name) as string, color: (l.color || '888888') as string }));
+    cablesDuStopCache.set(stopId, { at: Date.now(), lignes });
+    return lignes;
+  } catch (e: any) {
+    if (e?.name === 'AbortError') throw e;
+    return [];
+  }
 }
 
 async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal): Promise<LigneGroupe[]> {
@@ -424,9 +447,10 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
   // au-delà du compteur global de 100 et disparaître complètement, comme si
   // le service était terminé alors qu'il ne l'est pas. On ajoute donc un
   // appel dédié qui exclut le bus, à l'abri de ce bruit.
-  const [tousDeparts, departsRail] = await Promise.all([
+  const [tousDeparts, departsRail, cablesDuStop] = await Promise.all([
     fetchDepartures(`${base}?count=100`, signal),
     fetchDepartures(`${base}?count=30&forbidden_uris[]=physical_mode:Bus`, signal),
+    fetchCablesDuStop(stopId, signal),
   ]);
 
   const vus = new Set<string>();
@@ -550,6 +574,15 @@ async function fetchLignes(stopId: string, stopName: string, signal: AbortSignal
       textColor: ligne.textColor,
       mode: RER_LETTERS.has(ligne.code) ? 'RER' : 'TRAIN',
       destinations: [],
+    });
+  }
+
+  // Câble sans aucun départ (ligne à l'arrêt) : on crée tout de même sa carte, pour que son état (bandeau) s'affiche.
+  for (const cable of cablesDuStop) {
+    if (lignes.some(l => l.mode === 'CABLE' && l.lineId === cable.id)) continue;
+    lignes.push({
+      key: `${cable.code}|${cable.color}|CABLE`, code: cable.code, color: cable.color, textColor: computeContrast(cable.color),
+      mode: 'CABLE', destinations: [], lineId: cable.id,
     });
   }
 
