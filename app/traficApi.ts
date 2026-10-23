@@ -218,9 +218,12 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
     const surLaLigne = ((d.impacted_objects || []) as any[]).some(o => o?.pt_object?.embedded_type === 'line');
     //   Une annonce de cause « information » (match, manifestation…) est une info, même codée « perturbée » ;
     //   « bloquante » reste « interrompu » même avec cette cause (ex. T14 : météo, service interrompu).
-    const type: TypePerturbation = nom === 'bloquante' ? (surLaLigne ? 'interrompu' : 'perturbe')
+    let type: TypePerturbation = nom === 'bloquante' ? (surLaLigne ? 'interrompu' : 'perturbe')
       : d.cause === 'information' ? 'info'
       : nom === 'perturbée' ? 'perturbe' : 'info';
+    // Seule exception au code, étroite : un TITRE qui commence par « Trafic interrompu » (ex. T13 « Trafic interrompu -
+    // panne de courant », codé « perturbée » par erreur) est une interruption. Le corps du texte n'est jamais lu.
+    if (type === 'perturbe' && /^\s*trafic\s+interrompu\b/i.test(titre)) type = 'interrompu';
     const cause: CausePerturbation = d.cause === 'travaux' ? 'travaux' : d.cause === 'information' ? 'information' : 'perturbation';
     const periode = enCours
       ? (fin - maintenant > JOURS_SANS_FIN * 86_400_000 ? 'Jusqu\'à nouvel ordre' : `Jusqu'au ${jourMois(fin - 6 * 3_600_000)}`)   // une fin à 4 h 30 est la fin de la veille (journée de service)
