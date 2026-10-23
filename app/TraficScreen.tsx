@@ -349,15 +349,14 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}
         >
+          {/* Légende : chaque rond avec son mot forme un bloc ; les blocs passent à la ligne si l'écran est étroit. */}
           <View style={styles.legende}>
-            <View style={styles.legendePoint}><PointEtat etat="perturbe" taille={9} /></View>
-            <Text style={[styles.legendeTexte, { color: c.textSub }]}>Perturbé</Text>
-            <View style={[styles.legendePoint, { marginLeft: 14 }]}><PointEtat etat="interrompu" taille={9} /></View>
-            <Text style={[styles.legendeTexte, { color: c.textSub }]}>Interrompu</Text>
-            <View style={[styles.legendePoint, { marginLeft: 14 }]}><PointEtat etat="info" taille={9} /></View>
-            <Text style={[styles.legendeTexte, { color: c.textSub }]}>Info</Text>
-            <View style={[styles.legendePoint, { marginLeft: 14 }]}><PointEtat etat="travaux" taille={11} /></View>
-            <Text style={[styles.legendeTexte, { color: c.textSub }]}>Travaux</Text>
+            {([['interrompu', 'Interrompu', 9], ['perturbe', 'Perturbé', 9], ['travaux', 'Travaux', 11], ['info', 'Info', 9]] as const).map(([etat, libelle, taille]) => (
+              <View key={etat} style={styles.legendeItem}>
+                <View style={styles.legendePoint}><PointEtat etat={etat} taille={taille} /></View>
+                <Text style={[styles.legendeTexte, { color: c.textSub }]}>{libelle}</Text>
+              </View>
+            ))}
           </View>
           {SECTIONS_TRAFIC.map(section => {
             const deSection = lignesAffichees.filter(l => section.modes.includes(l.mode));
@@ -407,7 +406,8 @@ const styles = StyleSheet.create({
   squeletteTitre: { height: 12, width: 110, borderRadius: 6, marginLeft: 4, marginBottom: 12 },
   reessayer: { height: 40, borderRadius: 20, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 40 },
   reessayerTexte: { color: '#fff', fontFamily: 'GrandParis-Bold', fontSize: 14 },
-  legende: { flexDirection: 'row', alignItems: 'center', marginTop: 0, marginBottom: 4, marginLeft: 4 },
+  legende: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 14, rowGap: 4, marginTop: 0, marginBottom: 4, marginLeft: 4 },
+  legendeItem: { flexDirection: 'row', alignItems: 'center' },
   legendePoint: { marginRight: 6 },
   legendeTexte: { fontSize: 12, fontFamily: 'GrandParis-Medium' },
   section: { marginTop: 14 },
