@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { useColors } from './theme';
 
@@ -32,18 +32,21 @@ type PanelHeaderProps = {
 // quand le texte se met à jour avec la même clé.
 function Transition({ cle, children, style }: { cle: string; children: React.ReactNode; ancrage?: 'left' | 'right'; style?: any }) {
   const v = useRef(new Animated.Value(1)).current;
-  const derniereCle = useRef(cle);
-  // Avant l'affichage : le nouveau contenu est mis à transparent dans la même image, sans éclair.
+  // `cleAffichee` en retard sur `cle` = le premier rendu du nouveau contenu : il est dessiné transparent (valeur fixe,
+  // pas la valeur animée, dont la remise à zéro n'est prise en compte par le système qu'une image plus tard : on
+  // voyait le nouveau contenu, ou l'ancien, pendant une image avant le début du fondu).
+  const [cleAffichee, setCleAffichee] = useState(cle);
+  const enTransition = cleAffichee !== cle;
   useLayoutEffect(() => {
-    if (derniereCle.current === cle) return;
-    derniereCle.current = cle;
+    if (cleAffichee === cle) return;
     v.stopAnimation();
     v.setValue(0);
+    setCleAffichee(cle);
     Animated.timing(v, { toValue: 1, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-  }, [cle, v]);
+  }, [cle, cleAffichee, v]);
   return (
     <View style={style}>
-      <Animated.View style={{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }}>
+      <Animated.View style={{ opacity: enTransition ? 0 : v, transform: [{ translateY: enTransition ? 8 : v.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }}>
         {children}
       </Animated.View>
     </View>

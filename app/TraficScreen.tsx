@@ -311,7 +311,11 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   return (
     <PanelLayout
       icon={ligneOuverte
-        ? <ExpoImage source={{ uri: symboleLigne(ligneOuverte.mode, ligneOuverte.code, isDark) ?? '' }} style={{ width: 30, height: 30 }} contentFit="contain" />
+        // Même image, même taille (42 px) que dans la liste, réduite à 30 px par une mise à l'échelle : elle est déjà
+        // décodée par la liste, donc elle apparaît tout de suite (à 30 px elle devait être redécodée : « le logo met du temps »).
+        ? <View style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+            <ExpoImage source={{ uri: symboleLigne(ligneOuverte.mode, ligneOuverte.code, isDark) ?? '' }} style={{ width: 42, height: 42, transform: [{ scale: 30 / 42 }] }} contentFit="contain" />
+          </View>
         : alertesOuvertes
           ? <Icon name="notifications" size={26} color={c.accent} />
           : <IconInfoTraficCouleur size={26} dotColor={c.text} />}
