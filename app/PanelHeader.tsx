@@ -45,7 +45,7 @@ function Transition({ cle, children, ancrage = 'left', style }: { cle: string; c
   });
   return (
     <View style={style}>
-      <Animated.View style={{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
+      <Animated.View style={{ opacity: v.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 0, 1] }), transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
         {children}
       </Animated.View>
       {precedent !== null && (
@@ -53,7 +53,7 @@ function Transition({ cle, children, ancrage = 'left', style }: { cle: string; c
           pointerEvents="none"
           style={{
             position: 'absolute', top: 0, [ancrage]: 0,
-            opacity: v.interpolate({ inputRange: [0, 0.6], outputRange: [1, 0], extrapolate: 'clamp' }),
+            opacity: v.interpolate({ inputRange: [0, 0.3], outputRange: [1, 0], extrapolate: 'clamp' }),
             transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }) }],
           }}
         >

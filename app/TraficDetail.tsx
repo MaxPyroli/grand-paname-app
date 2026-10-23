@@ -93,7 +93,8 @@ function Carte({ p, analyse }: { p: PerturbationLigne; analyse: AnalyseStations 
 }
 
 // Squelette pendant le chargement : trois cartes grises qui pulsent, à la place des perturbations.
-function SqueletteDetail({ couleur }: { couleur: string }) {
+function SqueletteDetail() {
+  const c = useColors();
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const boucle = Animated.loop(Animated.sequence([
@@ -103,14 +104,16 @@ function SqueletteDetail({ couleur }: { couleur: string }) {
     boucle.start();
     return () => boucle.stop();
   }, [pulse]);
-  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.2] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
+  // Barres grises neutres (le texte à 14 % d'opacité) qui pulsent ; les cartes ont le même fond et le même bord que les
+  // vraies cartes (une carte sans fond mais avec ombre dessinait un contour étrange).
   const bloc = (largeur: string | number, hauteur: number, marge = 0) => (
-    <Animated.View style={{ width: largeur as any, height: hauteur, borderRadius: 6, backgroundColor: couleur, opacity, marginTop: marge }} />
+    <Animated.View style={{ width: largeur as any, height: hauteur, borderRadius: 6, backgroundColor: hexToRgba(c.text, 0.14), opacity, marginTop: marge }} />
   );
   return (
     <View style={{ paddingTop: PANEL_CONTENT_TOP_PAD }} pointerEvents="none">
       {[0, 1, 2].map(i => (
-        <View key={i} style={[styles.carte, { borderColor: 'transparent' }]}>
+        <View key={i} style={[styles.carte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
           {bloc(90, 10)}{bloc('85%', 14, 12)}{bloc('100%', 11, 12)}{bloc('70%', 11, 7)}
         </View>
       ))}
@@ -118,7 +121,7 @@ function SqueletteDetail({ couleur }: { couleur: string }) {
   );
 }
 
-export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; verre?: boolean }) {
+export default function TraficDetail({ ligne, verre, pret = true }: { ligne: LigneTrafic; verre?: boolean; pret?: boolean }) {
   const c = useColors();
   // Données déjà là (préchargées, ou ligne déjà ouverte) : affichées dès le premier rendu, sans écran de chargement.
   const [detail, setDetail] = useState<DetailLigne | null>(() => detailEnCache(ligne.id));
@@ -128,12 +131,15 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
   // pas de squelette. Le contenu part toujours de transparent (160-200 ms), même depuis la mémoire : si le téléphone
   // réutilise une vue de la ligne précédente, son ancien contenu n'est jamais visible.
   const apparition = useRef(new Animated.Value(0)).current;
-  const [squeletteRetire, setSqueletteRetire] = useState(detail !== null);
+  // `pret` : l'écran a fini de glisser. Le contenu (beaucoup de petites vues) n'est monté qu'à ce moment-là, sinon son
+  // montage fait saccader le glissement ; le squelette occupe la place pendant ce temps.
+  const [squeletteRetire, setSqueletteRetire] = useState(false);
+  const contenuPret = pret && detail !== null;
   useEffect(() => {
-    if (!detail) return;
-    Animated.timing(apparition, { toValue: 1, duration: squeletteRetire ? 160 : 220, useNativeDriver: true })
+    if (!contenuPret) return;
+    Animated.timing(apparition, { toValue: 1, duration: 220, useNativeDriver: true })
       .start(() => setSqueletteRetire(true));
-  }, [detail, apparition]);
+  }, [contenuPret, apparition]);
   const analyse = useMemo(() => creerAnalyseStations(detail?.stations ?? []), [detail]);
 
   const charger = useCallback(async () => {
@@ -171,10 +177,10 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
     <View style={{ flex: 1 }}>
       {!squeletteRetire && (
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: apparition.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]} pointerEvents="none">
-          <SqueletteDetail couleur={c.textSub} />
+          <SqueletteDetail />
         </Animated.View>
       )}
-      {detail !== null && (
+      {contenuPret && detail !== null && (
         <Animated.View style={{ flex: 1, opacity: apparition }}>
           {vide ? (
             <PanelEmptyState

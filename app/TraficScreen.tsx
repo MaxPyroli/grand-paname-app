@@ -151,14 +151,18 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   // voulue ; `vueMontee` = vue affichée, gardée le temps de l'animation de fermeture.
   const [vueMontee, setVueMontee] = useState<Vue | null>(null);
   const ouverture = useRef(new Animated.Value(0)).current;
+  // Vrai quand la vue a fini de glisser : les contenus lourds ne se montent qu'à ce moment (voir TraficDetail).
+  const [vueStable, setVueStable] = useState(false);
   const ouvrirVue = useCallback((v: Vue) => {
     // Repart toujours de zéro : si une fermeture était en cours, la valeur gardée côté JavaScript peut être en retard
     // sur la valeur réelle (animation native) et laisser entrevoir, une image ou deux, l'ancien contenu.
     ouverture.stopAnimation();
     ouverture.setValue(0);
+    setVueStable(false);
     setVueMontee(v);
     setVueOuverte(v);
-    Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true }).start();
+    Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true })
+      .start(({ finished }) => { if (finished) setVueStable(true); });
   }, [ouverture]);
   // Ouvrir une ligne : l'animation démarre tout de suite ; si le détail n'est pas déjà en mémoire (le chargement a
   // commencé au doigt posé), l'écran glisse avec son squelette, qui se fond ensuite dans le contenu.
@@ -169,6 +173,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   }, [ouvrirVue]);
   const fermerLigne = useCallback((immediat = false) => {
     setVueOuverte(null);
+    setVueStable(false);
     ouverture.stopAnimation();
     if (immediat) { ouverture.setValue(0); setVueMontee(null); return; }
     Animated.spring(ouverture, { toValue: 0, damping: 15, stiffness: 120, mass: 0.5, overshootClamping: true, useNativeDriver: true })
@@ -367,7 +372,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
             pointerEvents={vueOuverte ? 'auto' : 'none'}
           >
             {vueMontee.genre === 'ligne'
-              ? <TraficDetail key={vueMontee.ligne.id} ligne={vueMontee.ligne} verre={verre} />
+              ? <TraficDetail key={vueMontee.ligne.id} ligne={vueMontee.ligne} verre={verre} pret={vueStable} />
               : <AlertesTrafic lignes={lignes} suivies={suivies} onBasculer={basculerSuivie} etat={etatAlertes} verre={verre} />}
           </Animated.View>
         )}
