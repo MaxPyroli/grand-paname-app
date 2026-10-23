@@ -13,12 +13,8 @@ import { chargerDetailLigne, oublierDetailLigne, detailEnCache, DetailLigne, Lig
 // en français, venues de Navitia (voir `chargerDetailLigne`).
 // Une couleur et un libellé par nature de perturbation (voir `TypePerturbation`) ; la cause (travaux / incident) est
 // rappelée à part, dans une petite pastille.
-export const COULEUR_TYPE: Record<TypePerturbation, string> = {
-  interrompu: '#E5493E', fortement: '#E8710A', perturbe: '#F39C12', arret: '#8E5BD0', info: '#3C91DC',
-};
-const LIBELLE_TYPE: Record<TypePerturbation, string> = {
-  interrompu: 'Trafic interrompu', fortement: 'Trafic fortement perturbé', perturbe: 'Trafic perturbé', arret: 'Arrêt non desservi', info: 'Information',
-};
+export const COULEUR_TYPE: Record<TypePerturbation, string> = { interrompu: '#E5493E', perturbe: '#F39C12', info: '#3C91DC' };
+const LIBELLE_TYPE: Record<TypePerturbation, string> = { interrompu: 'Trafic interrompu', perturbe: 'Trafic perturbé', info: 'Information' };
 const LIBELLE_CAUSE: Record<CausePerturbation, string> = { travaux: 'Travaux', perturbation: 'Incident', information: 'Info' };
 
 type Mot = { texte: string; puce: 'station' | 'quand' | null; espace: boolean };
@@ -75,7 +71,7 @@ function Carte({ p, analyse }: { p: PerturbationLigne; analyse: AnalyseStations 
         <View style={styles.cause}>
           <View style={[styles.point, { backgroundColor: COULEUR_TYPE[p.type] }]} />
           <Text style={[styles.causeTexte, { color: COULEUR_TYPE[p.type] }]}>
-            {(p.type === 'arret' && p.arretsPluriel ? 'Arrêts non desservis' : LIBELLE_TYPE[p.type]).toUpperCase()}
+            {LIBELLE_TYPE[p.type].toUpperCase()}
           </Text>
         </View>
         {/* La cause n'est rappelée que si elle apporte quelque chose (« Information » + type Information = doublon). */}

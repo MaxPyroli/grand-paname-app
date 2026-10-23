@@ -142,7 +142,7 @@ export type NiveauPerturbation = 'interrompu' | 'perturbe' | 'info';
 export type CausePerturbation = 'travaux' | 'perturbation' | 'information';
 // Nature de la perturbation, d'après l'étiquette officielle courte (canal « cbiv ») : « Trafic interrompu »,
 // « Trafic fortement perturbé », « Trafic perturbé », « Arrêt(s) non desservi(s) », « Autre » ; à défaut, la gravité.
-export type TypePerturbation = 'interrompu' | 'fortement' | 'perturbe' | 'arret' | 'info';
+export type TypePerturbation = 'interrompu' | 'perturbe' | 'info';
 
 export type PerturbationLigne = {
   id: string;
@@ -151,7 +151,6 @@ export type PerturbationLigne = {
   cause: CausePerturbation;
   niveau: NiveauPerturbation;
   type: TypePerturbation;
-  arretsPluriel: boolean;   // « Arrêt(s) non desservi(s) » : plusieurs arrêts
   enCours: boolean;
   debut: number;
   fin: number;
@@ -212,25 +211,12 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
 
     const nom = d.severity?.name;
     const niveau: NiveauPerturbation = nom === 'bloquante' ? 'interrompu' : nom === 'perturbée' ? 'perturbe' : 'info';
-    const etiquette = message('cbiv').toLowerCase();
-    // Vérifié sur toutes les lignes lourdes (voir journal du 2026-10-23) : « bloquante » posée sur la LIGNE = trafic
-    // réellement interrompu (32 cas sur 32, textes concordants) ; « bloquante » posée sur un ARRÊT = station fermée ou
-    // arrêt non desservi, jamais une ligne coupée. En revanche beaucoup d'interruptions de tronçon (travaux de nuit,
-    // incidents) sont codées « perturbée » : elles restent « perturbé » / « arrêts non desservis » (décision : on s'en
-    // tient au code, pas à la lecture du texte).
+    // Trois types seulement (décision de l'utilisateur), d'après la gravité du serveur :
+    //   bloquante sur la LIGNE → interrompu ; bloquante sur un ARRÊT (station fermée, arrêt non desservi) → perturbé ;
+    //   perturbée → perturbé (quelle que soit l'étiquette : « fortement perturbé », « arrêts non desservis »…) ;
+    //   information → info. Vérifié : « bloquante » sur la ligne = trafic réellement interrompu (32 cas sur 32).
     const surLaLigne = ((d.impacted_objects || []) as any[]).some(o => o?.pt_object?.embedded_type === 'line');
-    let type: TypePerturbation;
-    if (nom === 'bloquante') {
-      type = surLaLigne ? 'interrompu' : 'arret';
-    } else {
-      type =
-        /fortement/.test(etiquette) ? 'fortement'
-        : /non desservi/.test(etiquette) ? 'arret'
-        : /perturb/.test(etiquette) ? 'perturbe'
-        : /autre|information/.test(etiquette) ? 'info'
-        : niveau === 'perturbe' ? 'perturbe' : 'info';
-    }
-    const arretsPluriel = /\(s\)/.test(etiquette);
+    const type: TypePerturbation = nom === 'bloquante' ? (surLaLigne ? 'interrompu' : 'perturbe') : nom === 'perturbée' ? 'perturbe' : 'info';
     const cause: CausePerturbation = d.cause === 'travaux' ? 'travaux' : d.cause === 'information' ? 'information' : 'perturbation';
     const periode = enCours
       ? (fin - maintenant > JOURS_SANS_FIN * 86_400_000 ? 'Jusqu\'à nouvel ordre' : `Jusqu'au ${jourMois(fin - 6 * 3_600_000)}`)   // une fin à 4 h 30 est la fin de la veille (journée de service)
@@ -246,10 +232,10 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
       if (existante.enCours) existante.periode = enCours ? periode : existante.periode;
       continue;
     }
-    parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, type, arretsPluriel, enCours, debut, fin, periode });
+    parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, type, enCours, debut, fin, periode });
   }
   const rangCause: Record<CausePerturbation, number> = { perturbation: 0, travaux: 1, information: 2 };
-  const gravite: Record<TypePerturbation, number> = { interrompu: 0, fortement: 1, perturbe: 2, arret: 3, info: 4 };
+  const gravite: Record<TypePerturbation, number> = { interrompu: 0, perturbe: 1, info: 2 };
   const tout = [...parId.values()];
   return {
     // Les plus graves d'abord ; à gravité égale, un incident avant des travaux, et le plus récent d'abord.
