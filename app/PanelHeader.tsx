@@ -24,6 +24,8 @@ type PanelHeaderProps = {
   // Identifie ce que l'en-tête montre (« liste », « ligne-42 »…). Quand elle change, l'icône, le titre, le sous-titre et
   // l'action de droite se fondent en glissant vers le nouveau contenu ; sans elle, ils changent sans animation.
   cle?: string;
+  // Petit élément (ex. le point d'état d'une ligne) posé à gauche du sous-titre.
+  subtitleIcon?: React.ReactNode;
 };
 
 // Apparition douce du nouveau contenu quand `cle` change : il monte de 8 px en apparaissant. L'ancien contenu est
@@ -53,7 +55,7 @@ function Transition({ cle, children, style }: { cle: string; children: React.Rea
   );
 }
 
-export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 'left', cle }: PanelHeaderProps) {
+export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 'left', cle, subtitleIcon }: PanelHeaderProps) {
   const c = useColors();
   const isRight = align === 'right';
   return (
@@ -72,7 +74,10 @@ export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 
         </View>
         {subtitle ? (
           <Transition cle={cle ?? subtitle} ancrage={isRight ? 'right' : 'left'}>
-            <Text style={[styles.subtitle, { color: c.textSub }, isRight && { textAlign: 'right' }]}>{subtitle}</Text>
+            <View style={styles.subtitleRow}>
+              {subtitleIcon ? <View style={styles.subtitleIcon}>{subtitleIcon}</View> : null}
+              <Text style={[styles.subtitle, { color: c.textSub, marginTop: 0 }, isRight && { textAlign: 'right' }]}>{subtitle}</Text>
+            </View>
           </Transition>
         ) : null}
       </View>
@@ -119,6 +124,8 @@ const styles = StyleSheet.create({
   titleWithIcon: { marginLeft: 8 },
   titleWithIconRight: { marginRight: 8 },
   titleBadgeWrap: { marginLeft: 8 },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  subtitleIcon: { marginRight: 6, justifyContent: 'center' },
   subtitle: { fontSize: 13, fontFamily: 'GrandParis-Light', marginTop: 2 },
   pillIcon: { width: PANEL_TITLE_LINE, height: PANEL_TITLE_LINE, borderRadius: PANEL_TITLE_LINE / 2, alignItems: 'center', justifyContent: 'center' },
   pill: { height: PANEL_TITLE_LINE, paddingHorizontal: 14, borderRadius: PANEL_TITLE_LINE / 2, alignItems: 'center', justifyContent: 'center' },

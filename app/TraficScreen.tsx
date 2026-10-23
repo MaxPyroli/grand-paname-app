@@ -329,6 +329,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
         : alertesOuvertes ? (suivies.length === 0 ? 'Aucune ligne suivie' : `${suivies.length} ligne${suivies.length > 1 ? 's' : ''} suivie${suivies.length > 1 ? 's' : ''}`)
         : sousTitre}
       headerAlign="left"
+      subtitleIcon={ligneOuverte && ligneOuverte.etat !== 'normal' ? <PointEtat etat={ligneOuverte.etat} taille={ligneOuverte.etat === 'travaux' ? 13 : 10} /> : undefined}
       headerCle={vueOuverte ? (ligneOuverte ? 'ligne-' + ligneOuverte.id : 'alertes') : 'liste'}
       headerRight={vueOuverte
         ? <PanelPillAction label="Retour" onPress={() => fermerLigne()} />

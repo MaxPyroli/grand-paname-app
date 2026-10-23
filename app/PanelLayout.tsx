@@ -44,14 +44,15 @@ type PanelLayoutProps = {
   headerRight?: React.ReactNode;
   headerAlign?: 'left' | 'right';
   headerCle?: string;
+  subtitleIcon?: React.ReactNode;
   onTitlePress?: () => void;
   actions?: React.ReactNode;
   footer?: React.ReactNode;
   children: React.ReactNode;
 };
 
-export function PanelLayout({ icon, title, titleBadge, subtitle, headerRight, headerAlign, headerCle, onTitlePress, actions, footer, children }: PanelLayoutProps) {
-  const header = <PanelHeader icon={icon} title={title} titleBadge={titleBadge} subtitle={subtitle} right={headerRight} align={headerAlign} cle={headerCle} />;
+export function PanelLayout({ icon, title, titleBadge, subtitle, headerRight, headerAlign, headerCle, subtitleIcon, onTitlePress, actions, footer, children }: PanelLayoutProps) {
+  const header = <PanelHeader icon={icon} title={title} titleBadge={titleBadge} subtitle={subtitle} right={headerRight} align={headerAlign} cle={headerCle} subtitleIcon={subtitleIcon} />;
   return (
     <View style={styles.container}>
       {onTitlePress ? (
