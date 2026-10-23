@@ -294,18 +294,21 @@ export function chargerDetailLigne(idLigne: string, signal?: AbortSignal): Promi
   let enCours = detailsEnCours.get(idLigne);
   if (!enCours) {
     enCours = (async () => {
+      // Les stations de la ligne (pour les contours) sont demandées EN MÊME TEMPS que les perturbations, pas après : une
+      // requête de moins dans la file d'attente (elles sont gardées 24 h, donc presque toujours déjà là).
+      const stationsEnParallele = chargerStationsLigne(idLigne, signal);
       // Le serveur répond « 429 » (trop de requêtes) si on en envoie trop vite, et parfois 5xx : on réessaie
       // jusqu'à 3 fois en espaçant, plutôt que d'afficher une erreur ou un détail vide.
       let r: Response | null = null;
       for (let essai = 0; essai < 4; essai++) {
         r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(idLigne)}/line_reports?count=200&depth=0`, { headers: { apiKey: NAVITIA_KEY }, signal });
         if (r.ok || r.status === 404 || (r.status !== 429 && r.status < 500)) break;
-        await new Promise(res => setTimeout(res, 600 * (essai + 1)));
+        await new Promise(res => setTimeout(res, 400 * (essai + 1)));
       }
       if (!r || (!r.ok && r.status !== 404)) throw new Error(`HTTP ${r?.status}`);
       const detail = analyserDetailLigne(r.ok ? await r.json() : {});
       // Les stations ne servent qu'à repérer des noms dans les textes : inutile s'il n'y a aucun texte.
-      if (detail.enCours.length + detail.aVenir.length > 0) detail.stations = await chargerStationsLigne(idLigne, signal);
+      if (detail.enCours.length + detail.aVenir.length > 0) detail.stations = await stationsEnParallele;
       cacheDetails.set(idLigne, { at: Date.now(), detail });
       return detail;
     })().finally(() => { detailsEnCours.delete(idLigne); });

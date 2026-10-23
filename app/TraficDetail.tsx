@@ -145,9 +145,9 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
       let d = await chargerDetailLigne(ligne.id);
       // Une ligne perturbée sans aucune perturbation dans le détail est suspecte (réponse incomplète du serveur) :
       // on la relit une fois avant de conclure qu'il n'y a rien à signaler.
-      if (ligne.etat !== 'normal' && d.enCours.length === 0 && d.aVenir.length === 0) {
+      if ((ligne.etat === 'perturbe' || ligne.etat === 'interrompu') && d.enCours.length === 0 && d.aVenir.length === 0) {
         oublierDetailLigne(ligne.id);
-        await new Promise(res => setTimeout(res, 1200));
+        await new Promise(res => setTimeout(res, 500));
         d = await chargerDetailLigne(ligne.id);
       }
       setDetail(d);

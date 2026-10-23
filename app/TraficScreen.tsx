@@ -168,6 +168,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   const ouverture = useRef(new Animated.Value(0)).current;
   // Vrai quand la vue a fini de glisser : les contenus lourds ne se montent qu'à ce moment (voir TraficDetail).
   const [vueStable, setVueStable] = useState(false);
+  const numeroOuverture = useRef(0);   // identifie la dernière ouverture : une fermeture ou une autre ouverture annule le minuteur
   const ouvrirVue = useCallback((v: Vue) => {
     // Repart toujours de zéro : si une fermeture était en cours, la valeur gardée côté JavaScript peut être en retard
     // sur la valeur réelle (animation native) et laisser entrevoir, une image ou deux, l'ancien contenu.
@@ -178,6 +179,9 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     setVueOuverte(v);
     Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true })
       .start(({ finished }) => { if (finished) setVueStable(true); });
+    // Le contenu se monte sans attendre la toute fin du ressort (qui oscille encore ~0,5 s) : dès 320 ms.
+    const numero = ++numeroOuverture.current;
+    setTimeout(() => { if (numeroOuverture.current === numero) setVueStable(true); }, 320);
   }, [ouverture]);
   // Ouvrir une ligne : l'animation démarre tout de suite ; si le détail n'est pas déjà en mémoire (le chargement a
   // commencé au doigt posé), l'écran glisse avec son squelette, qui se fond ensuite dans le contenu.
@@ -189,6 +193,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   const fermerLigne = useCallback((immediat = false) => {
     setVueOuverte(null);
     setVueStable(false);
+    numeroOuverture.current++;
     ouverture.stopAnimation();
     if (immediat) { ouverture.setValue(0); setVueMontee(null); return; }
     Animated.spring(ouverture, { toValue: 0, damping: 15, stiffness: 120, mass: 0.5, overshootClamping: true, useNativeDriver: true })
@@ -284,8 +289,8 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     if (!lignes || prechauffe.current) return;
     prechauffe.current = true;
     // Espacés et plafonnés : le serveur refuse (429) les rafales de requêtes.
-    const aCharger = lignes.filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').slice(0, 6);
-    const minuteurs = aCharger.map((l, i) => setTimeout(() => prechargerDetailLigne(l.id), 1200 + i * 900));
+    const aCharger = lignes.filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').slice(0, 3);
+    const minuteurs = aCharger.map((l, i) => setTimeout(() => prechargerDetailLigne(l.id), 1500 + i * 1400));
     return () => minuteurs.forEach(clearTimeout);
   }, [actif, lignes]);
 
