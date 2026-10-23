@@ -142,7 +142,7 @@ export type NiveauPerturbation = 'interrompu' | 'perturbe' | 'info';
 export type CausePerturbation = 'travaux' | 'perturbation' | 'information';
 // Nature de la perturbation, d'après l'étiquette officielle courte (canal « cbiv ») : « Trafic interrompu »,
 // « Trafic fortement perturbé », « Trafic perturbé », « Arrêt(s) non desservi(s) », « Autre » ; à défaut, la gravité.
-export type TypePerturbation = 'interrompu' | 'fortement' | 'perturbe' | 'arret' | 'info';
+export type TypePerturbation = 'interrompu' | 'partielle' | 'fortement' | 'perturbe' | 'arret' | 'info';
 
 export type PerturbationLigne = {
   id: string;
@@ -213,20 +213,29 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
     const nom = d.severity?.name;
     const niveau: NiveauPerturbation = nom === 'bloquante' ? 'interrompu' : nom === 'perturbée' ? 'perturbe' : 'info';
     const etiquette = message('cbiv').toLowerCase();
-    let type: TypePerturbation =
-      /interrompu/.test(etiquette) ? 'interrompu'
-      : /fortement/.test(etiquette) ? 'fortement'
-      : /non desservi/.test(etiquette) ? 'arret'
-      : /perturb/.test(etiquette) ? 'perturbe'
-      : /autre|information/.test(etiquette) ? 'info'
-      : niveau === 'interrompu' ? 'interrompu' : niveau === 'perturbe' ? 'perturbe' : 'info';
-    // L'étiquette de la source n'est pas toujours exacte (« fortement perturbé » alors que le texte dit « le trafic est
-    // interrompu entre Orsay-Ville et Gif-sur-Yvette », « arrêts non desservis » pour un tronçon coupé) : quand le
-    // texte annonce une interruption de la ligne elle-même, c'est une interruption (pas « interrompu sur une autre ligne »).
-    const lu = `${titre} ${texte}`;
-    if (type !== 'interrompu' && type !== 'info'
-      && (/(?:trafic|circulation|service)\s+(?:est\s+|sera\s+)?interrompu(?!\s+sur\s+(?:la\s+ligne|le\s+(?:rer|m[eé]tro|tram)|les\s+rer|ligne))/i.test(lu) || /interrompu\s+entre/i.test(lu))) {
-      type = 'interrompu';
+    // Vérifié sur toutes les lignes lourdes (voir journal du 2026-10-23) : « bloquante » posée sur la LIGNE = trafic
+    // réellement interrompu (32 cas sur 32, textes concordants) ; « bloquante » posée sur un ARRÊT = station fermée ou
+    // arrêt non desservi, jamais une ligne coupée. En revanche beaucoup d'interruptions de tronçon (travaux de nuit,
+    // incidents) sont codées « perturbée » : le code ne les voit pas, seul le texte les annonce.
+    const surLaLigne = ((d.impacted_objects || []) as any[]).some(o => o?.pt_object?.embedded_type === 'line');
+    let type: TypePerturbation;
+    if (nom === 'bloquante') {
+      type = surLaLigne ? 'interrompu' : 'arret';
+    } else {
+      type =
+        /fortement/.test(etiquette) ? 'fortement'
+        : /non desservi/.test(etiquette) ? 'arret'
+        : /perturb/.test(etiquette) ? 'perturbe'
+        : /autre|information/.test(etiquette) ? 'info'
+        : niveau === 'perturbe' ? 'perturbe' : 'info';
+      // Le texte annonce une interruption de la ligne elle-même alors que le code dit « perturbée » : on le dit, mais
+      // comme « interruption partielle » — pas « trafic interrompu », qui est réservé au code (pas « interrompu sur une
+      // autre ligne »).
+      const lu = `${titre} ${texte}`;
+      if (type !== 'info'
+        && (/(?:trafic|circulation|service)\s+(?:est\s+|sera\s+)?interrompu(?!\s+sur\s+(?:la\s+ligne|le\s+(?:rer|m[eé]tro|tram)|les\s+rer|ligne))/i.test(lu) || /interrompu\s+entre/i.test(lu))) {
+        type = 'partielle';
+      }
     }
     const arretsPluriel = /\(s\)/.test(etiquette);
     const cause: CausePerturbation = d.cause === 'travaux' ? 'travaux' : d.cause === 'information' ? 'information' : 'perturbation';
@@ -247,7 +256,7 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
     parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, type, arretsPluriel, enCours, debut, fin, periode });
   }
   const rangCause: Record<CausePerturbation, number> = { perturbation: 0, travaux: 1, information: 2 };
-  const gravite: Record<TypePerturbation, number> = { interrompu: 0, fortement: 1, perturbe: 2, arret: 3, info: 4 };
+  const gravite: Record<TypePerturbation, number> = { interrompu: 0, partielle: 1, fortement: 2, perturbe: 3, arret: 4, info: 5 };
   const tout = [...parId.values()];
   return {
     // Les plus graves d'abord ; à gravité égale, un incident avant des travaux, et le plus récent d'abord.

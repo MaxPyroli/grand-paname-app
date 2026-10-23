@@ -14,10 +14,10 @@ import { chargerDetailLigne, oublierDetailLigne, detailEnCache, DetailLigne, Lig
 // Une couleur et un libellé par nature de perturbation (voir `TypePerturbation`) ; la cause (travaux / incident) est
 // rappelée à part, dans une petite pastille.
 export const COULEUR_TYPE: Record<TypePerturbation, string> = {
-  interrompu: '#E5493E', fortement: '#E8710A', perturbe: '#F39C12', arret: '#8E5BD0', info: '#3C91DC',
+  interrompu: '#E5493E', partielle: '#D9480F', fortement: '#E8710A', perturbe: '#F39C12', arret: '#8E5BD0', info: '#3C91DC',
 };
 const LIBELLE_TYPE: Record<TypePerturbation, string> = {
-  interrompu: 'Trafic interrompu', fortement: 'Trafic fortement perturbé', perturbe: 'Trafic perturbé', arret: 'Arrêt non desservi', info: 'Information',
+  interrompu: 'Trafic interrompu', partielle: 'Interruption partielle', fortement: 'Trafic fortement perturbé', perturbe: 'Trafic perturbé', arret: 'Arrêt non desservi', info: 'Information',
 };
 const LIBELLE_CAUSE: Record<CausePerturbation, string> = { travaux: 'Travaux', perturbation: 'Incident', information: 'Info' };
 
