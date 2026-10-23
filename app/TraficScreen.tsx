@@ -11,7 +11,7 @@ import { lireLignesSuivies, enregistrerLignesSuivies } from './notifications';
 import { ListeFondue } from './ListeFondue';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
-import { chargerTrafic, oublierPerturbations, prechargerDetailLigne, chargerDetailLigne, detailEnCache, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
+import { chargerTrafic, oublierPerturbations, prechargerDetailLigne, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
 import { symboleLigne } from './symbolesLignes';
 import { FONDU_BAS } from './Fade';
 
@@ -160,20 +160,12 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     setVueOuverte(v);
     Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true }).start();
   }, [ouverture]);
-  // Ouvrir une ligne : si son détail n'est pas déjà en mémoire, on l'attend jusqu'à 300 ms AVANT de lancer l'animation
-  // (le chargement a déjà commencé au doigt posé) : l'écran s'ouvre alors avec son contenu, sans blanc ni squelette
-  // qui clignote. Au-delà, on ouvre quand même et le squelette prend le relais.
-  const ouverturePrevue = useRef(false);
+  // Ouvrir une ligne : l'animation démarre tout de suite ; si le détail n'est pas déjà en mémoire (le chargement a
+  // commencé au doigt posé), l'écran glisse avec son squelette, qui se fond ensuite dans le contenu.
   const ouvrirLigne = useCallback((l: LigneTrafic) => {
     // Le toucher qui termine le geste secret (appui de 3 s sur le 14) n'ouvre pas la ligne.
     if (secretFait.current) { secretFait.current = false; return; }
-    if (ouverturePrevue.current) return;
-    if (detailEnCache(l.id)) { ouvrirVue({ genre: 'ligne', ligne: l }); return; }
-    ouverturePrevue.current = true;
-    Promise.race([
-      chargerDetailLigne(l.id).catch(() => null),
-      new Promise(res => setTimeout(res, 300)),
-    ]).then(() => { ouverturePrevue.current = false; ouvrirVue({ genre: 'ligne', ligne: l }); });
+    ouvrirVue({ genre: 'ligne', ligne: l });
   }, [ouvrirVue]);
   const fermerLigne = useCallback((immediat = false) => {
     setVueOuverte(null);
@@ -306,6 +298,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
         : alertesOuvertes ? (suivies.length === 0 ? 'Aucune ligne suivie' : `${suivies.length} ligne${suivies.length > 1 ? 's' : ''} suivie${suivies.length > 1 ? 's' : ''}`)
         : sousTitre}
       headerAlign="left"
+      headerCle={vueOuverte ? (ligneOuverte ? 'ligne-' + ligneOuverte.id : 'alertes') : 'liste'}
       headerRight={vueOuverte
         ? <PanelPillAction label="Retour" onPress={() => fermerLigne()} />
         : <PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" onPress={() => ouvrirVue({ genre: 'alertes' })} />}

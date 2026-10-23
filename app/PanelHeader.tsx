@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useLayoutEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing } from 'react-native';
 import { useColors } from './theme';
 
 // En-tête standard de tous les volets latéraux (Favoris, Scanner, et les
@@ -21,9 +21,50 @@ type PanelHeaderProps = {
   // l'onglet Accueil (Favoris à gauche, Trafic à droite) aient leurs
   // titres "tournés" l'un vers l'autre plutôt que tous les deux à gauche.
   align?: 'left' | 'right';
+  // Identifie ce que l'en-tête montre (« liste », « ligne-42 »…). Quand elle change, l'icône, le titre, le sous-titre et
+  // l'action de droite se fondent en glissant vers le nouveau contenu ; sans elle, ils changent sans animation.
+  cle?: string;
 };
 
-export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 'left' }: PanelHeaderProps) {
+// Fondu glissé entre deux contenus : l'ancien monte et s'efface, le nouveau monte depuis le bas en apparaissant.
+// Ne s'anime que quand `cle` change (pas au premier affichage, pas quand le texte se met à jour avec la même clé).
+function Transition({ cle, children, ancrage = 'left', style }: { cle: string; children: React.ReactNode; ancrage?: 'left' | 'right'; style?: any }) {
+  const v = useRef(new Animated.Value(1)).current;
+  const dernier = useRef<{ cle: string; children: React.ReactNode }>({ cle, children });
+  const [precedent, setPrecedent] = useState<React.ReactNode>(null);
+  // Avant l'affichage : le nouveau contenu est mis à transparent dans la même image, sans éclair.
+  useLayoutEffect(() => {
+    if (dernier.current.cle !== cle) {
+      setPrecedent(dernier.current.children);
+      v.stopAnimation();
+      v.setValue(0);
+      Animated.timing(v, { toValue: 1, duration: 300, easing: Easing.out(Easing.cubic), useNativeDriver: true })
+        .start(({ finished }) => { if (finished) setPrecedent(null); });
+    }
+    dernier.current = { cle, children };
+  });
+  return (
+    <View style={style}>
+      <Animated.View style={{ opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
+        {children}
+      </Animated.View>
+      {precedent !== null && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', top: 0, [ancrage]: 0,
+            opacity: v.interpolate({ inputRange: [0, 0.6], outputRange: [1, 0], extrapolate: 'clamp' }),
+            transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }) }],
+          }}
+        >
+          {precedent}
+        </Animated.View>
+      )}
+    </View>
+  );
+}
+
+export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 'left', cle }: PanelHeaderProps) {
   const c = useColors();
   const isRight = align === 'right';
   return (
@@ -34,13 +75,19 @@ export function PanelHeader({ icon, title, titleBadge, subtitle, right, align = 
             "regarde" — plutôt que de rester avant le texte et se retrouver
             côté bord de l'écran. */}
         <View style={[styles.titleRow, isRight && { flexDirection: 'row-reverse' }]}>
-          {icon}
-          <Text style={[styles.title, { color: c.text }, icon ? (isRight ? styles.titleWithIconRight : styles.titleWithIcon) : null]}>{title}</Text>
+          {icon ? <Transition cle={cle ?? 'i'} ancrage={isRight ? 'right' : 'left'}>{icon}</Transition> : null}
+          <Transition cle={cle ?? title} ancrage={isRight ? 'right' : 'left'} style={{ flexShrink: 1 }}>
+            <Text style={[styles.title, { color: c.text }, icon ? (isRight ? styles.titleWithIconRight : styles.titleWithIcon) : null]}>{title}</Text>
+          </Transition>
           {titleBadge ? <View style={styles.titleBadgeWrap}>{titleBadge}</View> : null}
         </View>
-        {subtitle ? <Text style={[styles.subtitle, { color: c.textSub }, isRight && { textAlign: 'right' }]}>{subtitle}</Text> : null}
+        {subtitle ? (
+          <Transition cle={cle ?? subtitle} ancrage={isRight ? 'right' : 'left'}>
+            <Text style={[styles.subtitle, { color: c.textSub }, isRight && { textAlign: 'right' }]}>{subtitle}</Text>
+          </Transition>
+        ) : null}
       </View>
-      {right}
+      {right ? <Transition cle={cle ?? 'd'} ancrage="right">{right}</Transition> : null}
     </View>
   );
 }

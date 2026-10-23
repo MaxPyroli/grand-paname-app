@@ -10,7 +10,7 @@ export type Segment = { texte: string; type: 'texte' | 'station' | 'quand' };
 
 const JOUR = '(?:[Ll]undi|[Mm]ardi|[Mm]ercredi|[Jj]eudi|[Vv]endredi|[Ss]amedi|[Dd]imanche)';
 const MOIS = '(?:[Jj]anvier|[Ff]évrier|[Mm]ars|[Aa]vril|[Mm]ai|[Jj]uin|[Jj]uillet|[Aa]oût|[Ss]eptembre|[Oo]ctobre|[Nn]ovembre|[Dd]écembre)';
-const NUM = '\\d{1,2}(?:er)?';
+const NUM = '\\d{1,2}(?:er)?\\*?';
 const DEBUT = "(?:[Dd]u|[Ll]e|[Jj]usqu['’]au|[Àà] partir du)";
 const DATE_COMPLETE = `(?:${JOUR}\\s+)?${NUM}\\s+${MOIS}(?:\\s+\\d{4})?`;
 const FIN = `(?:\\s+(?:au|jusqu['’]au)\\s+${DATE_COMPLETE})?(?:\\s+inclus)?`;
@@ -18,9 +18,19 @@ const FIN = `(?:\\s+(?:au|jusqu['’]au)\\s+${DATE_COMPLETE})?(?:\\s+inclus)?`;
 const PERIODE = `${DEBUT}\\s+${DATE_COMPLETE}${FIN}`;
 // « du 12 au 23 octobre »
 const PERIODE_COURTE = `[Dd]u\\s+(?:${JOUR}\\s+)?${NUM}\\s+au\\s+(?:${JOUR}\\s+)?${NUM}\\s+${MOIS}(?:\\s+\\d{4})?(?:\\s+inclus)?`;
+// Listes de dates : « les samedis 7 et 28 novembre », « dimanches 1er, 8, 15 et 29 novembre et le mercredi 11 novembre »,
+// « 17-18 et 24-25 octobre », « lundi 19 octobre au vendredi 23 octobre ». Le mois est obligatoire (évite les nombres seuls).
+const ELEMENT_DATE = `(?:${JOUR}s?\\s+)?${NUM}(?:-${NUM})?`;
+const LIEN_DATES = '(?:\\s*,\\s*|\\s+et\\s+|\\s+au\\s+)';
+const LISTE_DATES = `${ELEMENT_DATE}(?:${LIEN_DATES}${ELEMENT_DATE})*\\s+${MOIS}(?:${LIEN_DATES}(?:(?:les|le)\\s+)?${ELEMENT_DATE}(?:${LIEN_DATES}${ELEMENT_DATE})*\\s+${MOIS})*(?:\\s+\\d{4})?`;
+// « 23/10 », « Vendredi 23/10 », « du 16/11 au 27/11 »
+const SEP_NUM = '(?:\\s*,\\s*|\\s+et\\s+|\\s+au\\s+)';
+const ELEMENT_NUM = '\\d{1,2}(?:/\\d{1,2}(?:/\\d{2,4})?)?';
+// (la liste doit contenir au moins une date « jj/mm » : sinon n'importe quel nombre serait pris pour une date)
+const DATE_NUMERIQUE = `(?:${JOUR}\\s+)?(?=(?:\\d{1,2}${SEP_NUM})*\\d{1,2}/\\d{1,2})${ELEMENT_NUM}(?:${SEP_NUM}${ELEMENT_NUM})*`;
 const RYTHME = '(?:en semaine|le week-end|les week-ends|tous les jours|tous les soirs|chaque soir|chaque nuit|toute la journée)';
 // « 22h10 », « de 10h00 à 16h00 », « à partir de 21h15 »
-const HEURE = '\\d{1,2}\\s?h(?:\\d{2})?';
+const HEURE = '(?:\\d{1,2}\\s?[hH](?:\\d{2})?|\\d{1,2}:\\d{2})';
 const HORAIRE = `(?:(?:de|à partir de|jusqu['’]à|dès|vers|après|avant)\\s+)?${HEURE}(?:\\s+(?:à|et|jusqu['’]à)\\s+${HEURE})?`;
 
 // Nom de station : mots à majuscule reliés au besoin par « de », « du », « la », « sur », un tiret entouré d'espaces…
@@ -30,8 +40,9 @@ const MAJ = 'A-ZÀ-ÖØ-Þ';
 const MIN = 'a-zà-öø-ÿœ';
 const ABREV = '(?:Aérop|Aéro|St|Ste|Av|Bd|Pl|Pte|Gal|Mal)\\.';
 const MOT_DEBUT = `(?:${ABREV}|[${MAJ}][${MAJ}${MIN}0-9'’\\-–]*)`;
-const MOT_SUITE = `(?:${ABREV}|[${MAJ}0-9][${MAJ}${MIN}0-9'’\\-–]*)`;
-const LIEN = `(?:\\s+[-–]\\s+|\\s+(?:(?:de|du|des|la|le|les|sur|sous|en|aux?|l['’]|d['’])\\s*)*)`;
+// (un nombre seul peut finir un nom, « Gaulle 2 », mais pas « 21h07 » ni « 23/10 » : ce sont des heures et des dates)
+const MOT_SUITE = `(?:${ABREV}|[${MAJ}][${MAJ}${MIN}0-9'’\\-–]*|\\d{1,2}(?![\\dhH:/]))`;
+const LIEN = `(?:\\s+[-–]\\s+(?!(?:Du|Le|Les|Au|À|De)\\b)|\\s+(?:(?:de|du|des|la|le|les|sur|sous|en|aux?|l['’]|d['’])\\s*)*)`;
 const STATION = `${MOT_DEBUT}(?:${LIEN}${MOT_SUITE})*`;
 const SEP_STATIONS = '(?:<>|<->|↔|et|à)';
 const SEP_LISTE = '(?:\\s*,\\s*|\\s+et\\s+)';
@@ -47,7 +58,7 @@ const ARRET = `(?:desservi|desservie|fermée?)\\s+(?:à|en gare de|à la station
 const SOLO = `(?:au départ de|jusqu['’]à|depuis|vers|à|de)\\s+(?!(?:RER|Métro|Transilien|Tram|Tramway|Bus|Ligne|Île|France)\\b)${STATION}`;
 
 const MOTIF = new RegExp(
-  `(${TRONCON})|(${GARES})|(${PAIRE})|(${ARRET})|(${PERIODE})|(${PERIODE_COURTE})|(${HORAIRE})|(${RYTHME})|(${SOLO})`, 'g');
+  `(${TRONCON})|(${GARES})|(${PAIRE})|(${ARRET})|(${PERIODE})|(${PERIODE_COURTE})|(${HORAIRE})|(${RYTHME})|(${SOLO})|(${LISTE_DATES})|(${DATE_NUMERIQUE})`, 'g');
 
 // Découpe un morceau déjà repéré en sous-morceaux marqués d'un type (les dates d'une période, les noms d'un tronçon…).
 function marquer(texte: string, motif: RegExp, type: Segment['type']): Segment[] {
@@ -65,7 +76,7 @@ function marquer(texte: string, motif: RegExp, type: Segment['type']): Segment[]
   return sortie;
 }
 
-const UNE_DATE = new RegExp(`(?:${JOUR}\\s+)?${NUM}(?:\\s+${MOIS})?(?:\\s+\\d{4})?`, 'g');
+const UNE_DATE = new RegExp(`(?:${JOUR}s?\\s+)?(?:\\d{1,2}/\\d{1,2}(?:/\\d{2,4})?|${NUM}(?:-${NUM})?)(?:\\s+${MOIS})?(?:\\s+\\d{4})?`, 'g');
 const UNE_HEURE = new RegExp(HEURE, 'g');
 const UNE_STATION = new RegExp(STATION, 'g');
 
@@ -182,7 +193,7 @@ function decouperBrut(texte: string): Segment[] {
     if (m[0] === '') { MOTIF.lastIndex++; continue; }
     if (m.index > dernier) segments.push({ texte: texte.slice(dernier, m.index), type: 'texte' });
     if (m[1] || m[2] || m[3] || m[4] || m[9]) segments.push(...marquer(m[0], UNE_STATION, 'station'));
-    else if (m[5] || m[6]) segments.push(...marquer(m[0], UNE_DATE, 'quand'));
+    else if (m[5] || m[6] || m[10] || m[11]) segments.push(...marquer(m[0], UNE_DATE, 'quand'));
     else if (m[7]) segments.push(...marquer(m[0], UNE_HEURE, 'quand'));
     else segments.push({ texte: m[0], type: 'quand' });
     dernier = m.index + m[0].length;

@@ -123,13 +123,16 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
   // Données déjà là (préchargées, ou ligne déjà ouverte) : affichées dès le premier rendu, sans écran de chargement.
   const [detail, setDetail] = useState<DetailLigne | null>(() => detailEnCache(ligne.id));
   const [erreur, setErreur] = useState(false);
-  // Sinon (réponse longue à venir) : le squelette tout de suite — l'écran qui ouvre la ligne a déjà attendu la réponse
-  // un court instant (voir `ouvrirLigne`), il n'y a donc plus de blanc ni de squelette qui ne dure qu'un éclair.
-  // Le contenu part toujours de transparent et se fond en 160 ms, même s'il est déjà en mémoire : si le téléphone
+  // Pas encore de données : le squelette est visible dès l'ouverture (l'écran glisse avec ses cases grises), puis il
+  // s'efface en fondu pendant que le contenu apparaît (pas de blanc, pas de bascule sèche). Données déjà en mémoire :
+  // pas de squelette. Le contenu part toujours de transparent (160-200 ms), même depuis la mémoire : si le téléphone
   // réutilise une vue de la ligne précédente, son ancien contenu n'est jamais visible.
   const apparition = useRef(new Animated.Value(0)).current;
+  const [squeletteRetire, setSqueletteRetire] = useState(detail !== null);
   useEffect(() => {
-    if (detail) Animated.timing(apparition, { toValue: 1, duration: 160, useNativeDriver: true }).start();
+    if (!detail) return;
+    Animated.timing(apparition, { toValue: 1, duration: squeletteRetire ? 160 : 220, useNativeDriver: true })
+      .start(() => setSqueletteRetire(true));
   }, [detail, apparition]);
   const analyse = useMemo(() => creerAnalyseStations(detail?.stations ?? []), [detail]);
 
@@ -163,29 +166,35 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
       </View>
     );
   }
-  if (detail === null) return <SqueletteDetail couleur={c.textSub} />;
-  if (detail.enCours.length === 0 && detail.aVenir.length === 0) {
-    return (
-      <Animated.View style={{ flex: 1, opacity: apparition }}>
-        <PanelEmptyState
-          icon={<Icon name="valider" size={44} color={c.textSub} />}
-          title="Rien à signaler"
-          description="Aucune perturbation en cours ni annoncée prochainement sur cette ligne."
-        />
-      </Animated.View>
-    );
-  }
+  const vide = detail !== null && detail.enCours.length === 0 && detail.aVenir.length === 0;
   return (
-    <Animated.View style={{ flex: 1, opacity: apparition }}>
-      <ListeFondue verre={verre}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}>
-          {detail.enCours.length > 0 && <Text style={[styles.section, { color: c.textSub }]}>EN COURS</Text>}
-          {detail.enCours.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
-          {detail.aVenir.length > 0 && <Text style={[styles.section, { color: c.textSub, marginTop: detail.enCours.length > 0 ? 10 : 0 }]}>À VENIR</Text>}
-          {detail.aVenir.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
-        </ScrollView>
-      </ListeFondue>
-    </Animated.View>
+    <View style={{ flex: 1 }}>
+      {!squeletteRetire && (
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: apparition.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }]} pointerEvents="none">
+          <SqueletteDetail couleur={c.textSub} />
+        </Animated.View>
+      )}
+      {detail !== null && (
+        <Animated.View style={{ flex: 1, opacity: apparition }}>
+          {vide ? (
+            <PanelEmptyState
+              icon={<Icon name="valider" size={44} color={c.textSub} />}
+              title="Rien à signaler"
+              description="Aucune perturbation en cours ni annoncée prochainement sur cette ligne."
+            />
+          ) : (
+            <ListeFondue verre={verre}>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}>
+                {detail.enCours.length > 0 && <Text style={[styles.section, { color: c.textSub }]}>EN COURS</Text>}
+                {detail.enCours.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
+                {detail.aVenir.length > 0 && <Text style={[styles.section, { color: c.textSub, marginTop: detail.enCours.length > 0 ? 10 : 0 }]}>À VENIR</Text>}
+                {detail.aVenir.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
+              </ScrollView>
+            </ListeFondue>
+          )}
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
