@@ -5,7 +5,7 @@ import { Icon } from './Icon';
 import { panelCardStyle, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
 import { ListeFondue } from './ListeFondue';
 import { FONDU_BAS, hexToRgba } from './Fade';
-import { decouperSurligne, creerFiltreStations } from './traficTexte';
+import { decouperSurligne, creerAnalyseStations, AnalyseStations } from './traficTexte';
 import { PanelEmptyState } from './PanelEmptyState';
 import { chargerDetailLigne, oublierDetailLigne, detailEnCache, DetailLigne, LigneTrafic, PerturbationLigne, CausePerturbation, TypePerturbation } from './traficApi';
 
@@ -28,12 +28,12 @@ type Mot = { texte: string; puce: 'station' | 'quand' | null; espace: boolean };
 // mot à mot dans une rangée qui passe à la ligne : les contours sont alors alignés sur les mots de façon sûre
 // (des vues glissées dans un texte se décalent selon la police et la ligne). L'espace entre deux mots est une marge
 // à DROITE du premier : une marge à gauche décalait de 4 px tout contour qui commence une ligne.
-function TexteRiche({ texte, estStation }: { texte: string; estStation: (candidat: string) => boolean }) {
+function TexteRiche({ texte, analyse }: { texte: string; analyse: AnalyseStations }) {
   const c = useColors();
   return (
     <View style={{ marginTop: 6 }}>
       {texte.split('\n').filter(l => l.trim() !== '').map((paragraphe, i) => {
-        const segments = decouperSurligne(paragraphe, estStation);
+        const segments = decouperSurligne(paragraphe, analyse);
         const espace = i > 0 ? { marginTop: 4 } : null;
         if (!segments.some(s => s.type !== 'texte')) {
           return <Text key={i} style={[styles.texte, { color: c.textSub }, espace]}>{paragraphe}</Text>;
@@ -67,7 +67,7 @@ function TexteRiche({ texte, estStation }: { texte: string; estStation: (candida
   );
 }
 
-function Carte({ p, estStation }: { p: PerturbationLigne; estStation: (candidat: string) => boolean }) {
+function Carte({ p, analyse }: { p: PerturbationLigne; analyse: AnalyseStations }) {
   const c = useColors();
   return (
     <View style={[styles.carte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
@@ -87,7 +87,7 @@ function Carte({ p, estStation }: { p: PerturbationLigne; estStation: (candidat:
       </View>
       <Text style={[styles.periode, { color: c.textSub }]}>{p.periode}</Text>
       <Text style={[styles.titre, { color: c.text }]}>{p.titre}</Text>
-      {p.texte !== '' && <TexteRiche texte={p.texte} estStation={estStation} />}
+      {p.texte !== '' && <TexteRiche texte={p.texte} analyse={analyse} />}
     </View>
   );
 }
@@ -123,19 +123,13 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
   // Données déjà là (préchargées, ou ligne déjà ouverte) : affichées dès le premier rendu, sans écran de chargement.
   const [detail, setDetail] = useState<DetailLigne | null>(() => detailEnCache(ligne.id));
   const [erreur, setErreur] = useState(false);
-  // Sinon : rien pendant 350 ms (la plupart des réponses arrivent avant, un squelette qui n'apparaît qu'une fraction de
-  // seconde donnerait un clignotement), puis le squelette ; le contenu arrive toujours en fondu.
-  const [squeletteVisible, setSqueletteVisible] = useState(false);
+  // Sinon (réponse longue à venir) : le squelette tout de suite — l'écran qui ouvre la ligne a déjà attendu la réponse
+  // un court instant (voir `ouvrirLigne`), il n'y a donc plus de blanc ni de squelette qui ne dure qu'un éclair.
   const apparition = useRef(new Animated.Value(detail ? 1 : 0)).current;
-  useEffect(() => {
-    if (detail) return;
-    const minuteur = setTimeout(() => setSqueletteVisible(true), 350);
-    return () => clearTimeout(minuteur);
-  }, [detail]);
   useEffect(() => {
     if (detail) Animated.timing(apparition, { toValue: 1, duration: 220, useNativeDriver: true }).start();
   }, [detail, apparition]);
-  const estStation = useMemo(() => creerFiltreStations(detail?.stations ?? []), [detail]);
+  const analyse = useMemo(() => creerAnalyseStations(detail?.stations ?? []), [detail]);
 
   const charger = useCallback(async () => {
     setErreur(false);
@@ -167,7 +161,7 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
       </View>
     );
   }
-  if (detail === null) return squeletteVisible ? <SqueletteDetail couleur={c.textSub} /> : null;
+  if (detail === null) return <SqueletteDetail couleur={c.textSub} />;
   if (detail.enCours.length === 0 && detail.aVenir.length === 0) {
     return (
       <Animated.View style={{ flex: 1, opacity: apparition }}>
@@ -184,9 +178,9 @@ export default function TraficDetail({ ligne, verre }: { ligne: LigneTrafic; ver
       <ListeFondue verre={verre}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}>
           {detail.enCours.length > 0 && <Text style={[styles.section, { color: c.textSub }]}>EN COURS</Text>}
-          {detail.enCours.map(p => <Carte key={p.id + p.titre} p={p} estStation={estStation} />)}
+          {detail.enCours.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
           {detail.aVenir.length > 0 && <Text style={[styles.section, { color: c.textSub, marginTop: detail.enCours.length > 0 ? 10 : 0 }]}>À VENIR</Text>}
-          {detail.aVenir.map(p => <Carte key={p.id + p.titre} p={p} estStation={estStation} />)}
+          {detail.aVenir.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
         </ScrollView>
       </ListeFondue>
     </Animated.View>

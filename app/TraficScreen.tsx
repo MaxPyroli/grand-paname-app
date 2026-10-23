@@ -11,7 +11,7 @@ import { lireLignesSuivies, enregistrerLignesSuivies } from './notifications';
 import { ListeFondue } from './ListeFondue';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
-import { chargerTrafic, oublierPerturbations, prechargerDetailLigne, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
+import { chargerTrafic, oublierPerturbations, prechargerDetailLigne, chargerDetailLigne, detailEnCache, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
 import { symboleLigne } from './symbolesLignes';
 import { FONDU_BAS } from './Fade';
 
@@ -157,10 +157,20 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     ouverture.stopAnimation();
     Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true }).start();
   }, [ouverture]);
+  // Ouvrir une ligne : si son détail n'est pas déjà en mémoire, on l'attend jusqu'à 300 ms AVANT de lancer l'animation
+  // (le chargement a déjà commencé au doigt posé) : l'écran s'ouvre alors avec son contenu, sans blanc ni squelette
+  // qui clignote. Au-delà, on ouvre quand même et le squelette prend le relais.
+  const ouverturePrevue = useRef(false);
   const ouvrirLigne = useCallback((l: LigneTrafic) => {
     // Le toucher qui termine le geste secret (appui de 3 s sur le 14) n'ouvre pas la ligne.
     if (secretFait.current) { secretFait.current = false; return; }
-    ouvrirVue({ genre: 'ligne', ligne: l });
+    if (ouverturePrevue.current) return;
+    if (detailEnCache(l.id)) { ouvrirVue({ genre: 'ligne', ligne: l }); return; }
+    ouverturePrevue.current = true;
+    Promise.race([
+      chargerDetailLigne(l.id).catch(() => null),
+      new Promise(res => setTimeout(res, 300)),
+    ]).then(() => { ouverturePrevue.current = false; ouvrirVue({ genre: 'ligne', ligne: l }); });
   }, [ouvrirVue]);
   const fermerLigne = useCallback((immediat = false) => {
     setVueOuverte(null);
@@ -299,7 +309,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     >
       <View style={{ flex: 1 }}>
         <Animated.View
-          style={{ flex: 1, opacity: ouverture.interpolate({ inputRange: [0, 1], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, -28], extrapolate: 'clamp' }) }] }}
+          style={{ flex: 1, opacity: ouverture.interpolate({ inputRange: [0, 0.4], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, -28], extrapolate: 'clamp' }) }] }}
           pointerEvents={vueOuverte ? 'none' : 'auto'}
         >
       {lignes === null && !erreur ? (
@@ -357,7 +367,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
         </Animated.View>
         {vueMontee && (
           <Animated.View
-            style={[StyleSheet.absoluteFill, { opacity: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [48, 0] }) }] }]}
+            style={[StyleSheet.absoluteFill, { opacity: ouverture.interpolate({ inputRange: [0.2, 0.8], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [48, 0] }) }] }]}
             pointerEvents={vueOuverte ? 'auto' : 'none'}
           >
             {vueMontee.genre === 'ligne'

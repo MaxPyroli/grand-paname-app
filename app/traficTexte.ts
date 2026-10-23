@@ -85,19 +85,92 @@ function mots(nom: string): string[] {
 const significatifs = (nom: string) => mots(nom).filter(m => !MOTS_VIDES.has(m) && (m.length > 1 || /\d/.test(m)));
 const memeMot = (a: string, b: string) => a === b || (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a)));
 
-export function creerFiltreStations(noms: string[]): (candidat: string) => boolean {
+export type AnalyseStations = {
+  // Le candidat repéré par la forme est-il une station de la ligne ?
+  estStation: (candidat: string) => boolean;
+  // Positions [début, fin[ des noms de stations de la ligne trouvés DIRECTEMENT dans le texte.
+  trouver: (texte: string) => Array<[number, number]>;
+};
+
+function normaliserMot(m: string): string {
+  const x = m.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return x === 'saint' ? 'st' : x === 'sainte' ? 'ste' : x;
+}
+function motsAvecPosition(texte: string): { m: string; debut: number; fin: number }[] {
+  const sortie: { m: string; debut: number; fin: number }[] = [];
+  const re = /[A-Za-zÀ-ÖØ-öø-ÿŒœ0-9]+/g;
+  let r: RegExpExecArray | null;
+  while ((r = re.exec(texte)) !== null) sortie.push({ m: normaliserMot(r[0]), debut: r.index, fin: r.index + r[0].length });
+  return sortie;
+}
+
+export function creerAnalyseStations(noms: string[]): AnalyseStations {
   const stations = noms.map(n => significatifs(n));
-  return (candidat: string) => {
-    const mc = significatifs(candidat);
-    if (mc.length === 0) return false;
-    return stations.some(ms => mc.every(m => ms.some(s => memeMot(m, s))));
+
+  // Index pour la recherche directe : premier mot → écritures possibles du nom (complet, sans parenthèses, sans
+  // « Paris » devant). Un nom d'un seul mot court ou banal ne sert pas à la recherche directe (trop de faux positifs).
+  const index = new Map<string, string[][]>();
+  for (const nom of noms) {
+    const ecritures = new Set([nom, nom.replace(/\([^)]*\)/g, ' '), nom.replace(/\([^)]*\)/g, ' ').replace(/^\s*Paris\s+/i, '')]);
+    for (const e of ecritures) {
+      const mots = motsAvecPosition(e).map(x => x.m);
+      if (mots.length === 0 || (mots.length === 1 && mots[0].length < 4)) continue;
+      const liste = index.get(mots[0]) ?? [];
+      if (!liste.some(l => l.join(' ') === mots.join(' '))) liste.push(mots);
+      index.set(mots[0], liste);
+    }
+  }
+
+  return {
+    estStation: (candidat: string) => {
+      const mc = significatifs(candidat);
+      if (mc.length === 0) return false;
+      return stations.some(ms => mc.every(m => ms.some(s => memeMot(m, s))));
+    },
+    trouver: (texte: string) => {
+      const mots = motsAvecPosition(texte);
+      const trouves: Array<[number, number]> = [];
+      for (let i = 0; i < mots.length; ) {
+        let meilleur = 0;
+        // Un nom propre commence par une majuscule : évite de prendre un mot courant pour une station.
+        const c = texte[mots[i].debut];
+        if (c !== c.toLowerCase()) {
+          for (const ecriture of index.get(mots[i].m) ?? []) {
+            if (ecriture.length > meilleur && ecriture.every((m, k) => mots[i + k]?.m === m)) meilleur = ecriture.length;
+          }
+        }
+        if (meilleur > 0) { trouves.push([mots[i].debut, mots[i + meilleur - 1].fin]); i += meilleur; } else i++;
+      }
+      return trouves;
+    },
   };
 }
 
-export function decouperSurligne(texte: string, estStation?: (candidat: string) => boolean): Segment[] {
-  const segments = decouperBrut(texte);
-  if (!estStation) return segments;
-  return segments.map(s => (s.type === 'station' && !estStation(s.texte) ? { texte: s.texte, type: 'texte' as const } : s));
+export function decouperSurligne(texte: string, analyse?: AnalyseStations): Segment[] {
+  const brut = decouperBrut(texte);
+  if (!analyse || texte.length === 0) return brut;
+  // Peinture caractère par caractère : d'abord ce que le repérage par la forme a trouvé (stations validées par la liste
+  // de la ligne, dates, horaires), puis les noms de stations trouvés directement dans le texte, qui l'emportent.
+  const types: Segment['type'][] = new Array(texte.length).fill('texte');
+  let pos = 0;
+  for (const seg of brut) {
+    const fin = pos + seg.texte.length;
+    const type = seg.type === 'station' ? (analyse.estStation(seg.texte) ? 'station' : 'texte') : seg.type;
+    if (type !== 'texte') for (let k = pos; k < fin; k++) types[k] = type;
+    pos = fin;
+  }
+  for (const [debut, fin] of analyse.trouver(texte)) {
+    for (let k = debut; k < fin; k++) if (types[k] !== 'quand') types[k] = 'station';
+  }
+  const sortie: Segment[] = [];
+  let debut = 0;
+  for (let k = 1; k <= texte.length; k++) {
+    if (k === texte.length || types[k] !== types[debut]) {
+      sortie.push({ texte: texte.slice(debut, k), type: types[debut] });
+      debut = k;
+    }
+  }
+  return sortie;
 }
 
 function decouperBrut(texte: string): Segment[] {
