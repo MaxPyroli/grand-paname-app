@@ -296,6 +296,15 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
     }
   }, []);
   useEffect(() => { if (showAdvanced) rafraichirTailleCache(); }, [showAdvanced, rafraichirTailleCache]);
+  // Ouverture de « Paramètres Avancés » : le bloc est d'abord dessiné transparent (valeur restée à 0), puis fondu + glissement.
+  // Ne pas remettre la valeur à 0 pendant l'affichage : cela faisait clignoter le bloc une image.
+  useEffect(() => {
+    if (showAdvanced) Animated.timing(advancedAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+  }, [showAdvanced, advancedAnim]);
+  const basculerAvances = () => {
+    if (!showAdvanced) setShowAdvanced(true);
+    else Animated.timing(advancedAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => setShowAdvanced(false));
+  };
   const formaterOctets = (o: number) =>
     o >= 1024 * 1024 ? `${(o / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo` : `${Math.round(o / 1024)} Ko`;
   // Petite animation au vidage : un balai balaie le chiffre, qui décompte
@@ -413,7 +422,6 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
   }, [pref]);
 
   const LIENS = [
-    { icon: '💬', label: 'Chaîne WhatsApp', url: 'https://whatsapp.com/channel/0029VbCSkQt5vKA7MojdZH3N' },
     { icon: '🐛', label: 'Signaler un bug',      url: BUG_FORM_URL, action: onReportBug },
     { icon: '✉️',  label: 'Contact',              url: 'mailto:contact@grandpaname.fun' },
   ];
@@ -561,7 +569,7 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
               </TouchableOpacity>
             )}
             {showChangelog && (
-              <Animated.View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0, marginTop: 10, opacity: changelogAnim, transform: [{ translateY: changelogAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }] }]}>
+              <Animated.View needsOffscreenAlphaCompositing style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0, marginTop: 10, opacity: changelogAnim, transform: [{ translateY: changelogAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }] }]}>
                 {CHANGELOGS.slice(3).map((entry, i) => renderChangelogEntry(entry, i > 0))}
               </Animated.View>
             )}
@@ -569,16 +577,7 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
             {/* ── Paramètres avancés ── */}
             <TouchableOpacity
               style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: '#f39c1250', borderWidth: 1, marginTop: 24, flexDirection: 'row', alignItems: 'center' }]}
-              onPress={() => {
-                if (!showAdvanced) {
-                  setShowAdvanced(true);
-                  advancedAnim.setValue(0);
-                  Animated.timing(advancedAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
-                } else {
-                  Animated.timing(advancedAnim, { toValue: 0, duration: 200, useNativeDriver: true })
-                    .start(() => setShowAdvanced(false));
-                }
-              }}
+              onPress={basculerAvances}
             >
               <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#f39c1225', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Icon name="parametres" size={18} color="#f39c12" />
@@ -594,10 +593,20 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
               </Text>
             </TouchableOpacity>
             {showAdvanced && (
-              <Animated.View style={{
-                opacity: advancedAnim,
-                transform: [{ translateY: advancedAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
-              }}>
+              // Halo jaune autour des réglages avancés, même teinte que le bouton qui les ouvre (bordure #f39c12 à 31 %).
+              // Le fond est translucide : aucune ombre sur ce conteneur, les cartes opaques gardent la leur.
+              // `needsOffscreenAlphaCompositing` : le bloc entier (ombres des cartes comprises) est dessiné d'un coup puis fondu ;
+              // sans lui l'ombre (élévation) d'Android apparaît en entier alors que la carte est encore transparente.
+              <Animated.View
+                needsOffscreenAlphaCompositing
+                style={{
+                  marginTop: 10, marginHorizontal: 8, paddingBottom: 10, borderRadius: 26, borderWidth: 1,
+                  borderColor: '#f39c1240', backgroundColor: isDark ? '#f39c1214' : '#f39c1220',
+                  opacity: advancedAnim,
+                  transform: [{ translateY: advancedAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
+                }}>
+                {/* Les cartes gardent leur marge de 16 : elles restent alignées avec les autres, le halo dépasse de 8. */}
+                <View style={{ marginHorizontal: -8 }}>
                 <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, marginTop: 10 }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', opacity: isDark ? 1 : 0.5 }}>
                     <View style={{ flex: 1, marginRight: 12 }}>
@@ -623,29 +632,6 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
                   </View>
                 </View>
                 <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, marginTop: 10 }]}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View style={{ flex: 1, marginRight: 12 }}>
-                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Scanner Navigo (bêta)</Text>
-                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
-                        Lit ton passe Navigo (contrats, validations) avec le NFC du téléphone. Ajoute un onglet « Scanner ».
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => setScannerBeta(!scannerBeta)}
-                      style={{
-                        width: 44, height: 26, borderRadius: 13,
-                        backgroundColor: scannerBeta ? c.accent : c.dragBar,
-                        justifyContent: 'center', paddingHorizontal: 3,
-                      }}
-                    >
-                      <View style={{
-                        width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
-                        alignSelf: scannerBeta ? 'flex-end' : 'flex-start',
-                      }} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, marginTop: 10 }]}>
                   <TouchableOpacity
                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
                     onPress={viderAvecAnimation}
@@ -657,8 +643,9 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
                         Supprime les images de carte mémorisées sur le téléphone. Elles se retéléchargeront au fur et à mesure.
                       </Text>
                     </View>
-                    {octetsCache != null && (
-                      <View style={{ marginRight: 8, width: 72, alignItems: 'flex-end', justifyContent: 'center' }}>
+                    {/* Emplacement toujours réservé : la taille arrive après l'ouverture et ne doit pas refaire passer le texte à la ligne. */}
+                    <View style={{ marginRight: 8, width: 72, alignItems: 'flex-end', justifyContent: 'center' }}>
+                      {octetsCache != null && (<>
                         <Text style={{ color: c.textSub, fontSize: 13, fontFamily: 'GrandParis-Medium' }}>
                           {formaterOctets(balaiActif ? (octetsAffiches ?? octetsCache) : octetsCache)}
                         </Text>
@@ -675,10 +662,11 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
                             }}
                           >🧹</Animated.Text>
                         )}
-                      </View>
-                    )}
+                      </>)}
+                    </View>
                     <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
                   </TouchableOpacity>
+                </View>
                 </View>
               </Animated.View>
             )}
@@ -699,6 +687,29 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
                   </View>
                   <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
                 </TouchableOpacity>
+                <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Scanner Navigo (bêta)</Text>
+                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
+                        Lit ton passe Navigo (contrats, validations) avec le NFC du téléphone. Ajoute un onglet « Scanner ». Bêta : pas encore proposé dans les réglages publics.
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setScannerBeta(!scannerBeta)}
+                      style={{
+                        width: 44, height: 26, borderRadius: 13,
+                        backgroundColor: scannerBeta ? c.accent : c.dragBar,
+                        justifyContent: 'center', paddingHorizontal: 3,
+                      }}
+                    >
+                      <View style={{
+                        width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
+                        alignSelf: scannerBeta ? 'flex-end' : 'flex-start',
+                      }} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
                 <TouchableOpacity
                   style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: pushToken ? 1 : 0.5 }]}
                   disabled={!pushToken}

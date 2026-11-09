@@ -131,7 +131,12 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
   // `pret` : l'écran a fini de glisser. Le contenu (beaucoup de petites vues) n'est monté qu'à ce moment-là, sinon son
   // montage fait saccader le glissement ; le squelette occupe la place pendant ce temps.
   const [squeletteRetire, setSqueletteRetire] = useState(false);
-  const contenuPret = pret && detail !== null;
+  // Une fois le contenu monté, il le reste tant que cette vue existe : si on rouvre la même ligne pendant que la vue se
+  // referme (elle n'est pas démontée), `pret` repasse à faux ; sans cette mémoire le contenu disparaissait alors que le
+  // squelette était déjà retiré → écran vide, sans animation de chargement.
+  const [dejaPret, setDejaPret] = useState(pret);
+  useEffect(() => { if (pret) setDejaPret(true); }, [pret]);
+  const contenuPret = (pret || dejaPret) && detail !== null;
   useEffect(() => {
     if (!contenuPret) return;
     Animated.timing(apparition, { toValue: 1, duration: 220, useNativeDriver: true })
