@@ -1,5 +1,6 @@
 # Continuité du projet
 
+- En cas de reprise dans une nouvelle conversation, lire d'abord `docs/reprise-nouvelle-session.md` (état de la 3.4.0, décisions de l'utilisateur, points à vérifier sur téléphone, reste à faire).
 - Lire `docs/journal-developpement.md` au début d'une tâche pour reprendre le contexte.
 - L'utilisateur demande de noter systématiquement le travail effectué : changements et fichiers concernés, raisons, décisions, pistes abandonnées, vérifications et résultats, limites et suites à donner. Mettre à jour le journal avant de terminer une tâche significative, même sans commit.
 - Distinguer les changements de l'agent des modifications préexistantes de l'utilisateur. Ne jamais présenter une lecture de code comme un test sur appareil, ni un travail local comme publié.
