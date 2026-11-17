@@ -14,10 +14,10 @@ const BULK = {
 };
 
 function fauxMonde({ etat, abonnes }) {
-  const ecritures = []; const suppressions = []; const envois = [];
+  const ecritures = []; const suppressions = []; const envois = []; const bilans = [];
   const db = {
     doc: () => ({ get: async () => ({ exists: etat !== null, data: () => etat }), set: async v => { ecritures.push(v); } }),
-    collection: () => ({ get: async () => ({ docs: abonnes.map(a => ({ ref: { delete: async () => { suppressions.push(a.token); } }, data: () => a })) }) }),
+    collection: nom => ({ add: async b => { if (nom === 'statsAlertes') bilans.push(b); }, get: async () => ({ docs: abonnes.map(a => ({ ref: { delete: async () => { suppressions.push(a.token); } }, data: () => a })) }) }),
   };
   globalThis.fetch = async (url, opts) => {
     if (String(url).includes('disruptions_bulk')) return { ok: true, json: async () => BULK };
@@ -25,7 +25,7 @@ function fauxMonde({ etat, abonnes }) {
     if (String(url).includes('exp.host')) { const lot = JSON.parse(opts.body); envois.push(...lot); return { json: async () => ({ data: lot.map(() => ({ status: 'ok' })) }) }; }
     throw new Error('URL inattendue ' + url);
   };
-  return { db, ecritures, suppressions, envois };
+  return { db, ecritures, suppressions, envois, bilans };
 }
 const lancer = (m, reel) => executerSurveillance({ db: m.db, horodatage: 'T', cle: 'k', reel, journal: () => {} });
 
@@ -58,4 +58,25 @@ test('simulation : ni envoi ni écriture', async () => {
   await lancer(m, false);
   assert.equal(m.envois.length, 0);
   assert.equal(m.ecritures.length, 0);
+});
+
+test('bilan : un passage réel laisse ses chiffres, une simulation rien', async () => {
+  const m = fauxMonde({ etat: { signalees: {} }, abonnes: [{ token: 'A', alertesLignes: ['L1'] }, { token: 'B', alertesLignes: ['L9'] }] });
+  await lancer(m, true);
+  assert.equal(m.bilans.length, 1);
+  const b = m.bilans[0];
+  assert.deepEqual([b.perturbations, b.nouvelles, b.abonnes, b.envoyees, b.premierPassage, b.erreur], [1, 1, 2, 1, false, null]);
+  assert.ok(b.at instanceof Date && b.dureeMs >= 0);
+  const s = fauxMonde({ etat: { signalees: {} }, abonnes: [{ token: 'A', alertesLignes: ['L1'] }] });
+  await lancer(s, false);
+  assert.equal(s.bilans.length, 0);
+});
+
+test('bilan : une panne est enregistrée avec son erreur, puis relancée', async () => {
+  const m = fauxMonde({ etat: { signalees: {} }, abonnes: [] });
+  const ok = globalThis.fetch;
+  globalThis.fetch = async url => { if (String(url).includes('disruptions_bulk')) return { ok: false, status: 403 }; return ok(url); };
+  await assert.rejects(lancer(m, true), /HTTP 403/);
+  assert.equal(m.bilans.length, 1);
+  assert.match(m.bilans[0].erreur, /HTTP 403/);
 });

@@ -164,11 +164,30 @@ async function envoyerExpo(messages) {
 // ── Passage complet ────────────────────────────────────────────────────────────────────────────────────────────
 // `db` : Firestore (firebase-admin) ; `horodatage` : admin.firestore.FieldValue.serverTimestamp() ; `cle` : clé PRIM ;
 // `reel` : envoyer et écrire pour de bon ; `journal` : où écrire les messages (jamais de jeton dedans).
+// En réel, chaque passage laisse un petit bilan dans la collection Firestore `statsAlertes` (voir scripts/stats-alertes.js) :
+// heure, perturbations vues, nouvelles, appareils abonnés, notifications envoyées, durée, erreur éventuelle.
 async function executerSurveillance({ db, horodatage, cle, reel, journal = console.log }) {
+  const debut = Date.now();
+  const bilan = { at: new Date(debut), perturbations: 0, nouvelles: 0, abonnes: 0, envoyees: 0, jetonsPerimes: 0, premierPassage: false, erreur: null };
+  try {
+    await passer({ db, horodatage, cle, reel, journal, bilan });
+  } catch (e) {
+    bilan.erreur = String(e && e.message || e).slice(0, 200);
+    throw e;
+  } finally {
+    bilan.dureeMs = Date.now() - debut;
+    if (reel) {
+      try { await db.collection('statsAlertes').add(bilan); } catch (e) { journal(`Bilan non enregistré : ${e.message}`); }
+    }
+  }
+}
+
+async function passer({ db, horodatage, cle, reel, journal, bilan }) {
   journal(reel ? 'MODE RÉEL : les notifications seront envoyées.' : 'MODE SIMULATION : rien ne sera envoyé ni écrit.');
 
   const bulk = await lireJson(URL_PERTURBATIONS, cle);
   const alertes = alertesActuelles(bulk);
+  bilan.perturbations = alertes.size;
   journal(`${alertes.size} perturbation(s) à signaler en ce moment.`);
 
   const refEtat = db.doc('systeme/alertesTrafic');
@@ -180,18 +199,21 @@ async function executerSurveillance({ db, horodatage, cle, reel, journal = conso
   };
 
   if (!etat.exists) {
+    bilan.premierPassage = true;
     journal('Premier passage : état enregistré, aucune notification envoyée.');
     await enregistrerEtat();
     return;
   }
 
   const nouvelles = nouvellesAlertes(alertes, etat.data().signalees || {});
+  bilan.nouvelles = nouvelles.length;
   journal(`${nouvelles.length} nouvelle(s) ou aggravée(s).`);
   if (nouvelles.length === 0) { await enregistrerEtat(); return; }
 
   const abonnes = (await db.collection('pushTokens').get()).docs
     .map(d => ({ ref: d.ref, token: d.data().token, suivies: d.data().alertesLignes || [] }))
     .filter(a => a.token && a.suivies.length > 0);
+  bilan.abonnes = abonnes.length;
   journal(`${abonnes.length} appareil(s) suivent au moins une ligne.`);
 
   // Les textes français ne sont demandés que pour les lignes réellement suivies par quelqu'un.
@@ -212,9 +234,10 @@ async function executerSurveillance({ db, horodatage, cle, reel, journal = conso
 
   if (reel && messages.length > 0) {
     const invalides = await envoyerExpo(messages);
+    bilan.envoyees = messages.length - invalides.length;
     for (const t of invalides) {
       const doc = abonnes.find(a => a.token === t);
-      if (doc) { await doc.ref.delete(); journal('Jeton périmé supprimé.'); }
+      if (doc) { await doc.ref.delete(); bilan.jetonsPerimes++; journal('Jeton périmé supprimé.'); }
     }
   }
   await enregistrerEtat();

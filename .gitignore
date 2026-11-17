@@ -6,3 +6,4 @@ scripts/node_modules
 archive/
 desktop.ini
 scripts/historique-notifications.json
+functions/.env*
