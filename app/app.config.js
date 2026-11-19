@@ -103,6 +103,7 @@ export default {
       ],
       'react-native-nfc-manager',
       './plugins/withRemoveMicPermission',
+      './plugins/withCutoutShortEdges',
       [
         'expo-build-properties',
         {

@@ -7,12 +7,11 @@ import {
 } from 'react-native';
 import { ThemeContext, ThemeProvider, useColors } from './theme';
 import type { ThemeColors, ThemePref } from './theme';
-import { useIsWideLayout } from './responsive';
 import MapWebView, { MapWebViewRef } from './MapWebView';
 import { WebView } from 'react-native-webview';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,6 +36,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS, useFrameCallback } from 'react-native-reanimated';
 import { registerForPushNotificationsAsync, ecouterToucherAlerteTrafic } from './notifications';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
+import { useGeometrieBarres } from './responsive';
 import { PanelLayout, panelCardStyle, panelChipStyle, PANEL_CARD_RADIUS } from './PanelLayout';
 import { PanelHeader, PanelPillAction } from './PanelHeader';
 import { PanelEmptyState } from './PanelEmptyState';
@@ -46,7 +46,7 @@ import { Icon, IconScannerNavigoCouleur, IconAccueilCouleur, IconFavorisCouleur,
 import TraficScreen from './TraficScreen';
 import { MaskedView, GardeMasque } from './ListeFondue';
 import { FadeBottom, FadeTop, hexToRgba, FONDU_HAUT, FONDU_BAS } from './Fade';
-import { definirRect, retirerRect, definirOrigine, definirEnvoyeur, renvoyerVerre } from './verreWeb';
+import { definirRect, retirerRect, definirOrigine, definirEnvoyeur, renvoyerVerre, voilerVerre } from './verreWeb';
 import type { RectVerre } from './verreWeb';
 // Import de type uniquement : pas de require() exécuté au chargement du bundle.
 // react-native-device-info (dépendance de cette lib) plante à l'évaluation de
@@ -59,17 +59,19 @@ import type { AndroidUpdateType, AndroidInstallStatus } from 'sp-react-native-in
 // ─── CONSTANTES DE LAYOUT ────────────────────────────────────────────────────
 // NAV_BAR_BOTTOM / NAV_BAR_HEIGHT viennent de layout.ts (partagées avec les pages plein écran).
 const SEARCH_BAR_HEIGHT = 52;
-const SEARCH_BAR_BOTTOM = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 10;
 // En layout large, le tiroir permanent est plus étroit que sur téléphone
 // (420, voir sideCard) — il reste affiché en continu plutôt que de passage,
 // autant laisser plus de place visible à la carte derrière lui.
-const WIDE_PANEL_WIDTH = 340;
+// Largeur maximale des tiroirs Favoris / Trafic (82 % de l'écran en portrait, plafonné en paysage ou sur grand écran).
+const LARGEUR_MAX_TIROIR = 400;
+const LARGEUR_MAX_TIROIR_PAYSAGE = 340;   // plus étroits en paysage : la carte garde de la place
+// Largeur maximale du volet des horaires en portrait. En paysage le volet prend EXACTEMENT la position et la largeur de la barre de recherche (à droite, voir `useGeometrieBarres`).
+const LARGEUR_MAX_VOLET = 460;
 // La carte reste toujours plein écran (voir AccueilScreen) — cette valeur
 // ne sert qu'à confiner les CONTRÔLES flottants (recherche, barre de nav...)
 // à la zone non recouverte par le tiroir, pour qu'ils ne s'affichent pas
 // par-dessus lui (zIndex plus élevé). Largeur du tiroir + sa marge au bord
 // (12) + un espace avant les contrôles (12).
-const WIDE_PANEL_INSET = WIDE_PANEL_WIDTH + 24;
 
 // Étoile favoris avec petit retour visuel à l'ajout (pas au retrait) : un
 // "pop" du trait + un halo jaune qui grossit et s'estompe, pour qu'ajouter
@@ -990,7 +992,7 @@ function FeurModal({ visible, onClose }: { visible: boolean; onClose: () => void
 // Compteur de fps du mode debug. « UI » : images par seconde du thread
 // d'interface (Reanimated, callback à chaque image dessinée) ; « JS » : boucle
 // requestAnimationFrame côté JavaScript. Une chute de UI = l'affichage saccade.
-function CompteurFps() {
+function CompteurFps({ colonne = false }: { colonne?: boolean }) {
   const [fps, setFps] = useState({ ui: 0, js: 0 });
   const n = useSharedValue(0);
   const t0 = useSharedValue(0);
@@ -1020,8 +1022,18 @@ function CompteurFps() {
     raf = requestAnimationFrame(boucle);
     return () => cancelAnimationFrame(raf);
   }, []);
+  const couleur = (v: number) => (v < 45 ? '#ff8a80' : '#b9f6ca');
+  if (colonne) {
+    // Deux lignes courtes : la place entre le titre et la bulle des réglages est étroite.
+    return (
+      <View>
+        <Text style={{ color: couleur(fps.ui), fontSize: 11, lineHeight: 14, fontFamily: 'GrandParis-Medium' }}>{fps.ui} fps UI</Text>
+        <Text style={{ color: couleur(fps.js), fontSize: 11, lineHeight: 14, fontFamily: 'GrandParis-Medium' }}>{fps.js} fps JS</Text>
+      </View>
+    );
+  }
   return (
-    <Text style={{ color: fps.ui < 45 ? '#ff8a80' : '#b9f6ca', fontSize: 11, fontFamily: 'GrandParis-Medium' }}>
+    <Text style={{ color: couleur(fps.ui), fontSize: 11, fontFamily: 'GrandParis-Medium' }}>
       {fps.ui} fps UI · {fps.js} fps JS
     </Text>
   );
@@ -1032,18 +1044,20 @@ function CompteurFps() {
 // bas (ou en train de monter) et que le haut de la barre est encore sur la carte,
 // le flou du volet recouvrait le flou de la carte et la barre « perdait son flou ».
 // La découpe suit `panelY` (position du volet) à chaque image, sur le thread UI.
-function FlouNavSurPanneau({ panelY, hautVolet, navTop, cible, isDark, teinte }: {
+function FlouNavSurPanneau({ panelY, hautVolet, navTop, largeurFlou, cible, isDark, teinte }: {
   panelY: { value: number }; hautVolet: number; navTop: number;
+  // Largeur du flou, à partir du bord gauche de la barre : le volet peut être plus étroit que la barre (paysage).
+  largeurFlou: number;
   cible: React.RefObject<View | null>; isDark: boolean; teinte: string;
 }) {
   const H = NAV_BAR_HEIGHT - 2;
   const porte = useAnimatedStyle(() => {
     const d = Math.min(H, Math.max(0, hautVolet + panelY.value - navTop));
-    return { position: 'absolute', left: 0, right: 0, top: d, height: H - d, overflow: 'hidden' };
+    return { position: 'absolute', left: 0, width: largeurFlou, top: d, height: H - d, overflow: 'hidden' };
   });
   const interne = useAnimatedStyle(() => {
     const d = Math.min(H, Math.max(0, hautVolet + panelY.value - navTop));
-    return { position: 'absolute', left: 0, right: 0, top: -d, height: H };
+    return { position: 'absolute', left: 0, width: largeurFlou, top: -d, height: H };
   });
   const contenu = (
     <>
@@ -1193,6 +1207,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   const [isSearching, setIsSearching] = useState(false);
   const [feurVisible, setFeurVisible] = useState(false);
   const [headerBarHeight, setHeaderBarHeight] = useState(0);
+  const [headerBarWidth, setHeaderBarWidth] = useState(0);
 
   // Logo qui tourne sur lui-même pendant le téléchargement d'une mise à jour
   const logoSpin = useRef(new Animated.Value(0)).current;
@@ -1262,7 +1277,18 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       Animated.timing(barreOpacite, { toValue: 1, duration: 180, useNativeDriver: false }).start();
     });
   };
-  const searchBarBottom = useRef(new Animated.Value(SEARCH_BAR_BOTTOM)).current;
+  const geo = useGeometrieBarres(NAV_BAR_HEIGHT, SEARCH_BAR_HEIGHT, 10);
+  const geoRef = useRef(geo);   // lue par les écouteurs du clavier, créés une seule fois
+  // Paysage : les tiroirs montent jusqu'en haut de l'écran ; l'en-tête (à gauche) et la bulle des réglages (à droite)
+  // s'effacent quand le tiroir de leur côté est ouvert, au lieu de transparaître à travers le verre.
+  const fondEnteteGauche = useRef(new Animated.Value(1)).current;
+  const fondBulleDroite = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    Animated.timing(fondEnteteGauche, { toValue: geo.paysage && activeTab === 'favoris' ? 0 : 1, duration: 220, useNativeDriver: true }).start();
+    Animated.timing(fondBulleDroite, { toValue: geo.paysage && activeTab === 'trafic' ? 0 : 1, duration: 220, useNativeDriver: true }).start();
+  }, [geo.paysage, activeTab]);
+  geoRef.current = geo;
+  const searchBarBottom = useRef(new Animated.Value(geo.rechercheBottom)).current;
   const resultsBottom   = useRef(Animated.add(searchBarBottom, SEARCH_BAR_HEIGHT + 8)).current;
   const panelOpenRef = useRef(panelOpen);
   // La barre de recherche se range aussi quand un tiroir (Favoris/Trafic) s'ouvre.
@@ -1273,18 +1299,32 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   const flouOn = flouGlobalActif;
   const envoyerVerreRecherche = (b: number, anim: boolean, op = 1, d = 260) => {
     if (!flouGlobalActif || VERRE_FLOU_ZONES.recherche !== 'suivi') return;
-    definirRect({ id: 'recherche', x: largeurFenetre * 0.06, w: largeurFenetre * 0.88, h: SEARCH_BAR_HEIGHT, b, r: 30, o: '0 2px 8px rgba(0,0,0,0.09)', anim, d, op });
+    definirRect({ id: 'recherche', x: geo.rechercheLeft, w: geo.rechercheWidth, h: SEARCH_BAR_HEIGHT, b, r: 30, o: '0 2px 8px rgba(0,0,0,0.09)', anim, d, op });
   };
   useEffect(() => {
     if (!flouOn || VERRE_FLOU_ZONES.recherche !== 'suivi') { retirerRect('recherche'); return; }
     envoyerVerreRecherche((searchBarBottom as any).__getValue(), false);
     return () => retirerRect('recherche');
-  }, [flouOn, largeurFenetre]);
+  }, [flouOn, largeurFenetre, geo.rechercheLeft, geo.rechercheWidth, geo.rechercheBottom]);
   panelOpenRef.current = barreRangee;
 
   useEffect(() => {
-    ressortBarre(searchBarBottom, barreRangee ? -(SEARCH_BAR_HEIGHT + 20) : SEARCH_BAR_BOTTOM);
+    ressortBarre(searchBarBottom, barreRangee ? -(SEARCH_BAR_HEIGHT + 20) : geo.rechercheBottom);
   }, [barreRangee]);
+
+  // Rotation : la barre se REPLACE d'un coup à sa nouvelle position (pas de fondu ni de glissement). Avant, le changement
+  // de position passait par l'animation d'ouverture / fermeture (fondu sortant, saut, fondu entrant) pendant que sa
+  // largeur changeait tout de suite : la barre « dansait » à chaque rotation.
+  const derniereBasse = useRef(geo.rechercheBottom);
+  useEffect(() => {
+    if (derniereBasse.current === geo.rechercheBottom) return;
+    derniereBasse.current = geo.rechercheBottom;
+    jetonBarre.current++;                       // annule tout fondu en cours
+    barreOpacite.setValue(1);
+    if (barreRangee) return;                    // rangée sous l'écran : rien à replacer
+    searchBarBottom.setValue(geo.rechercheBottom);
+    envoyerVerreRecherche(geo.rechercheBottom, false);
+  }, [geo.rechercheBottom]);
 
   const vpAbortRef = useRef<AbortController | null>(null);
   const regionRailStopsRef = useRef<NearbyStop[]>([]);
@@ -1372,7 +1412,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       // l'ouverture d'une gare) ne doit pas la remettre visible en course
       // avec l'animation d'ouverture du volet.
       if (panelOpenRef.current) { setBarreNative(false); return; }
-      glisserBarre(SEARCH_BAR_BOTTOM, () => { setBarreNative(false); envoyerVerreRecherche(SEARCH_BAR_BOTTOM, false); });
+      glisserBarre(geoRef.current.rechercheBottom, () => { setBarreNative(false); envoyerVerreRecherche(geoRef.current.rechercheBottom, false); });
     });
     return () => { s1.remove(); s2.remove(); };
   }, []);
@@ -1582,7 +1622,6 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
           <Text style={{ color: '#fff', fontSize: 11, fontFamily: 'GrandParis-Light' }}>
             {debugInfo.lat.toFixed(4)}, {debugInfo.lon.toFixed(4)}
           </Text>
-          <CompteurFps />
         </View>
       )}
 
@@ -1605,30 +1644,53 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       )}
 
       {/* Header pill flottant */}
-      <View
-        style={[styles.headerNatif, { backgroundColor: teinteVerre(isDark, c, true, 'entete'), ...bordureVerre(isDark, c), top: insets.top + 12 }]}
+      <Animated.View
+        pointerEvents={geo.paysage && activeTab === 'favoris' ? 'none' : 'auto'}
+        style={[styles.headerNatif, { left: geo.paysage ? geo.margeG : 15, opacity: fondEnteteGauche, backgroundColor: teinteVerre(isDark, c, true, 'entete'), ...bordureVerre(isDark, c), top: insets.top + 12 }]}
         onLayout={(e: LayoutChangeEvent) => {
-          const { y, height } = e.nativeEvent.layout;
+          const { y, height, width } = e.nativeEvent.layout;
           onHeaderLayout(y + height);
           setHeaderBarHeight(height);
+          setHeaderBarWidth(width);
         }}
       >
-        <CoucheVerre zone="entete" rayon={20} ombre="0 -2px 8px rgba(0,0,0,0.12)" />
+        {/* Le verre est dessiné DANS la carte (il ne suit pas l'opacité) : on le retire quand l'en-tête est effacé. */}
+        {!(geo.paysage && activeTab === 'favoris') && <CoucheVerre zone="entete" rayon={20} ombre="0 -2px 8px rgba(0,0,0,0.12)" />}
         <Animated.Image
           source={require('./assets/icon.png')}
           style={[styles.logoApp, { transform: [{ rotate: logoSpinDeg }] }]}
         />
         <Text style={[styles.titreGrandPaname, { color: c.text }]}>Grand Paname</Text>
-      </View>
+      </Animated.View>
+
+      {/* Compteur de fps (option « Infos de debug ») : entre le titre et la bulle des réglages, visible en permanence. */}
+      {showDebugOverlay && headerBarWidth > 0 && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute', top: insets.top + 12, left: 15 + headerBarWidth + 8, right: 15 + 44 + 8,
+            height: headerBarHeight, alignItems: 'center', justifyContent: 'center', zIndex: 10,
+          }}
+        >
+          <View style={{ backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 10, paddingVertical: 3, paddingHorizontal: 8 }}>
+            <CompteurFps colonne />
+          </View>
+        </View>
+      )}
 
       {/* Bulle paramètres */}
+      <Animated.View
+        pointerEvents={geo.paysage && activeTab === 'trafic' ? 'none' : 'box-none'}
+        style={[StyleSheet.absoluteFill, { opacity: fondBulleDroite, zIndex: 10 }]}
+      >
       <TouchableOpacity
-        style={[styles.settingsBubble, { backgroundColor: teinteVerre(isDark, c, true, 'reglages'), ...bordureVerre(isDark, c), top: insets.top + 12 }]}
+        style={[styles.settingsBubble, { right: geo.paysage ? geo.margeD : 15, backgroundColor: teinteVerre(isDark, c, true, 'reglages'), ...bordureVerre(isDark, c), top: insets.top + 12 }]}
         onPress={onOpenSettings}
       >
-        <CoucheVerre zone="reglages" rayon={22} ombre="0 -2px 8px rgba(0,0,0,0.12)" />
+        {!(geo.paysage && activeTab === 'trafic') && <CoucheVerre zone="reglages" rayon={22} ombre="0 -2px 8px rgba(0,0,0,0.12)" />}
         <Icon name="parametres" size={18} color={c.text} />
       </TouchableOpacity>
+      </Animated.View>
 
       {/* Overlay transparent : tap sur la carte ferme la liste */}
       {showResults && (
@@ -1641,7 +1703,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Statut de la recherche GPS par paliers, au-dessus de la barre de recherche */}
       {gpsSearchStatus && (
-        <Animated.View style={[styles.gpsStatusPill, { bottom: resultsBottom, backgroundColor: teinteVerre(isDark, c, true, 'pastilles'), ...bordureVerre(isDark, c) }]}>
+        <Animated.View style={[styles.gpsStatusPill, { left: geo.rechercheLeft, width: geo.rechercheWidth, alignSelf: 'flex-start', bottom: resultsBottom, backgroundColor: teinteVerre(isDark, c, true, 'pastilles'), ...bordureVerre(isDark, c) }]}>
           <CoucheVerre zone="pastilles" idVerre="pastille_gps" rayon={16} />
           <Text style={{ fontSize: 14, fontFamily: 'GrandParis-Medium', color: c.text, textAlign: 'center' }}>
             {gpsSearchStatus}
@@ -1651,7 +1713,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Résultats au-dessus de la barre de recherche */}
       {showResults && (
-        <Animated.View style={[styles.searchResultsContainer, { bottom: resultsBottom, backgroundColor: c.bg }]}>
+        <Animated.View style={[styles.searchResultsContainer, { left: geo.rechercheLeft, right: geo.rechercheRight, bottom: resultsBottom, backgroundColor: c.bg }]}>
           <FlatList
             data={searchResults}
             keyExtractor={(item) => item.id}
@@ -1698,7 +1760,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Barre de recherche flottante, ou nom de l'arrêt affiché tant qu'on
           reste sur sa vue (poteaux compris), même horaires fermées */}
-      <Animated.View style={[styles.bottomSearchBar, { bottom: searchBarBottom, opacity: barreOpacite, backgroundColor: teinteVerre(isDark, c, true, 'recherche'), ...bordureVerre(isDark, c) }]}>
+      <Animated.View style={[styles.bottomSearchBar, { left: geo.rechercheLeft, right: geo.rechercheRight, bottom: searchBarBottom, opacity: barreOpacite, backgroundColor: teinteVerre(isDark, c, true, 'recherche'), ...bordureVerre(isDark, c) }]}>
         <CoucheVerre zone="recherche" natifForce={barreNative} />
         {gareActuelle ? (
           <>
@@ -2427,6 +2489,16 @@ function AppInner() {
   const { width: screenWidth, height: SCREEN_H } = useWindowDimensions();
 
   const PANEL_H = SCREEN_H - insets.top;
+  const largeurVolet = Math.min(screenWidth, LARGEUR_MAX_VOLET);
+  // Rotation : le flou (dessiné dans la carte) est masqué d'un coup puis réapparaît en fondu, au lieu de se déplacer en retard.
+  const premiereTaille = useRef(true);
+  useEffect(() => {
+    if (premiereTaille.current) { premiereTaille.current = false; return; }
+    voilerVerre(300);
+  }, [screenWidth, SCREEN_H]);
+  const geo = useGeometrieBarres(NAV_BAR_HEIGHT, SEARCH_BAR_HEIGHT, 10);
+  const paysage = geo.paysage;
+  const largeurMaxTiroir = paysage ? LARGEUR_MAX_TIROIR_PAYSAGE : LARGEUR_MAX_TIROIR;
 
   // 'favoris' et 'trafic' sont des tiroirs par-dessus la carte ; 'gauche' (« Bientôt », sans contenu) et
   // 'scanner' sont de vraies pages plein écran (FullPageModal) et n'existent que si le Scanner
@@ -2448,9 +2520,13 @@ function AppInner() {
   // les CONTRÔLES flottants (recherche, barre de nav...) à la zone non
   // recouverte, pour qu'ils ne s'affichent pas par-dessus le tiroir (voir
   // AccueilScreen et la barre de nav plus bas, tous deux zIndex plus élevé).
-  const isWideLayout = useIsWideLayout();
-  const mapLeftInset = isWideLayout && activeTab === 'favoris' ? WIDE_PANEL_INSET : 0;
-  const mapRightInset = isWideLayout && activeTab === 'trafic' ? WIDE_PANEL_INSET : 0;
+  // Paysage et téléphone : MÊMES menus, même comportement (tiroirs en verre qui glissent par-dessus la carte, gestes,
+  // barre de nav) ; seule la largeur des tiroirs change (plafonnée, voir LARGEUR_MAX_TIROIR). L'ancienne « mise en
+  // page large » (tiroir permanent à côté de la carte) est abandonnée : en paysage elle affichait des volets noirs
+  // vides et changeait tout le fonctionnement à la rotation.
+  const isWideLayout = false;
+  const mapLeftInset = 0;
+  const mapRightInset = 0;
   // Version animée de ces insets, pour que la barre de nav (voir plus bas)
   // glisse en douceur au lieu de sauter instantanément quand un tiroir
   // permanent s'ouvre/se ferme (changement de largeur du même ordre que le
@@ -2713,22 +2789,16 @@ function AppInner() {
   // qu'un geste de scroll est en cours. On ne met donc à jour que lorsque
   // les valeurs sources changent réellement.
   useEffect(() => {
-    snapHiddenSV.value = PANEL_H;
-    snapHalfSV.value   = PANEL_H - SCREEN_H * 0.50;
-    snapFullSV.value   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
-    // Les trois lignes ci-dessus ne mettent à jour que les POINTS D'ANCRAGE
-    // — pas `panelY`, la position réellement affichée. Sans ça, après un
-    // changement de hauteur d'écran (rotation), `panelY` restait à
-    // l'ancienne position "hidden" — celle calculée pour la précédente
-    // hauteur d'écran (ex: paysage, plus petite). Cette ancienne valeur ne
-    // suffit plus à cacher le panneau une fois revenu à un écran plus haut
-    // (portrait) : le panneau réapparaissait, vide, coincé en haut de
-    // l'écran. On resynchronise instantanément (pas de spring ici, ce n'est
-    // pas un geste utilisateur) `panelY` sur la cible actuelle, quel que
-    // soit le snap en cours (hidden/half/full).
-    panelY.value = panelSnapSV.value === 'hidden' ? snapHiddenSV.value
-                 : panelSnapSV.value === 'half'   ? snapHalfSV.value
-                                                   : snapFullSV.value;
+    // ORDRE IMPORTANT : `panelY` d'abord, puis les points d'ancrage. Les écritures arrivent une par une sur le thread UI ;
+    // dans l'ordre inverse, il y avait une image où l'ancrage « rangé » était déjà le nouveau (798) et `panelY` encore
+    // l'ancien (354) : le style d'opacité ci-dessus jugeait le volet « pas rangé » et le laissait apparaître, vide.
+    const hidden = PANEL_H;
+    const half   = PANEL_H - SCREEN_H * 0.50;
+    const full   = headerHeight > 0 ? headerHeight - insets.top + 8 : PANEL_H;
+    panelY.value = panelSnapSV.value === 'hidden' ? hidden : panelSnapSV.value === 'half' ? half : full;
+    snapHiddenSV.value = hidden;
+    snapHalfSV.value   = half;
+    snapFullSV.value   = full;
   }, [PANEL_H, SCREEN_H, headerHeight, insets.top]);
 
   const panelY      = useSharedValue(PANEL_H);
@@ -2765,6 +2835,11 @@ function AppInner() {
 
   const panelAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: panelY.value }],
+    // Volet rangé = invisible. À la rotation, `panelY` garde une image la valeur « rangé » de l'ancienne orientation
+    // (paysage : plus petite) tant que l'effet de resynchronisation n'a pas tourné : le volet apparaissait alors, vide
+    // et noir, dans la moitié basse de l'écran. Tant que `panelY` n'a pas dépassé la position « rangé » connue, il est
+    // masqué (les deux valeurs restent d'accord entre elles, même périmées).
+    opacity: panelSnapSV.value === 'hidden' && panelY.value >= snapHiddenSV.value - 2 ? 0 : 1,
   }));
   const contentAnimatedStyle = useAnimatedStyle(() => ({
     height: contentH.value,
@@ -2984,7 +3059,7 @@ function AppInner() {
   // monté pendant l'animation de fermeture, sinon il disparaîtrait d'un coup.
   // Géométrie des tiroirs (téléphone), lue aussi par les gestes créés une seule fois.
   const geomTiroir = useRef({ top: 0, bottom: 0, larg: 0 });
-  geomTiroir.current = { top: headerHeight + 12, bottom: NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 12, larg: screenWidth * 0.82 };
+  geomTiroir.current = { top: paysage ? insets.top + 8 : headerHeight + 12, bottom: NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 12, larg: Math.min(screenWidth * 0.82, largeurMaxTiroir) };
   // Rectangle de verre d'un tiroir, envoyé à la carte. `tx` = décalage horizontal
   // (0 = ouvert, ±largeur d'écran = fermé) ; `anim` : la carte anime le passage
   // (transition CSS, sur son propre thread), sinon suit tel quel (doigt).
@@ -2992,7 +3067,7 @@ function AppInner() {
     const g = geomTiroir.current;
     return {
       id: tab === 'favoris' ? 'tiroir_fav' : 'tiroir_trafic',
-      x: tab === 'favoris' ? 0 : screenWidth - g.larg, y: g.top, b: g.bottom, w: g.larg,
+      x: tab === 'favoris' ? (paysage ? insets.left : 0) : screenWidth - g.larg - (paysage ? insets.right : 0), y: g.top, b: tab === 'trafic' && paysage ? insets.bottom + 8 : g.bottom, w: g.larg,
       r: tab === 'favoris' ? '0 28px 28px 0' : '28px 0 0 28px', o: '0 6px 24px rgba(0,0,0,0.28)', tx, anim, d: 450, nf: VERRE_FLOU_ZONES.tiroirs === 'natif',
     };
   };
@@ -3298,11 +3373,15 @@ function AppInner() {
   // favori de 72px).
   // Téléphone : tiroir pleine hauteur collé au bord (comme un tiroir de
   // navigation natif), entre le titre de l'app et la barre de nav.
-  const tiroirTop    = isWideLayout ? insets.top + 12 : headerHeight + 12;
-  const tiroirBottom = isWideLayout ? insets.bottom + 12 : NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 12;
+  // Paysage : le tiroir monte jusqu'en haut (il passe sur l'en-tête de son côté) pour gagner de la hauteur.
+  const tiroirTop    = paysage ? insets.top + 8 : headerHeight + 12;
+  const tiroirBottom = NAV_BAR_BOTTOM + NAV_BAR_HEIGHT + 12;
+  const tiroirBottomTrafic = paysage ? insets.bottom + 8 : tiroirBottom;   // paysage : rien sous le tiroir de droite
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['left', 'right']}>
+    // Plus de SafeAreaView (marges gauche / droite) : il rétrécissait TOUTE l'app à côté de la caméra en paysage, d'où une bande
+    // grise. La carte et les fonds vont jusqu'au bord ; chaque élément gère lui-même ses marges de sécurité (`useSafeAreaInsets`).
+    <View style={{ flex: 1, backgroundColor: 'transparent' }}>
       {/* `translucent`/`backgroundColor` retirés (SDK 55+) : la barre de statut
           est désormais toujours translucide/transparente nativement (edge-to-
           edge obligatoire), ces props n'existent plus. */}
@@ -3349,7 +3428,7 @@ function AppInner() {
             // permanence à côté de la carte (pas juste de passage comme sur
             // téléphone), donc autant lui laisser moins de place pour que
             // la carte en garde davantage.
-            isWideLayout ? { maxWidth: WIDE_PANEL_WIDTH } : styles.sideCardFavoris,
+            styles.sideCardFavoris, { maxWidth: largeurMaxTiroir, left: paysage ? insets.left : 0 },
             { top: tiroirTop, bottom: tiroirBottom, backgroundColor: isWideLayout ? c.bg : teinteVerre(isDark, c, false, 'tiroirs'), ...(!isWideLayout && isDark ? { borderColor: c.borderCard } : null), transform: [{ translateX: favSlideAnim }] }
           ]}>
             {!isWideLayout && flouFav && <CoucheVerre zone="tiroirs" />}
@@ -3359,8 +3438,8 @@ function AppInner() {
           </Animated.View>
           <Animated.View {...(isWideLayout ? {} : swipeTrafic.panHandlers)} style={[
             styles.sideCard, styles.sideCardRight,
-            isWideLayout ? { maxWidth: WIDE_PANEL_WIDTH } : styles.sideCardTrafic,
-            { top: tiroirTop, bottom: tiroirBottom, backgroundColor: isWideLayout ? c.bg : teinteVerre(isDark, c, false, 'tiroirs'), ...(!isWideLayout && isDark ? { borderColor: c.borderCard } : null), transform: [{ translateX: traficSlideAnim }] }
+            styles.sideCardTrafic, { maxWidth: largeurMaxTiroir, right: paysage ? insets.right : 0 },
+            { top: tiroirTop, bottom: tiroirBottomTrafic, backgroundColor: isWideLayout ? c.bg : teinteVerre(isDark, c, false, 'tiroirs'), ...(!isWideLayout && isDark ? { borderColor: c.borderCard } : null), transform: [{ translateX: traficSlideAnim }] }
           ]}>
             {!isWideLayout && flouTrafic && <CoucheVerre zone="tiroirs" />}
             <View style={[styles.cardContentWrapper, !isWideLayout && { paddingTop: 20, paddingBottom: 16 }]}>
@@ -3416,13 +3495,14 @@ function AppInner() {
           icône, même libellé) ; seul l'état actif change, avec une pastille
           qui apparaît en ressort. */}
       <View
-        style={[styles.floatingTabBar, { backgroundColor: teinteVerre(isDark, c, true, 'nav'), ...bordureVerre(isDark, c), boxShadow: [{ offsetX: 0, offsetY: 7, blurRadius: 16, color: 'rgba(0,0,0,0.26)' }] }]}
+        style={[styles.floatingTabBar, { left: geo.navLeft, width: geo.navWidth, backgroundColor: teinteVerre(isDark, c, true, 'nav'), ...bordureVerre(isDark, c), boxShadow: [{ offsetX: 0, offsetY: 7, blurRadius: 16, color: 'rgba(0,0,0,0.26)' }] }]}
         onLayout={(e) => setLargeurBarreNav(e.nativeEvent.layout.width)}
       >
         <CoucheVerre zone="nav" rayon={30} />
-        {panelIsOpen && flouGlobalActif && flouNatifActif && VERRE_FLOU_ZONES.nav !== false && (
+        {panelIsOpen && !paysage && flouGlobalActif && flouNatifActif && VERRE_FLOU_ZONES.nav !== false && (
           <FlouNavSurPanneau
             panelY={panelY} hautVolet={SCREEN_H - PANEL_H} navTop={SCREEN_H - NAV_BAR_BOTTOM - NAV_BAR_HEIGHT}
+            largeurFlou={Math.max(0, Math.min(geo.navWidth, largeurVolet - geo.navLeft))}
             cible={panelBlurRef} isDark={isDark} teinte={isDark ? hexToRgba(c.bgCard, 0.62) : 'rgba(255,255,255,0.62)'}
           />
         )}
@@ -3457,7 +3537,7 @@ function AppInner() {
 
       {/* Panel gare : bottom sheet animé */}
       <View style={[StyleSheet.absoluteFill, { zIndex: 500, elevation: 0 }]} pointerEvents="box-none">
-        <ReanimatedLib.View style={[styles.garePanel, { height: PANEL_H, backgroundColor: c.bg }, panelAnimatedStyle]}>
+        <ReanimatedLib.View style={[styles.garePanel, { height: PANEL_H, ...(paysage ? { left: geo.rechercheLeft, width: geo.rechercheWidth, right: undefined } : { width: largeurVolet, right: undefined }), backgroundColor: c.bg }, panelAnimatedStyle]}>
 
           <GestureDetector gesture={headerPanGesture}>
             <View style={styles.dragZone}>
@@ -3606,7 +3686,7 @@ function AppInner() {
 
       </BlurCarteContext.Provider>
       </BlurTargetContext.Provider>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -3735,8 +3815,8 @@ const styles = StyleSheet.create({
   sideCardLeft: { left: 12 },
   sideCardRight: { right: 12 },
   // Téléphone : collé au bord, arrondi seulement côté carte, sans marge.
-  sideCardFavoris: { left: 0, width: '82%', elevation: 0, shadowOpacity: 0, borderRadius: 0, borderWidth: 1, borderLeftWidth: 0, borderColor: 'rgba(255,255,255,0.35)', borderTopRightRadius: 28, borderBottomRightRadius: 28 },
-  sideCardTrafic: { right: 0, width: '82%', elevation: 0, shadowOpacity: 0, borderRadius: 0, borderWidth: 1, borderRightWidth: 0, borderColor: 'rgba(255,255,255,0.35)', borderTopLeftRadius: 28, borderBottomLeftRadius: 28 },
+  sideCardFavoris: { left: 0, width: '82%', maxWidth: LARGEUR_MAX_TIROIR, elevation: 0, shadowOpacity: 0, borderRadius: 0, borderWidth: 1, borderLeftWidth: 0, borderColor: 'rgba(255,255,255,0.35)', borderTopRightRadius: 28, borderBottomRightRadius: 28 },
+  sideCardTrafic: { right: 0, width: '82%', maxWidth: LARGEUR_MAX_TIROIR, elevation: 0, shadowOpacity: 0, borderRadius: 0, borderWidth: 1, borderRightWidth: 0, borderColor: 'rgba(255,255,255,0.35)', borderTopLeftRadius: 28, borderBottomLeftRadius: 28 },
   cardContentWrapper: { flex: 1, paddingTop: 24, paddingHorizontal: 18, paddingBottom: 16 },
 
   // Panel gare

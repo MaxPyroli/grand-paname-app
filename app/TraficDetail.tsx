@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, Animated, Easing, TouchableOpacity, StyleSheet } from 'react-native';
+import { memo } from 'react';
+import { View, Text, FlatList, Animated, Easing, TouchableOpacity, StyleSheet } from 'react-native';
 import { useColors } from './theme';
 import { Icon } from './Icon';
 import { panelCardStyle, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
@@ -63,7 +64,7 @@ function TexteRiche({ texte, analyse }: { texte: string; analyse: AnalyseStation
   );
 }
 
-function Carte({ p, analyse }: { p: PerturbationLigne; analyse: AnalyseStations }) {
+const Carte = memo(function Carte({ p, analyse }: { p: PerturbationLigne; analyse: AnalyseStations }) {
   const c = useColors();
   return (
     <View style={[styles.carte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
@@ -86,7 +87,7 @@ function Carte({ p, analyse }: { p: PerturbationLigne; analyse: AnalyseStations 
       {p.texte !== '' && <TexteRiche texte={p.texte} analyse={analyse} />}
     </View>
   );
-}
+});
 
 // Squelette pendant le chargement : trois cartes grises qui pulsent, à la place des perturbations.
 function SqueletteDetail() {
@@ -123,6 +124,17 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
   // Données déjà là (préchargées, ou ligne déjà ouverte) : affichées dès le premier rendu, sans écran de chargement.
   const [detail, setDetail] = useState<DetailLigne | null>(() => detailEnCache(ligne.id));
   const [erreur, setErreur] = useState(false);
+  // Onglet choisi par l'utilisateur ; tant qu'il n'a rien choisi : « En cours » s'il y en a, sinon « Plus tard ».
+  const [ongletChoisi, setOngletChoisi] = useState<'enCours' | 'plusTard' | null>(null);
+  // Les deux listes (« En cours » et « Plus tard ») restent MONTÉES en permanence, l'une au-dessus de l'autre : changer
+  // d'onglet ne reconstruit rien (plus de clignotement, le défilement de chaque onglet est gardé), la liste choisie
+  // glisse simplement en place pendant que l'autre s'efface. `position` : 0 = « En cours », 1 = « Plus tard ».
+  const position = useRef(new Animated.Value(0)).current;
+  const changerOnglet = (cle: 'enCours' | 'plusTard') => {
+    if (cle === onglet) return;
+    setOngletChoisi(cle);
+    Animated.timing(position, { toValue: cle === 'plusTard' ? 1 : 0, duration: 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  };
   // Pas encore de données : le squelette est visible dès l'ouverture (l'écran glisse avec ses cases grises), puis il
   // s'efface en fondu pendant que le contenu apparaît (pas de blanc, pas de bascule sèche). Données déjà en mémoire :
   // pas de squelette. Le contenu part toujours de transparent (160-200 ms), même depuis la mémoire : si le téléphone
@@ -160,6 +172,49 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
   }, [ligne.id, ligne.etat]);
   useEffect(() => { charger(); }, [charger]);
 
+  const vide = detail !== null && detail.enCours.length === 0 && detail.aVenir.length === 0;
+  // Deux onglets (« En cours » / « Plus tard ») quand les deux existent : une ligne comme le RER C compte ~30 cartes,
+  // dont presque toutes « plus tard » ; ne montrer qu'une catégorie à la fois allège l'écran.
+  const deuxOnglets = detail !== null && detail.enCours.length > 0 && detail.aVenir.length > 0;
+  const onglet: 'enCours' | 'plusTard' = !detail ? 'enCours'
+    : !deuxOnglets ? (detail.enCours.length > 0 ? 'enCours' : 'plusTard')
+    : ongletChoisi ?? 'enCours';
+  // Listes à plat (titres + cartes) pour la virtualisation. Un seul type de perturbation : pas d'onglets, titre de section.
+  const elementsEnCours = useMemo(() => {
+    if (!detail) return [];
+    const l: { cle: string; p?: PerturbationLigne; titre?: string }[] = [];
+    if (!deuxOnglets && detail.enCours.length > 0) l.push({ cle: 'titre-en-cours', titre: 'EN COURS' });
+    detail.enCours.forEach(p => l.push({ cle: 'e-' + p.id + p.titre, p }));
+    return l;
+  }, [detail, deuxOnglets]);
+  const elementsPlusTard = useMemo(() => {
+    if (!detail) return [];
+    const l: { cle: string; p?: PerturbationLigne; titre?: string; espace?: boolean }[] = [];
+    if (!deuxOnglets && detail.aVenir.length > 0) l.push({ cle: 'titre-plus-tard', titre: 'PLUS TARD', espace: detail.enCours.length > 0 });
+    detail.aVenir.forEach(p => l.push({ cle: 'a-' + p.id + p.titre, p }));
+    return l;
+  }, [detail, deuxOnglets]);
+  const liste = (donnees: { cle: string; p?: PerturbationLigne; titre?: string; espace?: boolean }[]) => (
+    <ListeFondue verre={verre}>
+      {/* Liste VIRTUALISÉE : une ligne comme le RER C compte ~30 cartes (des dizaines de petites vues chacune) ; les
+          dessiner toutes d'un coup rendait le défilement saccadé. Seules les cartes proches de l'écran existent. */}
+      <FlatList
+        data={donnees}
+        keyExtractor={e => e.cle}
+        renderItem={({ item }) => item.p
+          ? <Carte p={item.p} analyse={analyse} />
+          : <Text style={[styles.section, { color: c.textSub, marginTop: item.espace ? 10 : 0 }]}>{item.titre}</Text>}
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={4}
+        maxToRenderPerBatch={3}
+        updateCellsBatchingPeriod={40}
+        windowSize={5}
+        removeClippedSubviews
+        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: deuxOnglets ? 10 : PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}
+      />
+    </ListeFondue>
+  );
+
   if (erreur) {
     return (
       <View style={styles.centre}>
@@ -174,7 +229,6 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
       </View>
     );
   }
-  const vide = detail !== null && detail.enCours.length === 0 && detail.aVenir.length === 0;
   return (
     <View style={{ flex: 1 }}>
       {!squeletteRetire && (
@@ -191,14 +245,45 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
               description="Aucune perturbation en cours ni annoncée prochainement sur cette ligne."
             />
           ) : (
-            <ListeFondue verre={verre}>
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}>
-                {detail.enCours.length > 0 && <Text style={[styles.section, { color: c.textSub }]}>EN COURS</Text>}
-                {detail.enCours.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
-                {detail.aVenir.length > 0 && <Text style={[styles.section, { color: c.textSub, marginTop: detail.enCours.length > 0 ? 10 : 0 }]}>PLUS TARD</Text>}
-                {detail.aVenir.map(p => <Carte key={p.id + p.titre} p={p} analyse={analyse} />)}
-              </ScrollView>
-            </ListeFondue>
+            <>
+            {deuxOnglets && (
+              <View style={styles.onglets}>
+                {([['enCours', 'En cours', detail.enCours.length], ['plusTard', 'Plus tard', detail.aVenir.length]] as const).map(([cle, libelle, n]) => {
+                  const actif = onglet === cle;
+                  return (
+                    <TouchableOpacity
+                      key={cle}
+                      activeOpacity={0.7}
+                      onPress={() => changerOnglet(cle)}
+                      style={[styles.onglet, { backgroundColor: actif ? c.accent : hexToRgba(c.text, 0.08) }]}
+                    >
+                      <Text style={[styles.ongletTexte, { color: actif ? '#fff' : c.textSub }]}>{libelle} · {n}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+            {deuxOnglets ? (
+              <View style={{ flex: 1 }}>
+                <Animated.View
+                  needsOffscreenAlphaCompositing
+                  pointerEvents={onglet === 'enCours' ? 'auto' : 'none'}
+                  style={[StyleSheet.absoluteFill, {
+                    opacity: position.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+                    transform: [{ translateX: position.interpolate({ inputRange: [0, 1], outputRange: [0, -28] }) }],
+                  }]}
+                >{liste(elementsEnCours)}</Animated.View>
+                <Animated.View
+                  needsOffscreenAlphaCompositing
+                  pointerEvents={onglet === 'plusTard' ? 'auto' : 'none'}
+                  style={[StyleSheet.absoluteFill, {
+                    opacity: position,
+                    transform: [{ translateX: position.interpolate({ inputRange: [0, 1], outputRange: [28, 0] }) }],
+                  }]}
+                >{liste(elementsPlusTard)}</Animated.View>
+              </View>
+            ) : liste([...elementsEnCours, ...elementsPlusTard])}
+            </>
           )}
         </Animated.View>
       )}
@@ -210,6 +295,9 @@ const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   reessayer: { height: 40, borderRadius: 20, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 40 },
   reessayerTexte: { color: '#fff', fontFamily: 'GrandParis-Bold', fontSize: 14 },
+  onglets: { flexDirection: 'row', gap: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingLeft: 4 },
+  onglet: { height: 32, borderRadius: 16, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+  ongletTexte: { fontSize: 13, fontFamily: 'GrandParis-Medium', includeFontPadding: false },
   section: { fontSize: 12, fontFamily: 'GrandParis-Bold', letterSpacing: 0.8, marginLeft: 4, marginBottom: 10 },
   carte: { ...panelCardStyle, flexDirection: 'column', alignItems: 'stretch', paddingVertical: 14, marginBottom: 10 },
   carteHaut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },

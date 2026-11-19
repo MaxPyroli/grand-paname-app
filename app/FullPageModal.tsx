@@ -49,7 +49,7 @@ export function FullPageModal({ visible, cote, children }: {
       pointerEvents={visible ? 'auto' : 'none'}
       style={[
         styles.root,
-        { backgroundColor: c.bg, paddingTop: insets.top + 8, transform: [{ translateX: slideAnim }] },
+        { backgroundColor: c.bg, paddingTop: insets.top + 8, paddingLeft: 18 + insets.left, paddingRight: 18 + insets.right, transform: [{ translateX: slideAnim }] },
       ]}
     >
       <View style={styles.content}>{children}</View>

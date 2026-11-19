@@ -166,3 +166,12 @@ Sans flou (interrupteur de debug coupé, ou flou suspendu) : +20 points, plafonn
 ## 11. Tenir ce guide à jour
 
 Toute décision de design prise en conversation (taille, espacement, animation, couleur) est ajoutée ici, et le détail de la tâche va dans `docs/journal-developpement.md`.
+
+## Paysage (décision du 2026-11-18)
+- **Mêmes menus, même comportement en portrait et en paysage** : tiroirs Favoris / Trafic en verre qui glissent par-dessus la carte (gestes, voile, barre de nav identiques). Seule la disposition change : largeur d'un tiroir = 82 % de l'écran, plafonnée à 400 dp (`LARGEUR_MAX_TIROIR` dans `App.tsx`).
+- L'ancienne « mise en page large » (tiroir permanent à côté de la carte, seuil de 650 dp, `responsive.ts`) est abandonnée : elle affichait des volets noirs vides en paysage et changeait tout le fonctionnement à la rotation.
+- **Volet des horaires** : feuille du bas. Portrait : pleine largeur. Paysage : à DROITE, exactement à la position et à la largeur de la barre de recherche (qui se range quand il s'ouvre) ; la barre de navigation reste libre à gauche, la carte visible à gauche.
+- **Barres du bas en paysage** : navigation (44 % de la largeur, 400 dp max) et recherche CÔTE À CÔTE sur la même ligne (`useGeometrieBarres` dans `responsive.ts`) ; en portrait, recherche au-dessus de la navigation (88 % de large).
+- **Tiroirs en paysage** : 340 dp max, collés à leur bord, montent jusqu'en haut de l'écran ; celui de droite (Trafic) descend aussi jusqu'en bas (rien dessous), celui de gauche (Favoris) s'arrête au-dessus de la barre de navigation. L'en-tête (à gauche) ou la bulle des réglages (à droite) s'efface quand le tiroir de son côté est ouvert.
+- Reste à harmoniser : Paramètres et fenêtres modales en paysage ; transition de la rotation.
+

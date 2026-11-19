@@ -12,9 +12,11 @@ function getMapHTML(isDark: boolean) {
   // exige désormais une clé API + le préfixe /rastertiles/ dans l'URL (les
   // anciennes URLs, encore documentées un peu partout, renvoient une tuile
   // "API key required" à la place du fond de carte).
+  // « v=… » : version du style des tuiles (voir `setTheme` plus bas, même valeur). Changer cette valeur force tous les
+  // appareils à retélécharger les tuiles une fois, au lieu de garder l'ancien style en cache jusqu'à 180 jours.
   const tileUrl = isDark
-    ? `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}`
-    : `https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}`;
+    ? `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}&v=20261117`
+    : `https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}&v=20261117`;
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -491,7 +493,7 @@ function getMapHTML(isDark: boolean) {
       var neuf=false;
       if(!el){ el=document.createElement('div'); el.id='gl_'+r.id; el.className='gl'; host.appendChild(el); neuf=true; }
       var d=r.d||450;
-      el.style.transition=(r.anim&&!neuf)?('transform '+d+'ms '+CB+', bottom '+d+'ms '+CB+', opacity '+d+'ms linear'):'none';
+      el.style.transition=r.fo?'opacity 130ms linear':((r.anim&&!neuf)?('transform '+d+'ms '+CB+', bottom '+d+'ms '+CB+', opacity '+d+'ms linear'):'none');
       el.style.opacity=(r.op==null)?'1':String(r.op);
       el.style.left=r.x+'px';
       el.style.top=(r.y==null)?'auto':r.y+'px';
@@ -511,8 +513,11 @@ function getMapHTML(isDark: boolean) {
 
   function setTheme(isDark){
     var url = isDark
-      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}';
+      // « v=… » : version du style des tuiles. CARTO a changé son style le 26/10/2026 mais ses anciennes tuiles restent dans le
+      // cache de la WebView jusqu'à 180 jours : on voyait des rectangles de l'ancien style (fin et discret) à côté du
+      // nouveau (épais et vif). Changer cette valeur force tous les appareils à retélécharger les tuiles une fois.
+      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}&v=20261117'
+      : 'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}&v=20261117';
     if(window._tileLayer){ map.removeLayer(window._tileLayer); }
     window._tileLayer = L.tileLayer(url,{maxZoom:19,subdomains:'abcd'}).addTo(map);
     document.body.style.background = isDark ? '#031a3a' : '#eef2f7';
@@ -520,7 +525,9 @@ function getMapHTML(isDark: boolean) {
     var s = document.getElementById('_gp_dots');
     if(!s){ s=document.createElement('style'); s.id='_gp_dots'; document.head.appendChild(s); }
     s.textContent = isDark
-      ? 'img.leaflet-tile{filter:sepia(0.9) hue-rotate(180deg) saturate(2.5) brightness(2.2)!important}'
+      // Teinte bleue de la carte sombre, posée UNE fois sur tout le fond de carte (couche leaflet-tile-pane) et non sur chaque
+      // tuile (le défaut de la carte coupée en deux venait en réalité du cache, voir plus bas). Valeurs adoucies le 17/11 : 2,5 / 2,2 donnait un rendu fluo ; 1,8 / 1,6 donne un bleu marine sobre.
+      ? '.leaflet-tile-pane{filter:sepia(0.9) hue-rotate(180deg) saturate(1.8) brightness(1.6)!important}'
         + '.n-icon{filter:invert(1)!important}'
         + '.n-wrap{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
         + '.sp-badge{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
@@ -765,7 +772,7 @@ export type MapWebViewRef = {
   setNearbyStops: (stops: NearbyStopMarker[]) => void;
   recenterActiveStation: () => void;
   clearCache: () => void;
-  setGlassRects: (rects: Array<{ id: string; x: number; y?: number; w: number; h?: number; b?: number; r: number | string; o?: string; tx?: number; anim?: boolean; d?: number; nf?: boolean; op?: number }>) => void;
+  setGlassRects: (rects: Array<{ id: string; x: number; y?: number; w: number; h?: number; b?: number; r: number | string; o?: string; tx?: number; anim?: boolean; d?: number; nf?: boolean; op?: number; fo?: boolean }>) => void;
 };
 
 type Props = {
