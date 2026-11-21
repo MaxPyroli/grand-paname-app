@@ -1403,6 +1403,9 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const s1 = Keyboard.addListener(showEvt, (e) => {
+      // Un volet ou un tiroir est ouvert (Trafic, Favoris, horaires) : la barre de recherche de l'accueil est rangée ; un
+      // clavier ouvert pour un AUTRE champ (recherche de bus du volet Trafic) ne doit pas la faire réapparaître.
+      if (panelOpenRef.current) return;
       setBarreNative(true);
       glisserBarre(e.endCoordinates.height + 20);
     });

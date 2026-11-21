@@ -1,11 +1,12 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, ScrollView, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Animated, Easing, InteractionManager, TouchableOpacity, StyleSheet, Keyboard, Dimensions, Platform } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
 import { PanelLayout, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
 import { PanelHeader, PanelIconAction, PanelPillAction } from './PanelHeader';
 import TraficDetail from './TraficDetail';
+import RechercheBus, { BoutonRechercheBus } from './RechercheBus';
 import AlertesTrafic, { EtatAlertes } from './AlertesTrafic';
 import { lireLignesSuivies, enregistrerLignesSuivies } from './notifications';
 import { ListeFondue } from './ListeFondue';
@@ -70,6 +71,7 @@ function libelleLigne(l: LigneTrafic): string {
     case 'RER': return 'RER ' + l.code;
     case 'TRAIN': return 'Transilien ' + l.code;
     case 'TRAM': return 'Tram ' + l.code;
+    case 'BUS': return 'Bus ' + l.code;
     default: return 'Câble ' + l.code;
   }
 }
@@ -321,11 +323,31 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   // La liste (47 symboles) est construite UNE fois et réutilisée tant que ses données ne changent pas : ouvrir une ligne
   // change l'état du volet mais ne doit pas redessiner les 47 pastilles (le thread JavaScript, occupé, retardait le
   // départ de l'animation : « parfois ça met 1 seconde et ça s'affiche sans animation »).
+  const defilement = useRef<ScrollView>(null);
+  const [rechercheOuverte, setRechercheOuverte] = useState(false);
+  // Clavier : le volet n'est pas redimensionné par Android, le clavier le recouvre. On mesure de combien il recouvre la zone de la
+  // liste ; le mode recherche de bus s'en sert pour garder sa barre de saisie AU-DESSUS du clavier.
+  const [basClavier, setBasClavier] = useState(0);
+  useEffect(() => {
+    const evtAffiche = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const evtCache = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const a = Keyboard.addListener(evtAffiche, e => {
+      // `screenY` = haut du clavier en coordonnées d'écran (fiable avec la barre de gestes) ; à défaut, hauteur d'écran − hauteur du clavier.
+      const hautClavier = (e.endCoordinates as any).screenY ?? (Dimensions.get('screen').height - e.endCoordinates.height);
+      (defilement.current as any)?.measureInWindow?.((_x: number, y: number, _w: number, h: number) => {
+        setBasClavier(Math.max(0, Math.round(y + h - hautClavier)) + 12);
+      });
+    });
+    const b = Keyboard.addListener(evtCache, () => setBasClavier(0));
+    return () => { a.remove(); b.remove(); };
+  }, []);
   const contenuListe = useMemo(() => lignesAffichees ? (
         <ListeFondue verre={verre}>
         <ScrollView
+          ref={defilement}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingHorizontal: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 4 }}
         >
           {/* Légende : chaque rond avec son mot forme un bloc ; les blocs passent à la ligne si l'écran est étroit. */}
           <View style={styles.legende}>
@@ -360,6 +382,16 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
               </View>
             );
           })}
+          {/* Catégorie « Bus » : même titre (icône + libellé) que les autres modes, mais SANS grille de lignes : seulement le champ
+              de recherche (demande de l'utilisateur). */}
+          <View style={styles.section}>
+            <View style={styles.sectionTitre}>
+              <ExpoImage source={{ uri: MODE_ICONS['BUS'] }} style={[styles.sectionIcone, { tintColor: c.textSub }]} contentFit="contain" />
+              <Text style={[styles.sectionTexte, { color: c.textSub }]}>BUS</Text>
+            </View>
+          </View>
+          {/* Faux champ : le toucher ouvre le mode recherche (titre « Bus » en haut, résultats défilants, barre en bas). */}
+          <BoutonRechercheBus onPress={() => setRechercheOuverte(true)} />
         </ScrollView>
         </ListeFondue>
   ) : null, [lignesAffichees, verre, isDark, c, largeurGrille, ouvrirLigne, appuiSymbole]);
@@ -383,9 +415,13 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
       cle="vue"
       icon={ligneMontee
         // Même image, même taille (42 px) que dans la liste, réduite à 30 px par une mise à l'échelle : déjà décodée.
-        ? <View style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
-            <ExpoImage source={{ uri: symboleLigne(ligneMontee.mode, ligneMontee.code, isDark) ?? '' }} style={{ width: 42, height: 42, transform: [{ scale: 30 / 42 }] }} contentFit="contain" />
-          </View>
+        ? (ligneMontee.mode === 'BUS'
+          ? <View style={{ minWidth: 34, height: 24, borderRadius: 12, paddingHorizontal: 7, backgroundColor: '#' + ligneMontee.color, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#' + ligneMontee.textColor, fontSize: 12, fontFamily: 'GrandParis-Bold', includeFontPadding: false }} numberOfLines={1}>{ligneMontee.code}</Text>
+            </View>
+          : <View style={{ width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}>
+              <ExpoImage source={{ uri: symboleLigne(ligneMontee.mode, ligneMontee.code, isDark) ?? '' }} style={{ width: 42, height: 42, transform: [{ scale: 30 / 42 }] }} contentFit="contain" />
+            </View>)
         : <Icon name="notifications" size={26} color={c.accent} />}
       title={ligneMontee ? libelleLigne(ligneMontee) : 'Alertes trafic'}
       subtitle={ligneMontee ? LIBELLE_ETAT[ligneMontee.etat]
@@ -421,6 +457,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
           style={{ flex: 1, opacity: ouverture.interpolate({ inputRange: [0, 0.25], outputRange: [1, 0], extrapolate: 'clamp' }), transform: [{ translateX: ouverture.interpolate({ inputRange: [0, 1], outputRange: [0, -28], extrapolate: 'clamp' }) }] }}
           pointerEvents={vueOuverte ? 'none' : 'auto'}
         >
+      <View style={{ flex: 1, opacity: rechercheOuverte ? 0 : 1 }} pointerEvents={rechercheOuverte ? 'none' : 'auto'}>
       {lignes === null && !erreur ? (
         <Squelette couleur={c.textSub} />
       ) : lignes === null ? (
@@ -435,6 +472,11 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
           </TouchableOpacity>
         </View>
       ) : contenuListe}
+      </View>
+      {/* Mode recherche de bus : prend la place de la liste (celle-ci reste montée, invisible, pour garder sa position). */}
+      {rechercheOuverte && (
+        <RechercheBus onOuvrir={ouvrirLigne} onFermer={() => setRechercheOuverte(false)} basClavier={basClavier} />
+      )}
         </Animated.View>
         {vueMontee && (
           <Animated.View
@@ -465,6 +507,8 @@ const styles = StyleSheet.create({
   sectionIcone: { width: 18, height: 18 },
   sectionTexte: { fontSize: 12, fontFamily: 'GrandParis-Bold', letterSpacing: 0.8 },
   grille: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  busBascule: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 44, paddingHorizontal: 14, borderRadius: 14 },
+  busTexte: { fontSize: 14, fontFamily: 'GrandParis-Medium' },
   // La case est un peu plus grande que le symbole pour que le point d'état, qui dépasse du coin, ne soit pas coupé.
   pastilleCase: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center' },
   symbole: { width: 42, height: 42 },

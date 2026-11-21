@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { etatDesLignes, analyserDetailLigne, nettoyerTexte } from '../traficApi.ts';
+import { etatDesLignes, analyserDetailLigne, nettoyerTexte, rechercherLignesBus } from '../traficApi.ts';
 
 const NOW = new Date(2026, 9, 15, 12, 0, 0).getTime();   // 15 octobre 2026, 12 h (heure locale)
 const dans = (j: number) => { const d = new Date(NOW + j * 86_400_000); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`; };
@@ -131,4 +131,27 @@ test('détail : tri — plus grave d\'abord, incident avant travaux', () => {
 
 test('détail : réponse vide ou absente', () => {
   assert.deepEqual(analyserDetailLigne(undefined, NOW), { enCours: [], aVenir: [], stations: [] });
+});
+
+// ── Recherche de bus ──
+// (cette fonction lit l'heure réelle : les périodes sont calculées autour de maintenant)
+const dateReelle = (j: number) => { const d = new Date(Date.now() + j * 86_400_000); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`; };
+test("recherche de bus : seuls les bus, numéro exact d'abord, état calculé", async () => {
+  const avant = globalThis.fetch;
+  const ligneBus = (id: string, code: string) => ({ line: { id, code, color: 'FF1400', text_color: 'FFFFFF', physical_modes: [{ id: 'physical_mode:Bus' }] } });
+  globalThis.fetch = (async (url: any) => {
+    if (String(url).includes('pt_objects')) return { ok: true, json: async () => ({ pt_objects: [
+      ligneBus('line:B2', '1104'), ligneBus('line:B1', '104'),
+      { line: { id: 'line:M1', code: '1', physical_modes: [{ id: 'physical_mode:Metro' }] } }] }) };
+    return { ok: true, json: async () => ({ disruptions: [{ id: 'd0', cause: 'PERTURBATION', severity: 'BLOQUANTE', applicationPeriods: [{ begin: dateReelle(-1), end: dateReelle(1) }] }],
+      lines: [{ id: 'line:B1', impactedObjects: [{ type: 'line', disruptionIds: ['d0'] }] }] }) };
+  }) as any;
+  try {
+    const r = await rechercherLignesBus('104');
+    assert.deepEqual(r.map(l => l.code), ['104', '1104']);
+    assert.equal(r[0].mode, 'BUS');
+    assert.equal(r[0].etat, 'interrompu');
+    assert.equal(r[1].etat, 'normal');
+    assert.deepEqual(await rechercherLignesBus('   '), []);
+  } finally { globalThis.fetch = avant; }
 });

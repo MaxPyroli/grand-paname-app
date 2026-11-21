@@ -69,17 +69,33 @@ const Carte = memo(function Carte({ p, analyse }: { p: PerturbationLigne; analys
   return (
     <View style={[styles.carte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
       <View style={styles.carteHaut}>
-        <View style={styles.cause}>
-          <View style={[styles.point, { backgroundColor: COULEUR_TYPE[p.type] }]} />
-          <Text style={[styles.causeTexte, { color: COULEUR_TYPE[p.type] }]}>
-            {LIBELLE_TYPE[p.type].toUpperCase()}
-          </Text>
-        </View>
-        {/* La cause n'est rappelée que si elle apporte quelque chose (« Information » + type Information = doublon). */}
-        {!(p.cause === 'information' && p.type === 'info') && (
-          <View style={[styles.pastilleCause, { borderColor: hexToRgba(c.text, 0.3) }]}>
-            <Text style={[styles.pastilleCauseTexte, { color: c.textSub }]}>{LIBELLE_CAUSE[p.cause]}</Text>
-          </View>
+        {/* Travaux : MÊME signe que dans la liste (rond noir à centre jaune) et libellé « TRAVAUX » ; la gravité (interrompu /
+            perturbé) passe dans la pastille de droite. Les autres causes gardent la couleur de leur type. */}
+        {p.cause === 'travaux' ? (
+          <>
+            <View style={styles.cause}>
+              <View style={[styles.point, styles.pointTravaux, { borderWidth: 1, borderColor: hexToRgba(c.text, 0.35) }]}><View style={styles.pointTravauxCentre} /></View>
+              <Text style={[styles.causeTexte, { color: c.text }]}>TRAVAUX</Text>
+            </View>
+            <View style={[styles.pastilleCause, { borderColor: COULEUR_TYPE[p.type] }]}>
+              <Text style={[styles.pastilleCauseTexte, { color: COULEUR_TYPE[p.type] }]}>{LIBELLE_TYPE[p.type]}</Text>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.cause}>
+              <View style={[styles.point, { backgroundColor: COULEUR_TYPE[p.type] }]} />
+              <Text style={[styles.causeTexte, { color: COULEUR_TYPE[p.type] }]}>
+                {LIBELLE_TYPE[p.type].toUpperCase()}
+              </Text>
+            </View>
+            {/* La cause n'est rappelée que si elle apporte quelque chose (« Information » + type Information = doublon). */}
+            {!(p.cause === 'information' && p.type === 'info') && (
+              <View style={[styles.pastilleCause, { borderColor: hexToRgba(c.text, 0.3) }]}>
+                <Text style={[styles.pastilleCauseTexte, { color: c.textSub }]}>{LIBELLE_CAUSE[p.cause]}</Text>
+              </View>
+            )}
+          </>
         )}
       </View>
       <Text style={[styles.periode, { color: c.textSub }]}>{p.periode}</Text>
@@ -172,29 +188,24 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
   }, [ligne.id, ligne.etat]);
   useEffect(() => { charger(); }, [charger]);
 
-  const vide = detail !== null && detail.enCours.length === 0 && detail.aVenir.length === 0;
-  // Deux onglets (« En cours » / « Plus tard ») quand les deux existent : une ligne comme le RER C compte ~30 cartes,
-  // dont presque toutes « plus tard » ; ne montrer qu'une catégorie à la fois allège l'écran.
-  const deuxOnglets = detail !== null && detail.enCours.length > 0 && detail.aVenir.length > 0;
-  const onglet: 'enCours' | 'plusTard' = !detail ? 'enCours'
-    : !deuxOnglets ? (detail.enCours.length > 0 ? 'enCours' : 'plusTard')
-    : ongletChoisi ?? 'enCours';
+  // TOUJOURS deux onglets (« En cours » / « Plus tard »), même pour une ligne sans aucune perturbation (demande de l'utilisateur) :
+  // même présentation pour toutes les lignes. Un onglet vide dit ce qu'il en est.
+  const deuxOnglets = detail !== null;
+  const onglet: 'enCours' | 'plusTard' = ongletChoisi ?? 'enCours';
   // Listes à plat (titres + cartes) pour la virtualisation. Un seul type de perturbation : pas d'onglets, titre de section.
   const elementsEnCours = useMemo(() => {
     if (!detail) return [];
     const l: { cle: string; p?: PerturbationLigne; titre?: string }[] = [];
-    if (!deuxOnglets && detail.enCours.length > 0) l.push({ cle: 'titre-en-cours', titre: 'EN COURS' });
     detail.enCours.forEach(p => l.push({ cle: 'e-' + p.id + p.titre, p }));
     return l;
   }, [detail, deuxOnglets]);
   const elementsPlusTard = useMemo(() => {
     if (!detail) return [];
     const l: { cle: string; p?: PerturbationLigne; titre?: string; espace?: boolean }[] = [];
-    if (!deuxOnglets && detail.aVenir.length > 0) l.push({ cle: 'titre-plus-tard', titre: 'PLUS TARD', espace: detail.enCours.length > 0 });
     detail.aVenir.forEach(p => l.push({ cle: 'a-' + p.id + p.titre, p }));
     return l;
   }, [detail, deuxOnglets]);
-  const liste = (donnees: { cle: string; p?: PerturbationLigne; titre?: string; espace?: boolean }[]) => (
+  const liste = (donnees: { cle: string; p?: PerturbationLigne; titre?: string; espace?: boolean }[], vide?: { titre: string; texte: string }) => (
     <ListeFondue verre={verre}>
       {/* Liste VIRTUALISÉE : une ligne comme le RER C compte ~30 cartes (des dizaines de petites vues chacune) ; les
           dessiner toutes d'un coup rendait le défilement saccadé. Seules les cartes proches de l'écran existent. */}
@@ -210,7 +221,14 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
         updateCellsBatchingPeriod={40}
         windowSize={5}
         removeClippedSubviews
-        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: deuxOnglets ? 10 : PANEL_CONTENT_TOP_PAD, paddingBottom: FONDU_BAS + 16 }}
+        ListEmptyComponent={vide ? (
+          <View style={styles.videOnglet}>
+            <Icon name="valider" size={34} color={c.textSub} />
+            <Text style={[styles.videTitre, { color: c.text }]}>{vide.titre}</Text>
+            <Text style={[styles.videTexte, { color: c.textSub }]}>{vide.texte}</Text>
+          </View>
+        ) : null}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 10, paddingBottom: FONDU_BAS + 16, flexGrow: 1 }}
       />
     </ListeFondue>
   );
@@ -238,13 +256,7 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
       )}
       {contenuPret && detail !== null && (
         <Animated.View style={{ flex: 1, opacity: apparition }}>
-          {vide ? (
-            <PanelEmptyState
-              icon={<Icon name="valider" size={44} color={c.textSub} />}
-              title="Rien à signaler"
-              description="Aucune perturbation en cours ni annoncée prochainement sur cette ligne."
-            />
-          ) : (
+          {(
             <>
             {deuxOnglets && (
               <View style={styles.onglets}>
@@ -272,7 +284,7 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
                     opacity: position.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
                     transform: [{ translateX: position.interpolate({ inputRange: [0, 1], outputRange: [0, -28] }) }],
                   }]}
-                >{liste(elementsEnCours)}</Animated.View>
+                >{liste(elementsEnCours, { titre: 'Rien en cours', texte: 'Aucune perturbation en cours sur cette ligne.' })}</Animated.View>
                 <Animated.View
                   needsOffscreenAlphaCompositing
                   pointerEvents={onglet === 'plusTard' ? 'auto' : 'none'}
@@ -280,9 +292,9 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
                     opacity: position,
                     transform: [{ translateX: position.interpolate({ inputRange: [0, 1], outputRange: [28, 0] }) }],
                   }]}
-                >{liste(elementsPlusTard)}</Animated.View>
+                >{liste(elementsPlusTard, { titre: "Rien d'annoncé", texte: 'Aucune perturbation annoncée prochainement sur cette ligne.' })}</Animated.View>
               </View>
-            ) : liste([...elementsEnCours, ...elementsPlusTard])}
+            ) : null}
             </>
           )}
         </Animated.View>
@@ -295,6 +307,9 @@ const styles = StyleSheet.create({
   centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   reessayer: { height: 40, borderRadius: 20, paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 40 },
   reessayerTexte: { color: '#fff', fontFamily: 'GrandParis-Bold', fontSize: 14 },
+  videOnglet: { alignItems: 'center', justifyContent: 'center', paddingTop: 48, paddingHorizontal: 24, gap: 8 },
+  videTitre: { fontSize: 16, fontFamily: 'GrandParis-Bold', textAlign: 'center' },
+  videTexte: { fontSize: 13, fontFamily: 'GrandParis-Light', textAlign: 'center', lineHeight: 20 },
   onglets: { flexDirection: 'row', gap: 8, paddingTop: PANEL_CONTENT_TOP_PAD, paddingLeft: 4 },
   onglet: { height: 32, borderRadius: 16, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
   ongletTexte: { fontSize: 13, fontFamily: 'GrandParis-Medium', includeFontPadding: false },
@@ -303,6 +318,8 @@ const styles = StyleSheet.create({
   carteHaut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   cause: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
   point: { width: 9, height: 9, borderRadius: 4.5 },
+  pointTravaux: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center' },
+  pointTravauxCentre: { width: 5.5, height: 5.5, borderRadius: 2.75, backgroundColor: '#FFC400' },
   causeTexte: { fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.6, flexShrink: 1 },
   periode: { fontSize: 12, fontFamily: 'GrandParis-Medium', marginBottom: 6 },
   pastilleCause: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, height: 20, justifyContent: 'center', marginLeft: 8, flexShrink: 0 },

@@ -13,6 +13,7 @@ export function symboleLigne(mode: ModeTrafic, code: string, sombre: boolean): s
     case 'TRAIN': cle = 'train-' + code.toUpperCase(); break;
     case 'TRAM': cle = 'tram-' + code.toLowerCase().replace(/^t/, ''); break;
     case 'CABLE': cle = 'cable-' + code.toLowerCase().replace(/^c/, ''); break;
+    default: return undefined;   // bus : pas de symbole officiel, pastille aux couleurs de la ligne
   }
   return (sombre ? LIGNE_ICONS[cle + '-fonce'] : undefined) ?? LIGNE_ICONS[cle];
 }

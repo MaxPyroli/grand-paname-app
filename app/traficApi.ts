@@ -11,7 +11,7 @@ const TTL_LIGNES_MS = 24 * 3600 * 1000;
 // `travaux` = des travaux EN COURS qui touchent la ligne en ce moment (les travaux prévus plus tard ne comptent pas), sans
 // incident en direct par-dessus.
 export type EtatTrafic = 'normal' | 'info' | 'travaux' | 'perturbe' | 'interrompu';
-export type ModeTrafic = 'RER' | 'TRAIN' | 'METRO' | 'TRAM' | 'CABLE';
+export type ModeTrafic = 'RER' | 'TRAIN' | 'METRO' | 'TRAM' | 'CABLE' | 'BUS';
 
 export type LigneTrafic = {
   id: string;
@@ -137,6 +137,27 @@ export function chargerTrafic(signal?: AbortSignal): Promise<LigneTrafic[]> {
       .finally(() => { enCours = null; });
   }
   return enCours;
+}
+
+// ── Recherche d'une ligne de bus ───────────────────────────────────────────────
+// Les bus ne sont pas dans la liste (plus de 1 800 lignes) : on les cherche à la demande par leur numéro
+// (`pt_objects`, une petite requête), puis on calcule leur état avec les perturbations déjà en cache (60 s).
+export async function rechercherLignesBus(texte: string, signal?: AbortSignal): Promise<LigneTrafic[]> {
+  const q = texte.trim();
+  if (q === '') return [];
+  const r = await fetch(`${NAVITIA_BASE}/pt_objects?q=${encodeURIComponent(q)}&type%5B%5D=line&count=15&disable_disruption=true`, { headers: { apiKey: NAVITIA_KEY }, signal });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const d = await r.json();
+  const brutes: LigneBrute[] = (d.pt_objects || [])
+    .map((o: any) => o.line)
+    .filter((l: any) => l && (l.physical_modes || []).some((m: any) => String(m.id).includes('Bus')))
+    .map((l: any) => ({ id: l.id, code: l.code || l.name, color: l.color || '888888', textColor: l.text_color || 'FFFFFF', mode: 'BUS' as ModeTrafic }))
+    // Le numéro exact d'abord (« 104 » avant « 1104 »), puis par ordre naturel.
+    .sort((a: LigneBrute, b: LigneBrute) => (b.code.toLowerCase() === q.toLowerCase() ? 1 : 0) - (a.code.toLowerCase() === q.toLowerCase() ? 1 : 0) || comparerCodes(a.code, b.code));
+  if (brutes.length === 0) return [];
+  // Sans les perturbations (réseau en panne), les bus sont affichés « normaux » plutôt que de masquer le résultat.
+  const bulk = await chargerPerturbations(signal).catch(() => null);
+  return etatDesLignes(brutes, bulk);
 }
 
 // Force une relecture (tirer pour actualiser) : vide les caches de perturbations.
