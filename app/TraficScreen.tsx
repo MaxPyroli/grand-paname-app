@@ -8,7 +8,7 @@ import { PanelHeader, PanelIconAction, PanelPillAction } from './PanelHeader';
 import TraficDetail from './TraficDetail';
 import RechercheBus, { BoutonRechercheBus } from './RechercheBus';
 import AlertesTrafic, { EtatAlertes } from './AlertesTrafic';
-import { lireLignesSuivies, enregistrerLignesSuivies } from './notifications';
+import { lireLignesSuivies, enregistrerLignesSuivies, lireBusSuivis, enregistrerBusSuivis, BusSuivi } from './notifications';
 import { ListeFondue } from './ListeFondue';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
@@ -226,6 +226,17 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     if (minuteurAlertes.current) clearTimeout(minuteurAlertes.current);
     minuteurAlertes.current = setTimeout(() => { enregistrerLignesSuivies(apres).then(setEtatAlertes); }, 800);
   }, []);
+  // Bus suivis : leur numéro et leur couleur (pour l'écran des alertes) ; l'identifiant est dans `suivies` comme toute ligne.
+  const [busSuivis, setBusSuivis] = useState<BusSuivi[]>([]);
+  useEffect(() => { lireBusSuivis().then(setBusSuivis); }, []);
+  const basculerBus = useCallback((l: LigneTrafic) => {
+    setBusSuivis(avant => {
+      const apres = avant.some(b => b.id === l.id) ? avant.filter(b => b.id !== l.id) : [...avant, { id: l.id, code: l.code, color: l.color, textColor: l.textColor }];
+      enregistrerBusSuivis(apres);
+      return apres;
+    });
+    basculerSuivie(l.id);
+  }, [basculerSuivie]);
   // Le volet qu'on referme revient à la liste (une fois l'animation de fermeture du volet finie).
   useEffect(() => {
     if (actif) return;
@@ -475,7 +486,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
       </View>
       {/* Mode recherche de bus : prend la place de la liste (celle-ci reste montée, invisible, pour garder sa position). */}
       {rechercheOuverte && (
-        <RechercheBus onOuvrir={ouvrirLigne} onFermer={() => setRechercheOuverte(false)} basClavier={basClavier} />
+        <RechercheBus onOuvrir={ouvrirLigne} onFermer={() => setRechercheOuverte(false)} basClavier={basClavier} suivies={suivies} onBasculerBus={basculerBus} />
       )}
         </Animated.View>
         {vueMontee && (
@@ -485,7 +496,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
           >
             {vueMontee.genre === 'ligne'
               ? <TraficDetail key={vueMontee.ligne.id} ligne={vueMontee.ligne} verre={verre} pret={vueStable} />
-              : <AlertesTrafic lignes={lignes} suivies={suivies} onBasculer={basculerSuivie} etat={etatAlertes} verre={verre} />}
+              : <AlertesTrafic lignes={lignes} suivies={suivies} onBasculer={basculerSuivie} bus={busSuivis} onBasculerBus={basculerBus} etat={etatAlertes} verre={verre} />}
           </Animated.View>
         )}
       </View>

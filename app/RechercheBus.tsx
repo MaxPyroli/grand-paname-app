@@ -5,6 +5,7 @@ import { useColors } from './theme';
 import { hexToRgba } from './Fade';
 import { MODE_ICONS } from './modeIcons';
 import { PanelPillAction } from './PanelHeader';
+import { Icon } from './Icon';
 import { ListeFondue } from './ListeFondue';
 import { rechercherLignesBus, prechargerDetailLigne, LigneTrafic, EtatTrafic } from './traficApi';
 
@@ -29,7 +30,7 @@ export function BoutonRechercheBus({ onPress }: { onPress: () => void }) {
 }
 
 // Une ligne de résultat : elle apparaît en fondu en glissant de 14 px vers le haut, avec un petit décalage (`rang` : 0 = la plus proche de la barre).
-function LigneResultat({ l, rang, attenue, onOuvrir }: { l: LigneTrafic; rang: number; attenue: boolean; onOuvrir: (l: LigneTrafic) => void }) {
+function LigneResultat({ l, rang, attenue, onOuvrir, suivie, onBasculerBus }: { l: LigneTrafic; rang: number; attenue: boolean; onOuvrir: (l: LigneTrafic) => void; suivie: boolean; onBasculerBus: (l: LigneTrafic) => void }) {
   const c = useColors();
   const v = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -42,7 +43,7 @@ function LigneResultat({ l, rang, attenue, onOuvrir }: { l: LigneTrafic; rang: n
     <Animated.View style={{ opacity: Animated.multiply(v, att), transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }}>
       <TouchableOpacity
         activeOpacity={0.6}
-        onPress={() => onOuvrir(l)}
+        onPress={() => { Keyboard.dismiss(); onOuvrir(l); }}   // le clavier se ferme dès qu'on ouvre une ligne
         onPressIn={() => prechargerDetailLigne(l.id)}
         style={[styles.ligne, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}
       >
@@ -52,6 +53,17 @@ function LigneResultat({ l, rang, attenue, onOuvrir }: { l: LigneTrafic; rang: n
         <Text style={[styles.libelle, { color: c.text }]} numberOfLines={1}>Bus {l.code}</Text>
         <View style={[styles.pointEtat, { backgroundColor: COULEUR_ETAT[l.etat] }]} />
         <Text style={[styles.etat, { color: c.textSub }]} numberOfLines={1}>{LIBELLE_ETAT[l.etat]}</Text>
+        {/* Cloche : suivre cette ligne pour les alertes trafic (fond d'accent quand elle est suivie). */}
+        <TouchableOpacity
+          hitSlop={8}
+          onPress={() => onBasculerBus(l)}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: suivie }}
+          accessibilityLabel={`Alertes pour le bus ${l.code}`}
+          style={[styles.cloche, { backgroundColor: suivie ? c.accent : hexToRgba(c.text, 0.08) }]}
+        >
+          <Icon name="notifications" size={15} color={suivie ? '#fff' : c.textSub} />
+        </TouchableOpacity>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -95,7 +107,7 @@ function Message({ children }: { children: React.ReactNode }) {
 }
 
 // `basClavier` : hauteur dont le clavier recouvre le bas de cette zone (0 sans clavier).
-export default function RechercheBus({ onOuvrir, onFermer, basClavier }: { onOuvrir: (l: LigneTrafic) => void; onFermer: () => void; basClavier: number }) {
+export default function RechercheBus({ onOuvrir, onFermer, basClavier, suivies, onBasculerBus }: { onOuvrir: (l: LigneTrafic) => void; onFermer: () => void; basClavier: number; suivies: string[]; onBasculerBus: (l: LigneTrafic) => void }) {
   const c = useColors();
   const [texte, setTexte] = useState('');
   const [resultats, setResultats] = useState<LigneTrafic[] | null>(null);
@@ -144,7 +156,7 @@ export default function RechercheBus({ onOuvrir, onFermer, basClavier }: { onOuv
             {resultats === null && !erreur && !charge && <Message>Tape le numéro d'une ligne de bus pour voir son trafic.</Message>}
             {resultats !== null && resultats.length === 0 && !charge && !erreur && <Message>Aucune ligne de bus trouvée pour « {texte.trim()} ».</Message>}
             {charge && (resultats === null || resultats.length === 0) && !erreur && <SqueletteResultats />}
-            {liste.map((l, i) => <LigneResultat key={l.id} l={l} rang={liste.length - 1 - i} attenue={charge} onOuvrir={onOuvrir} />)}
+            {liste.map((l, i) => <LigneResultat key={l.id} l={l} rang={liste.length - 1 - i} attenue={charge} onOuvrir={onOuvrir} suivie={suivies.includes(l.id)} onBasculerBus={onBasculerBus} />)}
           </ScrollView>
         </ListeFondue>
       </View>
@@ -184,5 +196,6 @@ const styles = StyleSheet.create({
   pastilleTexte: { fontSize: 13, fontFamily: 'GrandParis-Bold', includeFontPadding: false },
   libelle: { fontSize: 14, fontFamily: 'GrandParis-Medium', flexShrink: 1 },
   pointEtat: { width: 9, height: 9, borderRadius: 4.5, marginLeft: 'auto' },
-  etat: { fontSize: 12, fontFamily: 'GrandParis-Light', maxWidth: 130 },
+  etat: { fontSize: 12, fontFamily: 'GrandParis-Light', maxWidth: 104 },
+  cloche: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
 });

@@ -52,6 +52,7 @@ test('libellé de ligne', () => {
   assert.equal(libelleLigne({ mode: 'Metro', code: '3B' }), 'Métro 3 bis');
   assert.equal(libelleLigne({ mode: 'RapidTransit', code: 'A' }), 'RER A');
   assert.equal(libelleLigne({ mode: 'Autre', code: 'X' }), 'Ligne X');
+  assert.equal(libelleLigne({ mode: 'Bus', code: '104' }), 'Bus 104');
 });
 
 test('message : filtré par lignes suivies, une ligne, plusieurs lignes', () => {

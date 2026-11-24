@@ -22,7 +22,7 @@ const URL_EXPO = 'https://exp.host/--/api/v2/push/send';
 const CAUSES_ALERTEES = ['PERTURBATION'];                   // pas TRAVAUX, pas INFORMATION
 const GRAVITES_ALERTEES = { BLOQUANTE: 2, PERTURBEE: 1 };   // pas INFORMATION
 
-const LIBELLE_MODE = { Metro: 'Métro', RapidTransit: 'RER', LocalTrain: 'Transilien', Tramway: 'Tram' };
+const LIBELLE_MODE = { Metro: 'Métro', RapidTransit: 'RER', LocalTrain: 'Transilien', Tramway: 'Tram', Bus: 'Bus' };
 
 // ── Dates (l'API donne l'heure de Paris, le serveur est en UTC) ─────────────────────────────────────────────────
 const FORMAT_PARIS = new Intl.DateTimeFormat('en-US', {

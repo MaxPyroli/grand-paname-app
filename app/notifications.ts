@@ -161,6 +161,24 @@ export async function enregistrerLignesSuivies(lignes: string[]): Promise<'ok' |
   }
 }
 
+// Lignes de BUS suivies : seul l'identifiant part au serveur (comme les autres lignes) ; leur numéro et leur couleur, nécessaires pour
+// les afficher dans l'écran des alertes (les bus ne sont pas dans la liste des lignes), restent sur le téléphone.
+const CLE_BUS_SUIVIS = '@gp_alertes_bus';
+export type BusSuivi = { id: string; code: string; color: string; textColor: string };
+
+export async function lireBusSuivis(): Promise<BusSuivi[]> {
+  try {
+    const brut = await AsyncStorage.getItem(CLE_BUS_SUIVIS);
+    const liste = brut ? JSON.parse(brut) : [];
+    return Array.isArray(liste) ? liste.filter((b: any) => b && typeof b.id === 'string' && typeof b.code === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+export async function enregistrerBusSuivis(bus: BusSuivi[]): Promise<void> {
+  try { await AsyncStorage.setItem(CLE_BUS_SUIVIS, JSON.stringify(bus)); } catch { /* sans gravité */ }
+}
+
 // Appelle `quand(idLigne)` quand l'utilisateur touche une notification d'alerte trafic (app ouverte, en arrière-plan
 // ou fermée : dans ce dernier cas, la notification qui a lancé l'app est relue au démarrage).
 export function ecouterToucherAlerteTrafic(quand: (idLigne: string) => void): () => void {

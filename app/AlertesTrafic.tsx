@@ -9,16 +9,19 @@ import { FONDU_BAS } from './Fade';
 import { MODE_ICONS } from './modeIcons';
 import { symboleLigne } from './symbolesLignes';
 import { SECTIONS_TRAFIC, LigneTrafic } from './traficApi';
+import type { BusSuivi } from './notifications';
 
 // Réglage des alertes trafic (étape 1.5 du plan de la 3.4.0) : on choisit à la main les lignes à suivre ; un
 // programme de surveillance (scripts/surveillance-trafic.js) envoie une notification quand l'une d'elles est
 // interrompue ou fortement perturbée (ni travaux ni informations).
 export type EtatAlertes = 'ok' | 'refuse' | 'erreur';
 
-export default function AlertesTrafic({ lignes, suivies, onBasculer, etat, verre }: {
+export default function AlertesTrafic({ lignes, suivies, onBasculer, bus, onBasculerBus, etat, verre }: {
   lignes: LigneTrafic[] | null;
   suivies: string[];
   onBasculer: (idLigne: string) => void;
+  bus: BusSuivi[];   // lignes de bus suivies (ajoutées depuis la recherche de bus de la liste)
+  onBasculerBus: (l: LigneTrafic) => void;
   etat: EtatAlertes;
   verre?: boolean;
 }) {
@@ -97,6 +100,37 @@ export default function AlertesTrafic({ lignes, suivies, onBasculer, etat, verre
             </View>
           );
         })}
+        {/* Bus : les lignes de bus suivies (ajoutées avec la cloche dans la recherche de bus de la liste Info trafic). */}
+        <View style={styles.section}>
+          <View style={styles.sectionTitre}>
+            <ExpoImage source={{ uri: MODE_ICONS['BUS'] }} style={[styles.sectionIcone, { tintColor: c.textSub }]} contentFit="contain" />
+            <Text style={[styles.sectionTexte, { color: c.textSub }]}>BUS</Text>
+          </View>
+          {bus.length === 0 ? (
+            <Text style={[styles.carteTexte, { color: c.textSub, marginLeft: 4 }]}>
+              Aucun bus suivi. Cherche une ligne dans « Rechercher un bus », en bas de la liste Info trafic, puis touche la cloche.
+            </Text>
+          ) : (
+            <View style={styles.grille}>
+              {bus.map(b => (
+                <TouchableOpacity
+                  key={b.id}
+                  activeOpacity={0.6}
+                  onPress={() => onBasculerBus({ id: b.id, code: b.code, color: b.color, textColor: b.textColor, mode: 'BUS', etat: 'normal', nbPerturbations: 0 })}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: true }}
+                  accessibilityLabel={`Retirer les alertes du bus ${b.code}`}
+                  style={[styles.case, { borderColor: c.accent, backgroundColor: c.accent + '22', width: undefined, minWidth: 50, paddingHorizontal: 4 }]}
+                >
+                  <View style={[styles.repli, { backgroundColor: '#' + b.color }]}><Text style={[styles.repliTexte, { color: '#' + b.textColor }]}>{b.code}</Text></View>
+                  <View style={[styles.coche, { backgroundColor: c.accent, borderColor: verre ? c.bgCard : c.bg }]}>
+                    <Icon name="valider" size={10} color="#fff" />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
       </ScrollView>
     </ListeFondue>
   );
