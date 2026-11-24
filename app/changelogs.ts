@@ -6,22 +6,13 @@ export type ChangelogEntry = {
 };
 
 export const CHANGELOGS: ChangelogEntry[] = [
-  // ENTRÉE TEMPORAIRE : prochain build, numéro de version non fixé (« 3.4.x »). À remplacer par le vrai numéro et la vraie
-  // date au moment de la sortie (ou à supprimer si les changements partent dans une autre version).
-  {
-    version: '3.4.x',
-    date: 'En préparation',
-    content: `**🛠️ Améliorations et Corrections**
-* L'icône des notifications dans la barre d'état est maintenant une silhouette du logo, comme le veulent les normes d'Android.
-
-Bon voyage !`,
-  },
   {
     version: '3.4.0',
     date: '24 novembre 2026',
+    codename: 'Emmental',
     content: `**🚀 Nouveautés**
 * Info trafic : l'état de toutes les lignes de Train / RER, métro, tramway, câble et bus en un coup d'œil, avec les symboles officiels des lignes, dans le volet Trafic. Chaque ligne a deux onglets, « En cours » et « Plus tard », et la recherche permet de trouver n'importe quelle ligne de bus.
-* Alertes trafic : choisis tes lignes (bus compris) avec la cloche du volet Trafic et reçois une notification dès qu'une nouvelle perturbation ou une interruption touche l'une d'elles.
+* Alertes trafic : choisis tes lignes (bus compris) avec la cloche du volet Trafic et reçois une notification dès qu'une nouvelle perturbation ou une interruption touche l'une d'elles, avec le détail de l'annonce. Quand l'app est ouverte, un petit pop-up t'avertit directement, et une perturbation déjà terminée quand tu ouvres la notification s'affiche quand même, marquée « Terminée ».
 * Mode paysage repensé : mêmes menus qu'en portrait avec une disposition adaptée, barre de navigation et de recherche côte à côte, volet des horaires sur le côté.
 
 **🛠️ Améliorations et Corrections**
@@ -29,6 +20,8 @@ Bon voyage !`,
 * Carte : correction des carreaux qui s'affichaient à des niveaux de zoom différents, et teinte bleue plus douce.
 * Les zones de flou suivent mieux la rotation de l'écran, et la zone autour de la caméra n'est plus grise.
 * Correction d'un bug d'animation sur l'ouverture et la fermeture des paramètres avancés.
+* L'icône des notifications dans la barre d'état est maintenant une silhouette du logo, comme le veulent les normes d'Android.
+* La carte s'affiche plus sûrement au lancement, même quand le réseau est mauvais.
 * La chaîne WhatsApp a été retirée de la liste des liens.
 
 Bon voyage !`,

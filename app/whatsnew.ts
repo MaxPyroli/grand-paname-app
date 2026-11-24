@@ -24,7 +24,7 @@ export const WHATSNEW: WhatsNewEntry[] = [
         emoji: '🔔',
         title: 'Alertes trafic',
         description:
-          "Touche la cloche d'une ligne (bus compris) pour la suivre : tu reçois une notification dès qu'une nouvelle perturbation ou une interruption la touche.",
+          "Touche la cloche d'une ligne (bus compris) pour la suivre : tu reçois une notification dès qu'une nouvelle perturbation ou une interruption la touche, et un petit pop-up t'avertit quand l'app est ouverte.",
       },
       {
         emoji: '📱',
