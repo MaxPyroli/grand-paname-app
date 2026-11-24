@@ -1,0 +1,12 @@
+NOTES DE VERSION POUR LA PLAY CONSOLE (limite : 500 caractères par langue)
+Colle seulement le texte entre les deux lignes.
+----------------------------------------------------------------
+<fr-FR>
+3.4.0 : Info trafic
+• L'état de toutes les lignes (Train/RER, métro, tram, câble, bus) en un coup d'œil, avec les onglets « En cours » et « Plus tard »
+• Alertes trafic : suis tes lignes (bus compris) avec la cloche et reçois une notification à chaque nouvelle perturbation
+• Mode paysage repensé
+• Corrections de la carte, des animations et des flous
+</fr-FR>
+----------------------------------------------------------------
+Texte complet de la version : app/changelogs.ts (affiché dans l'app, Paramètres).

@@ -79,3 +79,10 @@ Animations du volet (en-tête à deux couches, ouverture d'une ligne, cartes de 
 - Le serveur répond 429 si on envoie trop de requêtes d'un coup (réessais intégrés, préchargement limité à 3 lignes).
 - Gravité fiable seulement pour « bloquante sur la ligne » (32 cas sur 32 confirmés) ; beaucoup de coupures de tronçon (travaux de nuit des RER, ligne J) sont codées « perturbée » : assumé.
 - Le câble C1 est en mode Navitia `SuspendedCableCar` (pas `Funicular`) ; le funiculaire de Montmartre (« FUN ») n'a pas de symbole fourni (pastille de couleur en repli).
+
+## 10. Mise à jour du 2026-11-24 (à lire avant le reste de ce fichier, qui date du 9)
+
+- Cloudflare Worker en RÉEL (toutes les 2 minutes), surveillance GitHub arrêtée. Une notification par perturbation et par ligne suivie, avec détail ; l'app garde les alertes reçues et affiche « TERMINÉE » si la perturbation est finie au toucher.
+- Outil de gestion unique : raccourci « Gestion Grand Paname » (stats + notifications, filtre stable / dev / toutes). L'étiquette stable / dev n'existe que dans les builds où l'app l'écrit (AAB 304001 inclus).
+- AAB 3.4.0 : `archive\Grand-Paname-3.4.0.aab`, versionCode 304001 (changer le code à chaque nouvel AAB, voir mémoire). Dossier `Publication\` : icônes, notes de version, confidentialité.
+- **Prévu pour le PROCHAIN build (version NON fixée, décision de l'utilisateur le 24/11 : on ne choisit pas encore le numéro)** : icône de notification en silhouette blanche (`app/assets/notification-icon.png`, déjà branchée dans `app.config.js`, absente de l'AAB 304001 : changement natif, visible seulement après un nouveau build).

@@ -12,6 +12,30 @@ export type WhatsNewEntry = {
 
 export const WHATSNEW: WhatsNewEntry[] = [
   {
+    version: '3.4.0',
+    features: [
+      {
+        emoji: '🚦',
+        title: 'Info trafic',
+        description:
+          "L'état de toutes les lignes de Train / RER, métro, tramway, câble et bus en un coup d'œil, avec les symboles officiels. Chaque ligne détaille ce qui se passe « En cours » et « Plus tard », et la recherche trouve n'importe quelle ligne de bus.",
+      },
+      {
+        emoji: '🔔',
+        title: 'Alertes trafic',
+        description:
+          "Touche la cloche d'une ligne (bus compris) pour la suivre : tu reçois une notification dès qu'une nouvelle perturbation ou une interruption la touche.",
+      },
+      {
+        emoji: '📱',
+        title: 'Mode paysage repensé',
+        description:
+          "Mêmes menus qu'en portrait, mais organisés pour l'écran large : barres côte à côte et volet des horaires sur le côté.",
+      },
+    ],
+    footer: "Et aussi des corrections sur la carte, les animations et les flous — détails dans le changelog complet.",
+  },
+  {
     version: '3.3.3',
     features: [
       {

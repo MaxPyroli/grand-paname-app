@@ -21,7 +21,7 @@ export default {
   expo: {
     name: IS_DEV ? 'Grand Paname Dev' : 'Grand Paname',
     slug: 'grand-paname',
-    version: '3.3.3',
+    version: '3.4.0',
     // Pas de verrou statique ici : l'orientation est libre partout, y
     // compris sur téléphone (paysage supporté depuis la 3.3.1, panneau
     // Favoris/Trafic permanent — voir responsive.ts), géré au runtime via
@@ -62,8 +62,8 @@ export default {
       // tuiles de carte cassées par la fermeture de l'accès anonyme CARTO).
       // Fix inclus sans changer le nom de version : re-upload sous le même
       // nom "3.3.2", donc numéro d'upload 1 au lieu de 0 → 30302*10+1.
-      // 3.3.3 → 30303*10+0.
-      versionCode: 303030,
+      // 3.3.3 → 30303*10+0. 3.4.0 → 30400*10+0 pour le premier AAB, 304001 pour le re-build (même nom de version) : changer le code À CHAQUE nouvel AAB, même si le précédent n a pas été publié.
+      versionCode: 304001,
       // google-services.json est gitignore (pas commité) donc EAS Build ne le
       // voit pas nativement — on le fournit via une variable d'environnement
       // EAS de type "fichier" (GOOGLE_SERVICES_JSON), qui pointe vers un
@@ -123,8 +123,11 @@ export default {
       [
         'expo-notifications',
         {
-          icon: './assets/icon.png',
-          color: '#ffffff',
+          // Petite icône de la barre d'état : silhouette BLANCHE sur fond transparent (96 × 96), seule forme que
+          // Android accepte pour une icône de notification (une image colorée devient un carré blanc).
+          // `color` : teinte de l'icône dans le volet des notifications (le bleu de l'app).
+          icon: './assets/notification-icon.png',
+          color: '#3498db',
           // Une notification sans catégorie précise atterrit dans « Autres »
           // (id `default`) plutôt que dans la catégorie « Miscellaneous » que la
           // bibliothèque crée sinon toute seule. Demande un nouveau build natif.

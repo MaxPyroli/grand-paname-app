@@ -6,16 +6,30 @@ export type ChangelogEntry = {
 };
 
 export const CHANGELOGS: ChangelogEntry[] = [
+  // ENTRÉE TEMPORAIRE : prochain build, numéro de version non fixé (« 3.4.x »). À remplacer par le vrai numéro et la vraie
+  // date au moment de la sortie (ou à supprimer si les changements partent dans une autre version).
+  {
+    version: '3.4.x',
+    date: 'En préparation',
+    content: `**🛠️ Améliorations et Corrections**
+* L'icône des notifications dans la barre d'état est maintenant une silhouette du logo, comme le veulent les normes d'Android.
+
+Bon voyage !`,
+  },
   {
     version: '3.4.0',
-    date: 'En préparation',
+    date: '24 novembre 2026',
     content: `**🚀 Nouveautés**
-* Scanner Navigo (bêta) : lis ton passe Navigo (contrats, validations, incidents) avec le NFC de ton téléphone. À activer dans Paramètres > Avancé, il ajoute un onglet « Scanner » à la barre de navigation.
-* Info trafic : l'état de toutes les lignes de Train / RER, métro, tramway et câble en un coup d'œil, avec les symboles officiels des lignes, dans le volet Trafic.
-* Alertes trafic : choisis tes lignes avec la cloche du volet Trafic et reçois une notification quand leur trafic est interrompu ou fortement perturbé.
+* Info trafic : l'état de toutes les lignes de Train / RER, métro, tramway, câble et bus en un coup d'œil, avec les symboles officiels des lignes, dans le volet Trafic. Chaque ligne a deux onglets, « En cours » et « Plus tard », et la recherche permet de trouver n'importe quelle ligne de bus.
+* Alertes trafic : choisis tes lignes (bus compris) avec la cloche du volet Trafic et reçois une notification dès qu'une nouvelle perturbation ou une interruption touche l'une d'elles.
+* Mode paysage repensé : mêmes menus qu'en portrait avec une disposition adaptée, barre de navigation et de recherche côte à côte, volet des horaires sur le côté.
 
 **🛠️ Améliorations et Corrections**
-* Des animations ont été ajoutées sur les icônes de la barre de navigation lors du changement d'onglet.
+* La barre de navigation a été revue pour une meilleure navigation.
+* Carte : correction des carreaux qui s'affichaient à des niveaux de zoom différents, et teinte bleue plus douce.
+* Les zones de flou suivent mieux la rotation de l'écran, et la zone autour de la caméra n'est plus grise.
+* Correction d'un bug d'animation sur l'ouverture et la fermeture des paramètres avancés.
+* La chaîne WhatsApp a été retirée de la liste des liens.
 
 Bon voyage !`,
   },
