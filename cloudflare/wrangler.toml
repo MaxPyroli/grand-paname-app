@@ -1,0 +1,12 @@
+name = "grand-paname-surveillance"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+# Un passage toutes les 2 minutes.
+[triggers]
+crons = ["*/2 * * * *"]
+
+# SIMULATION par défaut. Mettre "1" (ou `wrangler deploy --var ENVOI_REEL:1`) pour envoyer pour de bon.
+[vars]
+ENVOI_REEL = "0"

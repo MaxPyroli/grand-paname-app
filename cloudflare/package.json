@@ -1,0 +1,7 @@
+{
+  "name": "grand-paname-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": { "deploy": "wrangler deploy", "journaux": "wrangler tail" },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}
