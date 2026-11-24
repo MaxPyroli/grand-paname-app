@@ -14,7 +14,7 @@ Tout ce qui sert à publier l'app sur la Play Console, au même endroit. Ce sont
 | `textes/politique-de-confidentialite.html` | La page de confidentialité (copie de `docs/confidentialite.html`) |
 
 ## L'AAB à envoyer
-Pas copié ici (68 Mo par version) : il est dans `archive\Grand-Paname-<version>.aab` (ex. `archive\Grand-Paname-3.4.0.aab`, code de version 304001).
+Pas copié ici (68 Mo par version) : il est dans `archive\Grand-Paname-<version>.aab`, ou `Grand-Paname-<version>-<versionCode>.aab` quand une version a été construite plusieurs fois (ex. `archive\Grand-Paname-3.4.0-304002.aab`, la version définitive « Emmental »).
 
 ## Avant chaque envoi
 1. Le code de version (`versionCode` dans `app/app.config.js`) est plus grand que celui du dernier AAB construit.
