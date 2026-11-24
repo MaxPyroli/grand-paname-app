@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 import { MODE_ICONS } from './modeIcons';
 import { GRANDPARIS_BOLD_BASE64 } from './assets/grandParisBoldBase64';
 import { CARTO_API_KEY } from './constants';
+import { LEAFLET_JS, LEAFLET_CSS } from './leafletInline';
 
 function getMapHTML(isDark: boolean) {
   const iconsJson = JSON.stringify(MODE_ICONS);
@@ -22,8 +23,8 @@ function getMapHTML(isDark: boolean) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>${LEAFLET_CSS}</style>
+  <script>${LEAFLET_JS}</script>
   <style>
     /* Police embarquée en base64 (pas de fichier local accessible depuis la
        WebView) pour que les indices de lignes matchent la police du reste de
