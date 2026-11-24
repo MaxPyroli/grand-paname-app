@@ -192,11 +192,11 @@ async function envoyerExpo(messages) {
 // `reel` : envoyer et écrire pour de bon ; `journal` : où écrire les messages (jamais de jeton dedans).
 // En réel, chaque passage laisse un petit bilan dans la collection Firestore `statsAlertes` (voir scripts/stats-alertes.js) :
 // heure, perturbations vues, nouvelles, appareils abonnés, notifications envoyées, durée, erreur éventuelle.
-async function executerSurveillance({ db, horodatage, cle, reel, journal = console.log }) {
+async function executerSurveillance({ db, horodatage, cle, reel, journal = console.log, notifierDev = false }) {
   const debut = Date.now();
   const bilan = { at: new Date(debut), perturbations: 0, nouvelles: 0, abonnes: 0, envoyees: 0, jetonsPerimes: 0, premierPassage: false, erreur: null };
   try {
-    await passer({ db, horodatage, cle, reel, journal, bilan });
+    await passer({ db, horodatage, cle, reel, journal, bilan, notifierDev });
   } catch (e) {
     bilan.erreur = String(e && e.message || e).slice(0, 200);
     throw e;
@@ -208,7 +208,7 @@ async function executerSurveillance({ db, horodatage, cle, reel, journal = conso
   }
 }
 
-async function passer({ db, horodatage, cle, reel, journal, bilan }) {
+async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }) {
   journal(reel ? 'MODE RÉEL : les notifications seront envoyées.' : 'MODE SIMULATION : rien ne sera envoyé ni écrit.');
 
   const bulk = await lireJson(URL_PERTURBATIONS, cle);
@@ -237,8 +237,10 @@ async function passer({ db, horodatage, cle, reel, journal, bilan }) {
   if (nouvelles.length === 0) { await enregistrerEtat(); return; }
 
   const abonnes = (await db.collection('pushTokens').get()).docs
-    .map(d => ({ ref: d.ref, token: d.data().token, suivies: d.data().alertesLignes || [] }))
-    .filter(a => a.token && a.suivies.length > 0);
+    .map(d => ({ ref: d.ref, token: d.data().token, suivies: d.data().alertesLignes || [], dev: d.data().variante === 'dev' }))
+    // Les installations de DÉVELOPPEMENT (variante « dev », écrite par l'app) ne reçoivent pas les alertes réelles : elles
+    // doublaient celles de la version stable sur le téléphone du développeur. `notifierDev` pour les inclure.
+    .filter(a => a.token && a.suivies.length > 0 && (notifierDev || !a.dev));
   bilan.abonnes = abonnes.length;
   journal(`${abonnes.length} appareil(s) suivent au moins une ligne.`);
 

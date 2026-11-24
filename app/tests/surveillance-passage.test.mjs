@@ -80,3 +80,13 @@ test('bilan : une panne est enregistrée avec son erreur, puis relancée', async
   assert.equal(m.bilans.length, 1);
   assert.match(m.bilans[0].erreur, /HTTP 403/);
 });
+
+test('les installations de développement ne reçoivent pas les alertes (sauf demande)', async () => {
+  const abonnes = [{ token: 'STABLE', alertesLignes: ['L1'], variante: 'stable' }, { token: 'ANCIEN', alertesLignes: ['L1'] }, { token: 'DEV', alertesLignes: ['L1'], variante: 'dev' }];
+  const m = fauxMonde({ etat: { signalees: {} }, abonnes });
+  await lancer(m, true);
+  assert.deepEqual(m.envois.map(e => e.to).sort(), ['ANCIEN', 'STABLE']);
+  const m2 = fauxMonde({ etat: { signalees: {} }, abonnes });
+  await executerSurveillance({ db: m2.db, horodatage: 'T', cle: 'k', reel: true, journal: () => {}, notifierDev: true });
+  assert.deepEqual(m2.envois.map(e => e.to).sort(), ['ANCIEN', 'DEV', 'STABLE']);
+});

@@ -5,13 +5,14 @@
 // Réglages (voir docs/alertes-trafic-cloudflare.md) :
 //   secrets   PRIM_API_KEY, FIREBASE_SERVICE_ACCOUNT (le JSON du compte de service, en une seule valeur)
 //   variable  ENVOI_REEL = "1" pour envoyer pour de bon ; sinon SIMULATION (rien n'est envoyé ni écrit)
+//   variable  NOTIFIER_DEV = "1" pour envoyer AUSSI aux installations de développement (par défaut : non)
 import { creerFirestore, SERVEUR_HORODATAGE } from './firestore.js';
 import logique from '../../functions/alertes-trafic.js';
 
 async function passage(env) {
   const compte = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
   await logique.executerSurveillance({
-    db: creerFirestore(compte), horodatage: SERVEUR_HORODATAGE, cle: env.PRIM_API_KEY, reel: env.ENVOI_REEL === '1',
+    db: creerFirestore(compte), horodatage: SERVEUR_HORODATAGE, cle: env.PRIM_API_KEY, reel: env.ENVOI_REEL === '1', notifierDev: env.NOTIFIER_DEV === '1',
   });
 }
 
