@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const { exec } = require('child_process');
 const admin = require('firebase-admin');
 const { choisirDoublons } = require('./doublons');
+const { varianteDe, filtreValide, correspond } = require('./variantes');
 
 const PORT = Number(process.env.PORT) || 4747;
 const SECRET = crypto.randomBytes(16).toString('hex');
@@ -39,7 +40,7 @@ let db = null;
 let erreurFirebase = null;
 try {
   const serviceAccount = require(SERVICE_ACCOUNT_PATH);
-  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  if (!admin.apps.length) admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
   db = admin.firestore();
 } catch (e) {
   erreurFirebase = `Impossible de charger le compte de service Firebase (${SERVICE_ACCOUNT_PATH}).`;
@@ -86,6 +87,7 @@ async function listerAppareils({ nettoyer = false } = {}) {
     version: x.appVersion || '?',
     maj: x.updatedAt?.toDate?.()?.toISOString() || null,
     identifie: !!x.deviceKey,
+    variante: varianteDe(x),
   }));
   appareils.sort((a, b) => (b.maj || '').localeCompare(a.maj || ''));
   return { appareils, supprimes };
@@ -111,10 +113,11 @@ function decouper(arr, taille) {
 const attendre = ms => new Promise(r => setTimeout(r, ms));
 const court = t => `${t.slice(0, 22)}…${t.slice(-6)}`;
 
-async function lancerEnvoi(job, { categorie, titre, message, cible, token, simulation }) {
+async function lancerEnvoi(job, { categorie, titre, message, cible, token, simulation, filtre = 'stable' }) {
   const log = (texte, type = 'info') => job.lignes.push({ texte, type });
   try {
-    const { appareils } = await listerAppareils({ nettoyer: true });
+    const { appareils: tous } = await listerAppareils({ nettoyer: true });
+    const appareils = tous.filter(a => correspond(a.variante, filtre));
     const il_y_a_30_jours = Date.now() - 30 * 24 * 3600 * 1000;
     const destinataires = cible === 'un' ? appareils.filter(a => a.token === token)
       : cible === 'recents' ? appareils.filter(a => a.maj && new Date(a.maj).getTime() >= il_y_a_30_jours)
@@ -216,7 +219,7 @@ function lireCorps(req) {
   });
 }
 
-const serveur = http.createServer(async (req, res) => {
+const gerer = async (req, res) => {
   // Protection contre le "DNS rebinding" : on n'accepte que localhost.
   const hote = (req.headers.host || '').split(':')[0];
   if (hote !== 'localhost' && hote !== '127.0.0.1') { res.writeHead(403); return res.end('Interdit'); }
@@ -236,7 +239,9 @@ const serveur = http.createServer(async (req, res) => {
     if (req.headers['x-secret'] !== SECRET) return envoyerJson(res, 403, { erreur: 'Code secret invalide (recharge la page).' });
     try {
       if (req.method === 'GET' && url.pathname === '/api/appareils') {
-        return envoyerJson(res, 200, await listerAppareils({ nettoyer: true }));
+        const rep = await listerAppareils({ nettoyer: true });
+        const filtre = filtreValide(url.searchParams.get('variante'));
+        return envoyerJson(res, 200, { ...rep, appareils: rep.appareils.filter(a => correspond(a.variante, filtre)), filtre });
       }
       if (req.method === 'GET' && url.pathname === '/api/inactifs') {
         const jours = Math.max(7, Number(url.searchParams.get('jours')) || 60);
@@ -267,7 +272,7 @@ const serveur = http.createServer(async (req, res) => {
         const id = crypto.randomBytes(6).toString('hex');
         const job = { id, lignes: [], termine: false, resume: null };
         jobs.set(id, job);
-        lancerEnvoi(job, { categorie: b.categorie, titre, message, cible: b.cible, token: b.token, simulation: !!b.simulation });
+        lancerEnvoi(job, { categorie: b.categorie, titre, message, cible: b.cible, token: b.token, simulation: !!b.simulation, filtre: filtreValide(b.variante) });
         return envoyerJson(res, 200, { id });
       }
       return envoyerJson(res, 404, { erreur: 'Introuvable.' });
@@ -277,15 +282,20 @@ const serveur = http.createServer(async (req, res) => {
   }
 
   res.writeHead(404); res.end('Introuvable');
-});
+};
 
-serveur.listen(PORT, '127.0.0.1', () => {
-  const adresse = `http://localhost:${PORT}`;
-  console.log(`Outil d'envoi de notifications : ${adresse}`);
-  console.log('(Ctrl+C pour arrêter)');
-  if (erreurFirebase) console.warn(erreurFirebase);
-  if (process.argv.includes('--ouvrir')) {
-    const cmd = process.platform === 'win32' ? `start "" "${adresse}"` : process.platform === 'darwin' ? `open "${adresse}"` : `xdg-open "${adresse}"`;
-    exec(cmd);
-  }
-});
+// Utilisable seul (ce fichier lancé directement) ou monté dans l'outil de gestion `gestion-ui.js`.
+module.exports = { gerer };
+
+if (require.main === module) {
+  http.createServer(gerer).listen(PORT, '127.0.0.1', () => {
+    const adresse = `http://localhost:${PORT}`;
+    console.log(`Outil d'envoi de notifications : ${adresse}`);
+    console.log('(Ctrl+C pour arrêter)');
+    if (erreurFirebase) console.warn(erreurFirebase);
+    if (process.argv.includes('--ouvrir')) {
+      const cmd = process.platform === 'win32' ? `start "" "${adresse}"` : process.platform === 'darwin' ? `open "${adresse}"` : `xdg-open "${adresse}"`;
+      exec(cmd);
+    }
+  });
+}

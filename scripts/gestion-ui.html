@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gestion Grand Paname</title>
+<style>
+  :root { --fond:#f2f5f8; --carte:#ffffff; --bord:#dde4eb; --texte:#25303b; --sous:#6b7a89; --accent:#3498db; --dev:#e67e22; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fond:#0f1620; --carte:#18222f; --bord:#263445; --texte:#ddeeff; --sous:#7f9bb8; --accent:#5ab3f5; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; background: var(--fond); color: var(--texte); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  nav { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; background: var(--carte); border-bottom: 1px solid var(--bord); }
+  nav h1 { font-size: 17px; margin: 0 8px 0 0; }
+  .groupe { display: inline-flex; background: var(--fond); border: 1px solid var(--bord); border-radius: 12px; padding: 3px; gap: 2px; }
+  .groupe button { font: inherit; color: var(--sous); background: transparent; border: 0; border-radius: 9px; padding: 6px 14px; cursor: pointer; }
+  .groupe button.actif { background: var(--accent); color: #fff; }
+  .groupe.filtre button.actif[data-v="dev"] { background: var(--dev); }
+  .espace { flex: 1; }
+  .etiquette { color: var(--sous); font-size: 13px; }
+  iframe { flex: 1; width: 100%; border: 0; }
+</style>
+</head>
+<body>
+<nav>
+  <h1>Grand Paname</h1>
+  <div class="groupe" id="onglets">
+    <button data-o="stats">📊 Statistiques</button>
+    <button data-o="notifications">🔔 Notifications</button>
+  </div>
+  <span class="espace"></span>
+  <span class="etiquette">Appareils :</span>
+  <div class="groupe filtre" id="filtre">
+    <button data-v="stable">Stable</button>
+    <button data-v="dev">Dev</button>
+    <button data-v="toutes">Toutes</button>
+  </div>
+</nav>
+<iframe id="cadre" title="Contenu"></iframe>
+<script>
+const $ = id => document.getElementById(id);
+function lire(cle, defaut) { try { return localStorage.getItem(cle) || defaut; } catch { return defaut; } }
+function ecrire(cle, v) { try { localStorage.setItem(cle, v); } catch { /* sans stockage : pas grave */ } }
+let onglet = ['stats', 'notifications'].includes(lire('gp_onglet', 'stats')) ? lire('gp_onglet', 'stats') : 'stats';
+let variante = ['stable', 'dev', 'toutes'].includes(lire('gp_variante', 'stable')) ? lire('gp_variante', 'stable') : 'stable';
+
+function afficher() {
+  document.querySelectorAll('#onglets button').forEach(b => b.classList.toggle('actif', b.dataset.o === onglet));
+  document.querySelectorAll('#filtre button').forEach(b => b.classList.toggle('actif', b.dataset.v === variante));
+  $('cadre').src = `/${onglet}/?variante=${variante}`;
+}
+document.querySelectorAll('#onglets button').forEach(b => b.onclick = () => { onglet = b.dataset.o; ecrire('gp_onglet', onglet); afficher(); });
+document.querySelectorAll('#filtre button').forEach(b => b.onclick = () => { variante = b.dataset.v; ecrire('gp_variante', variante); afficher(); });
+afficher();
+</script>
+</body>
+</html>

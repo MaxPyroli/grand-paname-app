@@ -15,6 +15,7 @@ const crypto = require('crypto');
 const { exec } = require('child_process');
 const admin = require('firebase-admin');
 const { agreger } = require('./stats-donnees');
+const { varianteDe, filtreValide, correspond } = require('./variantes');
 
 const PORT = Number(process.env.PORT_STATS) || 4748;
 const SECRET = crypto.randomBytes(16).toString('hex');
@@ -26,7 +27,7 @@ const URL_NAVITIA = 'https://prim.iledefrance-mobilites.fr/marketplace/v2/naviti
 let db = null;
 let erreurFirebase = null;
 try {
-  admin.initializeApp({ credential: admin.credential.cert(require(SERVICE_ACCOUNT_PATH)) });
+  if (!admin.apps.length) admin.initializeApp({ credential: admin.credential.cert(require(SERVICE_ACCOUNT_PATH)) });
   db = admin.firestore();
 } catch (e) {
   erreurFirebase = `Impossible de charger le compte de service Firebase (${SERVICE_ACCOUNT_PATH}).`;
@@ -50,7 +51,7 @@ async function chargerNomsLignes() {
 
 const enMs = t => (t && t.toMillis ? t.toMillis() : t instanceof Date ? +t : typeof t === 'number' ? t : null);
 
-async function calculerStats() {
+async function calculerStats(filtre = 'stable') {
   if (!db) throw new Error(erreurFirebase);
   const depuis = new Date(Date.now() - 30 * 86_400_000);
   const [jetons, bilans, noms] = await Promise.all([
@@ -60,30 +61,40 @@ async function calculerStats() {
   ]);
   let historique = [];
   try { historique = JSON.parse(fs.readFileSync(HISTORIQUE_PATH, 'utf8')); } catch { /* pas d'historique local */ }
-  return agreger({
+  const tous = jetons.docs.map(d => d.data());
+  const repartition = { stable: 0, dev: 0, ancien: 0 };
+  for (const x of tous) repartition[varianteDe(x)]++;
+  const stats = agreger({
     // Le jeton lui-même n'est jamais recopié.
-    appareils: jetons.docs.map(d => { const x = d.data(); return { platform: x.platform, appVersion: x.appVersion, updatedAt: enMs(x.updatedAt), alertesLignes: x.alertesLignes || [] }; }),
+    appareils: tous.filter(x => correspond(varianteDe(x), filtre))
+      .map(x => ({ platform: x.platform, appVersion: x.appVersion, updatedAt: enMs(x.updatedAt), alertesLignes: x.alertesLignes || [] })),
     passages: bilans.docs.map(d => { const x = d.data(); return { ...x, at: enMs(x.at) }; }),
     historique,
     nomsLignes: noms,
   });
+  return { ...stats, filtre, repartition };
 }
 
-const serveur = http.createServer(async (req, res) => {
+// Traite une requête (utilisé seul, ou monté dans l'outil de gestion `gestion-ui.js`).
+const gerer = async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const repondre = (code, type, corps) => { res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' }); res.end(corps); };
   if (req.method !== 'GET') return repondre(405, 'text/plain', 'Lecture seule');
   if (url.pathname === '/') return repondre(200, 'text/html; charset=utf-8', fs.readFileSync(HTML_PATH, 'utf8').replace('__SECRET__', SECRET));
   if (url.pathname === '/api/stats') {
     if (url.searchParams.get('code') !== SECRET) return repondre(403, 'text/plain', 'Code invalide');
-    try { return repondre(200, 'application/json', JSON.stringify(await calculerStats())); }
+    try { return repondre(200, 'application/json', JSON.stringify(await calculerStats(filtreValide(url.searchParams.get('variante'))))); }
     catch (e) { return repondre(500, 'application/json', JSON.stringify({ erreur: e.message })); }
   }
   repondre(404, 'text/plain', 'Introuvable');
-});
+};
 
-serveur.listen(PORT, '127.0.0.1', () => {
-  const adresse = `http://localhost:${PORT}`;
-  console.log(`Statistiques Grand Paname : ${adresse}  (Ctrl+C pour arrêter)`);
-  if (process.argv.includes('--ouvrir')) exec(`start "" "${adresse}"`);
-});
+module.exports = { gerer };
+
+if (require.main === module) {
+  http.createServer(gerer).listen(PORT, '127.0.0.1', () => {
+    const adresse = `http://localhost:${PORT}`;
+    console.log(`Statistiques Grand Paname : ${adresse}  (Ctrl+C pour arrêter)`);
+    if (process.argv.includes('--ouvrir')) exec(`start "" "${adresse}"`);
+  });
+}

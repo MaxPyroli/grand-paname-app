@@ -49,6 +49,7 @@
   <div id="erreur"></div>
 
   <h2>Appareils</h2>
+  <div class="legende" id="repartition" style="margin:-4px 0 10px"></div>
   <div class="grille" id="kpiAppareils"></div>
   <div class="deux" style="margin-top:12px">
     <div class="carte"><div class="legende" style="margin:0 0 10px">Versions de l'app</div><div class="barres" id="versions"></div></div>
@@ -71,6 +72,8 @@
 
 <script>
 const CODE = '__SECRET__';
+const VARIANTE = new URLSearchParams(location.search).get('variante') || 'stable';
+const NOM_FILTRE = { stable: 'version stable', dev: 'version dev', toutes: 'toutes versions' }[VARIANTE] || 'version stable';
 const $ = id => document.getElementById(id);
 const heure = ms => new Date(ms).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 function duree(ms) {
@@ -120,8 +123,10 @@ function graphe(serie) {
 function afficher(s) {
   const a = s.appareils, al = s.alertes;
   kpi($('kpiAppareils'), [
-    [a.total, 'appareils enregistrés'], [a.vus7j, 'vus ces 7 derniers jours'], [a.vus30j, 'vus ces 30 derniers jours'], [a.avecAlertes, 'suivent des lignes (alertes)'],
+    [a.total, 'appareils enregistrés (' + NOM_FILTRE + ')'], [a.vus7j, 'vus ces 7 derniers jours'], [a.vus30j, 'vus ces 30 derniers jours'], [a.avecAlertes, 'suivent des lignes (alertes)'],
   ]);
+  const r = s.repartition;
+  $('repartition').textContent = 'Tous les appareils enregistrés : ' + r.stable + ' stable · ' + r.dev + ' dev · ' + r.ancien + ' sans étiquette (anciennes versions, comptés avec la stable).';
   barres($('versions'), a.parVersion, 'Aucun appareil');
   barres($('lignes'), s.lignesPopulaires.map(l => ({ nom: l.nom, n: l.n })), 'Personne ne suit de ligne pour l\'instant');
   kpi($('kpiAlertes'), [
@@ -142,7 +147,7 @@ function afficher(s) {
 async function charger() {
   $('actualiser').disabled = true; $('erreur').style.display = 'none';
   try {
-    const r = await fetch('/api/stats?code=' + CODE);
+    const r = await fetch('api/stats?code=' + CODE + '&variante=' + VARIANTE);
     const j = await r.json();
     if (!r.ok) throw new Error(j.erreur || 'Erreur ' + r.status);
     afficher(j);

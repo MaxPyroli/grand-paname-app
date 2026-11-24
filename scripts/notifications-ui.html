@@ -147,6 +147,7 @@
 const SECRET = "__SECRET__";
 const CATEGORIES = __CATEGORIES__;
 const ERREUR_FIREBASE = __ERREUR_FIREBASE__;
+const VARIANTE = new URLSearchParams(location.search).get('variante') || 'stable';
 
 const MODELES = {
   maj: [
@@ -221,11 +222,11 @@ function majCible() {
 
 async function chargerAppareils() {
   try {
-    const rep = await api('/api/appareils');
+    const rep = await api('api/appareils?variante=' + VARIANTE);
     appareils = rep.appareils;
     $('noteNettoyage').textContent = rep.supprimes ? `${rep.supprimes} ancien(s) jeton(s) du même téléphone supprimé(s).` : '';
     $('etat').textContent = `${appareils.length} appareil(s) enregistré(s)`;
-    $('libTous').textContent = `Tous les appareils (${appareils.length})`;
+    $('libTous').textContent = `Tous les appareils ${{stable:'stable',dev:'dev',toutes:''}[VARIANTE]} (${appareils.length})`;
     $('libRecents').textContent = `Appareils actifs, vus depuis 30 jours (${nbRecents()})`;
     $('appareil').innerHTML = appareils.map(a =>
       `<option value="${echapper(a.token)}">${echapper(a.plateforme)} · v${echapper(a.version)} · ${depuis(a.maj)} · ${echapper(courtToken(a.token))}</option>`).join('');
@@ -239,7 +240,7 @@ async function chargerAppareils() {
 
 async function chargerHistorique() {
   try {
-    const { historique } = await api('/api/historique');
+    const { historique } = await api('api/historique');
     if (historique.length === 0) { $('historique').textContent = "Aucun envoi pour l'instant."; return; }
     $('historique').innerHTML = `<table><thead><tr><th>Date</th><th>Catégorie</th><th>Message</th><th>Livrés</th><th></th></tr></thead><tbody>` +
       historique.map((h, i) => {
@@ -282,14 +283,14 @@ async function envoyer() {
   $('envoyer').disabled = true;
   $('resultat').innerHTML = '<div class="journal" id="journal">Envoi en cours…</div>';
   try {
-    const { id } = await api('/api/envoyer', { method: 'POST', body: JSON.stringify({
+    const { id } = await api('api/envoyer', { method: 'POST', body: JSON.stringify({
       categorie, titre: $('titre').value.trim(), message: $('message').value.trim(),
-      cible: cible(), token: $('appareil').value, simulation,
+      cible: cible(), token: $('appareil').value, simulation, variante: VARIANTE,
     }) });
     let etat;
     do {
       await new Promise(r => setTimeout(r, 1000));
-      etat = await api(`/api/envoi/${id}`);
+      etat = await api(`api/envoi/${id}`);
       $('journal').innerHTML = etat.lignes.map(l => `<div class="${l.type}">${echapper(l.texte)}</div>`).join('') || 'Envoi en cours…';
       $('journal').scrollTop = $('journal').scrollHeight;
     } while (!etat.termine);
@@ -309,12 +310,12 @@ async function envoyer() {
 $('nettoyerInactifs').onclick = async e => {
   e.preventDefault();
   try {
-    const { nombre, jours } = await api('/api/inactifs?jours=60');
+    const { nombre, jours } = await api('api/inactifs?jours=60');
     if (nombre === 0) { alert('Aucun appareil inactif depuis plus de 60 jours.'); return; }
     const ok = await confirmer('Retirer les appareils inactifs ?',
       `<p>${nombre} appareil(s) n'ont pas ouvert l'app depuis plus de ${jours} jours. Ils seront supprimés de la liste (s'ils rouvrent l'app un jour, ils se réenregistreront tout seuls).</p>`, 'Supprimer');
     if (!ok) return;
-    const r = await api('/api/nettoyer', { method: 'POST', body: JSON.stringify({ jours: 60 }) });
+    const r = await api('api/nettoyer', { method: 'POST', body: JSON.stringify({ jours: 60 }) });
     await chargerAppareils();
     $('noteNettoyage').textContent = `${r.supprimes} appareil(s) inactif(s) retiré(s).`;
   } catch (err) { alert(err.message); }
