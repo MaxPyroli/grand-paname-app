@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { etatDesLignes, analyserDetailLigne, nettoyerTexte, rechercherLignesBus } from '../traficApi.ts';
+import { etatDesLignes, analyserDetailLigne, nettoyerTexte, rechercherLignesBus, libelleMiseAJour } from '../traficApi.ts';
 
 const NOW = new Date(2026, 9, 15, 12, 0, 0).getTime();   // 15 octobre 2026, 12 h (heure locale)
 const dans = (j: number) => { const d = new Date(NOW + j * 86_400_000); const p = (n: number) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`; };
@@ -154,4 +154,11 @@ test("recherche de bus : seuls les bus, numéro exact d'abord, état calculé", 
     assert.equal(r[1].etat, 'normal');
     assert.deepEqual(await rechercherLignesBus('   '), []);
   } finally { globalThis.fetch = avant; }
+});
+
+test('détail : date et heure de mise à jour (la plus récente en cas de doublons)', () => {
+  const r = detail(dis({ updated_at: '20261124T135200' }), dis({ updated_at: '20261124T141500', application_periods: [{ begin: dans(-3), end: dans(9) }] }), dis({ messages: [msg('titre', 'Sans date')] }));
+  assert.equal(r.enCours.find(p => p.titre === 'Titre A')!.miseAJour, new Date(2026, 10, 24, 14, 15, 0).getTime());
+  assert.equal(r.enCours.find(p => p.titre === 'Sans date')!.miseAJour, null);
+  assert.equal(libelleMiseAJour(new Date(2026, 10, 24, 14, 5).getTime()), 'Mis à jour le 24 novembre à 14 h 05');
 });

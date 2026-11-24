@@ -10,13 +10,18 @@ import { logger } from './logger';
 
 // Comportement d'affichage quand une notif arrive alors que l'app est ouverte
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  // App ouverte : une alerte trafic n'affiche PAS la bannière du système (l'app montre son propre petit pop-up, voir
+  // AlerteFlash) ; elle reste dans le volet des notifications et joue son son. Les autres notifications gardent la bannière.
+  handleNotification: async (notification) => {
+    const alerteTrafic = (notification?.request?.content?.data as any)?.type === 'trafic';
+    return {
+      shouldShowAlert: !alerteTrafic,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: !alerteTrafic,
+      shouldShowList: true,
+    };
+  },
 });
 
 function firebaseApp(): FirebaseApp {
@@ -54,6 +59,17 @@ function cleAppareil(): string | null {
   }
 }
 
+// « stable » = l'application du Play Store (fun.grandpaname.app) ; « dev » = la version de développement (suffixe .dev)
+// ou Expo Go. Sert à l'outil de gestion (scripts/) pour ne compter que les vrais utilisateurs.
+function varianteApp(): 'stable' | 'dev' {
+  try {
+    const Application = require('expo-application');
+    return Application.applicationId === 'fun.grandpaname.app' ? 'stable' : 'dev';
+  } catch {
+    return 'dev';
+  }
+}
+
 async function saveTokenToFirestore(token: string) {
   try {
     const db = getFirestore(firebaseApp());
@@ -66,6 +82,7 @@ async function saveTokenToFirestore(token: string) {
       platform: Platform.OS,
       appVersion: APP_VERSION,
       deviceKey: cleAppareil(),
+      variante: varianteApp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
   } catch (e: any) {
@@ -179,14 +196,85 @@ export async function enregistrerBusSuivis(bus: BusSuivi[]): Promise<void> {
   try { await AsyncStorage.setItem(CLE_BUS_SUIVIS, JSON.stringify(bus)); } catch { /* sans gravité */ }
 }
 
+// ── Alertes reçues, gardées en mémoire ────────────────────────────────────────
+// Chaque alerte trafic reçue (app ouverte) ou touchée (app fermée) est gardée sur le téléphone : si la perturbation est
+// terminée quand on ouvre la ligne, le détail de la ligne l'affiche quand même, marquée « terminée » (voir TraficDetail).
+export type AlerteRecue = { id: string; ligneId: string; titre: string; detail: string; niveau: 'interrompu' | 'perturbe'; recueLe: number; ligneTitre?: string };
+const CLE_ALERTES_RECUES = '@gp_alertes_recues';
+const MAX_ALERTES_RECUES = 40;
+const CONSERVATION_MS = 7 * 86_400_000;
+
+async function lireToutesAlertes(): Promise<AlerteRecue[]> {
+  try {
+    const brut = await AsyncStorage.getItem(CLE_ALERTES_RECUES);
+    const liste = brut ? JSON.parse(brut) : [];
+    return Array.isArray(liste) ? liste.filter((a: any) => a && typeof a.id === 'string' && typeof a.ligneId === 'string' && typeof a.titre === 'string') : [];
+  } catch { return []; }
+}
+
+// Alertes d'une ligne reçues il y a moins de `depuisMs` (les plus récentes d'abord).
+export async function lireAlertesRecues(ligneId: string, depuisMs = 48 * 3_600_000): Promise<AlerteRecue[]> {
+  const limite = Date.now() - depuisMs;
+  return (await lireToutesAlertes()).filter(a => a.ligneId === ligneId && a.recueLe >= limite).sort((x, y) => y.recueLe - x.recueLe);
+}
+
+async function memoriserAlerte(a: AlerteRecue): Promise<void> {
+  try {
+    const limite = Date.now() - CONSERVATION_MS;
+    const anciennes = await lireToutesAlertes();
+    const deja = anciennes.find(x => x.id === a.id && x.ligneId === a.ligneId);
+    const reste = anciennes.filter(x => x !== deja && x.recueLe >= limite);
+    // Une alerte déjà connue garde sa date de réception (la première).
+    await AsyncStorage.setItem(CLE_ALERTES_RECUES, JSON.stringify([deja ? { ...a, recueLe: deja.recueLe } : a, ...reste].slice(0, MAX_ALERTES_RECUES)));
+  } catch { /* sans gravité */ }
+}
+
+// Alerte contenue dans une notification (null si ce n'est pas une alerte trafic de ligne).
+function alerteDepuis(notification: Notifications.Notification | undefined, recueLe: number): AlerteRecue | null {
+  const contenu: any = notification?.request?.content;
+  const data: any = contenu?.data;
+  if (data?.type !== 'trafic' || typeof data.ligneId !== 'string') return null;
+  const p = data.perturbation;
+  // Texte français de l'annonce ; à défaut (pas encore publié au moment de l'envoi), le titre de la notification
+  // (« Métro 3 : trafic perturbé ») : mieux vaut une carte « terminée » sommaire que rien.
+  const corps = String(contenu?.body || '').split('\n')[0];
+  const titre = typeof p?.titre === 'string' && p.titre ? p.titre : (corps && corps !== 'Touche pour voir le détail.' ? corps : String(contenu?.title || ''));
+  if (!titre) return null;
+  const niveau = p?.niveau === 'interrompu' || (!p && /interrompu/i.test(String(contenu?.title || ''))) ? 'interrompu' : 'perturbe';
+  return { id: typeof p?.id === 'string' ? p.id : `${data.ligneId}|${titre}`, ligneId: data.ligneId, titre, detail: typeof p?.detail === 'string' ? p.detail : '', niveau, recueLe, ligneTitre: String(contenu?.title || '') };
+}
+
+// Heure de réception d'une notification (selon le système, en secondes ou en millisecondes).
+function heureNotification(n: Notifications.Notification | undefined): number {
+  const d = Number(n?.date);
+  return d > 1e12 ? d : d > 1e9 ? d * 1000 : Date.now();
+}
+
 // Appelle `quand(idLigne)` quand l'utilisateur touche une notification d'alerte trafic (app ouverte, en arrière-plan
-// ou fermée : dans ce dernier cas, la notification qui a lancé l'app est relue au démarrage).
-export function ecouterToucherAlerteTrafic(quand: (idLigne: string) => void): () => void {
-  const traiter = (reponse: Notifications.NotificationResponse | null) => {
+// ou fermée : dans ce dernier cas, la notification qui a lancé l'app est relue au démarrage). L'alerte est gardée en
+// mémoire, puis transmise à l'écran Trafic : le détail de la ligne l'affiche « terminée » si elle l'est (et seulement
+// quand on arrive par la notification, jamais depuis le menu Info trafic).
+export function ecouterToucherAlerteTrafic(quand: (idLigne: string, alerte: AlerteRecue | null) => void): () => void {
+  const traiter = async (reponse: Notifications.NotificationResponse | null) => {
     const data: any = reponse?.notification?.request?.content?.data;
-    if (data?.type === 'trafic' && typeof data.ligneId === 'string') quand(data.ligneId);
+    if (data?.type !== 'trafic' || typeof data.ligneId !== 'string') return;
+    const alerte = alerteDepuis(reponse?.notification, heureNotification(reponse?.notification));
+    if (alerte) await memoriserAlerte(alerte);
+    quand(data.ligneId, alerte);
   };
   const abonnement = Notifications.addNotificationResponseReceivedListener(traiter);
   Notifications.getLastNotificationResponseAsync().then(traiter).catch(() => {});
+  return () => abonnement.remove();
+}
+
+// Appelle `quand(alerte)` quand une alerte trafic arrive pendant que l'app est ouverte (pour le pop-up) ; elle est aussi
+// gardée en mémoire tout de suite, sans attendre qu'on la touche.
+export function ecouterAlerteTraficRecue(quand: (alerte: AlerteRecue) => void): () => void {
+  const abonnement = Notifications.addNotificationReceivedListener(n => {
+    const alerte = alerteDepuis(n, Date.now());
+    if (!alerte) return;
+    memoriserAlerte(alerte);
+    quand(alerte);
+  });
   return () => abonnement.remove();
 }

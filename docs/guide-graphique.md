@@ -183,3 +183,8 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 - **Chargement** : squelette de trois cartes grises qui pulsent (sans ombre : l'élévation Android sous une couche qui s'efface donne un halo sale) ; le contenu apparaît en fondu. Lignes déjà vues : affichées tout de suite pendant 3 minutes.
 - **Easter egg** (secret, jamais dans le changelog) : appui de 3 s sur le métro 14 → les lignes 15 à 18 sortent de derrière lui.
 
+
+## Pop-up d'alerte trafic (décision du 2026-11-24)
+- Quand une alerte sur l'une de MES lignes arrive pendant que l'app est ouverte, une petite carte glisse en haut de l'écran (`AlerteFlash.tsx`) : point de la couleur du type (rouge interrompu, orange perturbé), titre de la notification (« Métro 9 : trafic perturbé ») en Bold 14, texte de l'annonce en Regular 12 (2 lignes max), flèche ›. Carte OPAQUE (`bgCard`, bordure `borderCard`, rayon `PANEL_CARD_RADIUS`) : l'ombre native est donc permise.
+- Elle remplace la bannière du système (app ouverte seulement ; la notification reste dans le volet et le son est joué). Toucher = ouvrir la ligne dans Info trafic (avec la carte « Terminée » si elle l'est) ; glisser vers le haut = fermer ; fermeture automatique après 7 s ; une nouvelle alerte prend la place de la précédente. Entrée au ressort commun (raideur 120, amortissement 15, masse 0,5).
+- À valider sur téléphone : position sous la caméra, lisibilité en trois thèmes, comportement en paysage (largeur max 460).

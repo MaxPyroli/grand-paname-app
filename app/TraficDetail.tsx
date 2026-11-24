@@ -8,7 +8,8 @@ import { ListeFondue } from './ListeFondue';
 import { FONDU_BAS, hexToRgba } from './Fade';
 import { decouperSurligne, creerAnalyseStations, AnalyseStations } from './traficTexte';
 import { PanelEmptyState } from './PanelEmptyState';
-import { chargerDetailLigne, oublierDetailLigne, detailEnCache, DetailLigne, LigneTrafic, PerturbationLigne, CausePerturbation, TypePerturbation } from './traficApi';
+import type { AlerteRecue } from './notifications';
+import { chargerDetailLigne, libelleMiseAJour, oublierDetailLigne, detailEnCache, DetailLigne, LigneTrafic, PerturbationLigne, CausePerturbation, TypePerturbation } from './traficApi';
 
 // Détail d'une ligne du volet Trafic (étape 1.3 du plan de la 3.4.0) : ses perturbations en cours puis à venir,
 // en français, venues de Navitia (voir `chargerDetailLigne`).
@@ -16,6 +17,7 @@ import { chargerDetailLigne, oublierDetailLigne, detailEnCache, DetailLigne, Lig
 // rappelée à part, dans une petite pastille.
 export const COULEUR_TYPE: Record<TypePerturbation, string> = { interrompu: '#E5493E', perturbe: '#F39C12', info: '#3C91DC' };
 const LIBELLE_TYPE: Record<TypePerturbation, string> = { interrompu: 'Trafic interrompu', perturbe: 'Trafic perturbé', info: 'Information' };
+const COULEUR_TERMINEE = '#2E9E5B';
 const LIBELLE_CAUSE: Record<CausePerturbation, string> = { travaux: 'Travaux', perturbation: 'Incident', information: 'Info' };
 
 type Mot = { texte: string; puce: 'station' | 'quand' | null; espace: boolean };
@@ -66,6 +68,26 @@ function TexteRiche({ texte, analyse }: { texte: string; analyse: AnalyseStation
 
 const Carte = memo(function Carte({ p, analyse }: { p: PerturbationLigne; analyse: AnalyseStations }) {
   const c = useColors();
+  // Annonce notifiée puis terminée : même carte, mais bien marquée « terminée » (vert, coche), sans période.
+  if (p.terminee) {
+    return (
+      <View style={[styles.carte, { backgroundColor: c.bgCard, borderColor: COULEUR_TERMINEE }]}>
+        <View style={styles.carteHaut}>
+          <View style={styles.cause}>
+            <Icon name="valider" size={14} color={COULEUR_TERMINEE} />
+            <Text style={[styles.causeTexte, { color: COULEUR_TERMINEE }]}>TERMINÉE</Text>
+          </View>
+          <View style={[styles.pastilleCause, { borderColor: hexToRgba(c.text, 0.3) }]}>
+            <Text style={[styles.pastilleCauseTexte, { color: c.textSub }]}>{LIBELLE_TYPE[p.type]}</Text>
+          </View>
+        </View>
+        <Text style={[styles.periode, { color: c.textSub }]}>Cette perturbation est terminée.</Text>
+        <Text style={[styles.titre, { color: c.text }]}>{p.titre}</Text>
+        {p.texte !== '' && <TexteRiche texte={p.texte} analyse={analyse} />}
+        {p.miseAJour !== null && <Text style={[styles.miseAJour, { color: c.textSub }]}>{libelleMiseAJour(p.miseAJour, 'Notifiée')}</Text>}
+      </View>
+    );
+  }
   return (
     <View style={[styles.carte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
       <View style={styles.carteHaut}>
@@ -101,6 +123,7 @@ const Carte = memo(function Carte({ p, analyse }: { p: PerturbationLigne; analys
       <Text style={[styles.periode, { color: c.textSub }]}>{p.periode}</Text>
       <Text style={[styles.titre, { color: c.text }]}>{p.titre}</Text>
       {p.texte !== '' && <TexteRiche texte={p.texte} analyse={analyse} />}
+      {p.miseAJour !== null && <Text style={[styles.miseAJour, { color: c.textSub }]}>{libelleMiseAJour(p.miseAJour)}</Text>}
     </View>
   );
 });
@@ -135,7 +158,7 @@ function SqueletteDetail() {
   );
 }
 
-export default function TraficDetail({ ligne, verre, pret = true }: { ligne: LigneTrafic; verre?: boolean; pret?: boolean }) {
+export default function TraficDetail({ ligne, alerte = null, verre, pret = true }: { ligne: LigneTrafic; alerte?: AlerteRecue | null; verre?: boolean; pret?: boolean }) {
   const c = useColors();
   // Données déjà là (préchargées, ou ligne déjà ouverte) : affichées dès le premier rendu, sans écran de chargement.
   const [detail, setDetail] = useState<DetailLigne | null>(() => detailEnCache(ligne.id));
@@ -193,12 +216,25 @@ export default function TraficDetail({ ligne, verre, pret = true }: { ligne: Lig
   const deuxOnglets = detail !== null;
   const onglet: 'enCours' | 'plusTard' = ongletChoisi ?? 'enCours';
   // Listes à plat (titres + cartes) pour la virtualisation. Un seul type de perturbation : pas d'onglets, titre de section.
+  // Arrivée par une notification : si l'alerte touchée ne figure plus dans les perturbations, elle est terminée ; elle
+  // s'affiche alors en tête de « En cours », marquée « terminée ». Depuis le menu Info trafic (aucune alerte), rien de tel.
+  const alertesRecues = useMemo<PerturbationLigne[]>(() => {
+    if (!detail || !alerte || alerte.ligneId !== ligne.id) return [];
+    const norme = (t: string) => t.replace(/\s+/g, '').toLowerCase();
+    const actuelles = new Set([...detail.enCours, ...detail.aVenir].map(p => norme(p.titre)));
+    if (actuelles.has(norme(alerte.titre))) return [];
+    return [{
+      id: 'terminee-' + alerte.id, titre: alerte.titre, texte: alerte.detail === alerte.titre ? '' : alerte.detail, cause: 'perturbation' as const,
+      niveau: alerte.niveau, type: alerte.niveau, enCours: false, debut: alerte.recueLe, fin: alerte.recueLe, periode: '', miseAJour: alerte.recueLe, terminee: true,
+    }];
+  }, [detail, alerte, ligne.id]);
   const elementsEnCours = useMemo(() => {
     if (!detail) return [];
     const l: { cle: string; p?: PerturbationLigne; titre?: string }[] = [];
+    alertesRecues.forEach(p => l.push({ cle: p.id, p }));
     detail.enCours.forEach(p => l.push({ cle: 'e-' + p.id + p.titre, p }));
     return l;
-  }, [detail, deuxOnglets]);
+  }, [detail, deuxOnglets, alertesRecues]);
   const elementsPlusTard = useMemo(() => {
     if (!detail) return [];
     const l: { cle: string; p?: PerturbationLigne; titre?: string; espace?: boolean }[] = [];
@@ -322,6 +358,7 @@ const styles = StyleSheet.create({
   pointTravauxCentre: { width: 5.5, height: 5.5, borderRadius: 2.75, backgroundColor: '#FFC400' },
   causeTexte: { fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.6, flexShrink: 1 },
   periode: { fontSize: 12, fontFamily: 'GrandParis-Medium', marginBottom: 6 },
+  miseAJour: { fontSize: 11, fontFamily: 'GrandParis-Regular', marginTop: 8 },
   pastilleCause: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, height: 20, justifyContent: 'center', marginLeft: 8, flexShrink: 0 },
   pastilleCauseTexte: { fontSize: 11, fontFamily: 'GrandParis-Medium', includeFontPadding: false },
   titre: { fontSize: 15, fontFamily: 'GrandParis-Bold', lineHeight: 20 },

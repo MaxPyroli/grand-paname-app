@@ -25,8 +25,8 @@ async function main() {
   });
 }
 
-const { alertesActuelles, nouvellesAlertes, composerMessage, libelleLigne, dateNavitia } = logique;
-module.exports = { alertesActuelles, nouvellesAlertes, composerMessage, libelleLigne, dateNavitia };
+const { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia } = logique;
+module.exports = { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia };
 
 if (require.main === module) {
   main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });

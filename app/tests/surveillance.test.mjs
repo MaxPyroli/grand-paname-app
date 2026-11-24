@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-const { alertesActuelles, nouvellesAlertes, composerMessage, libelleLigne, dateNavitia } = createRequire(import.meta.url)('../../scripts/surveillance-trafic.js');
+const { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia } = createRequire(import.meta.url)('../../scripts/surveillance-trafic.js');
 
 // 15 octobre 2026 = heure d'été (UTC+2) ; 15 décembre = heure d'hiver (UTC+1), quel que soit le fuseau de la machine.
 test('dateNavitia : heure de Paris, été et hiver', () => {
@@ -58,14 +58,39 @@ test('libellé de ligne', () => {
 test('message : filtré par lignes suivies, une ligne, plusieurs lignes', () => {
   const lignes = [{ id: 'L1', shortName: '8', mode: 'Metro' }, { id: 'L2', shortName: 'A', mode: 'RapidTransit' }];
   const n = nouvellesAlertes(alertesActuelles(bulk({ severity: 'BLOQUANTE' }, 'line', lignes), NOW), {});
-  assert.equal(composerMessage(n, ['L9']), null);
-  const un = composerMessage(n, ['L1']);
-  assert.deepEqual(un, { title: 'Métro 8 : trafic interrompu', body: 'Touche pour voir le détail.', data: { type: 'trafic', ligneId: 'L1' } });
+  assert.deepEqual(composerMessages(n, ['L9']), []);
+  const un = composerMessages(n, ['L1']);
+  assert.deepEqual(un, [{ title: 'Métro 8 : trafic interrompu', data: { type: 'trafic', ligneId: 'L1' } }]);
   const fr = new Map([['d1', { titre: 'Panne de courant', etiquette: 'Trafic Interrompu' }]]);
-  const avecFr = composerMessage(n, ['L1'], fr);
-  assert.equal(avecFr.title, 'Métro 8 : trafic interrompu');
-  assert.equal(avecFr.body, 'Panne de courant');
-  const deux = composerMessage(n, ['L1', 'L2']);
-  assert.equal(deux.title, '2 de tes lignes sont perturbées');
-  assert.equal(deux.body, 'Métro 8, RER A');
+  const avecFr = composerMessages(n, ['L1'], fr);
+  assert.equal(avecFr[0].title, 'Métro 8 : trafic interrompu');
+  assert.equal(avecFr[0].body, 'Panne de courant');
+  // Deux lignes suivies touchées : deux notifications distinctes, pas un message groupé.
+  const deux = composerMessages(n, ['L1', 'L2']);
+  assert.deepEqual(deux.map(m => m.title).sort(), ['Métro 8 : trafic interrompu', 'RER A : trafic interrompu']);
+});
+
+test('message : au-delà de 5 notifications, regroupement du reste', () => {
+  const lignes = Array.from({ length: 8 }, (_, i) => ({ id: `L${i}`, shortName: String(i + 1), mode: 'Metro' }));
+  const n = nouvellesAlertes(alertesActuelles(bulk({ severity: 'PERTURBEE' }, 'line', lignes), NOW), {});
+  const m = composerMessages(n, lignes.map(l => l.id));
+  assert.equal(m.length, 5);
+  assert.equal(m[4].title, '4 autres perturbations sur tes lignes');
+});
+
+test('message : le détail de l annonce suit le titre dans le corps, tronqué si trop long', () => {
+  const lignes = [{ id: 'L1', shortName: '8', mode: 'Metro' }];
+  const n = nouvellesAlertes(alertesActuelles(bulk({ severity: 'BLOQUANTE' }, 'line', lignes), NOW), {});
+  const [m] = composerMessages(n, ['L1'], new Map([['d1', { titre: 'Panne de courant', detail: 'Reprise estimée vers 15 h.', etiquette: '' }]]));
+  assert.equal(m.body, 'Panne de courant\nReprise estimée vers 15 h.');
+  const [long] = composerMessages(n, ['L1'], new Map([['d1', { titre: 'T', detail: 'x'.repeat(900), etiquette: '' }]]));
+  assert.equal(long.body.length, 400);
+  assert.ok(long.body.endsWith('…'));
+});
+
+test('message : la perturbation voyage dans les données de la notification (pour l app)', () => {
+  const lignes = [{ id: 'L1', shortName: '8', mode: 'Metro' }];
+  const n = nouvellesAlertes(alertesActuelles(bulk({ severity: 'BLOQUANTE' }, 'line', lignes), NOW), {});
+  const [m] = composerMessages(n, ['L1'], new Map([['d1', { titre: 'Panne', detail: 'Détail', etiquette: '' }]]));
+  assert.deepEqual(m.data, { type: 'trafic', ligneId: 'L1', perturbation: { id: 'd1', titre: 'Panne', detail: 'Détail', niveau: 'interrompu' } });
 });

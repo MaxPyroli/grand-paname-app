@@ -34,7 +34,8 @@ import { useAudioPlayer } from 'expo-audio';
 import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS, useFrameCallback } from 'react-native-reanimated';
-import { registerForPushNotificationsAsync, ecouterToucherAlerteTrafic } from './notifications';
+import { registerForPushNotificationsAsync, ecouterToucherAlerteTrafic, ecouterAlerteTraficRecue, type AlerteRecue } from './notifications';
+import { AlerteFlash } from './AlerteFlash';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
 import { useGeometrieBarres } from './responsive';
 import { PanelLayout, panelCardStyle, panelChipStyle, PANEL_CARD_RADIUS } from './PanelLayout';
@@ -2598,8 +2599,11 @@ function AppInner() {
   const [pushToken, setPushToken] = useState<string | null>(null);
   useEffect(() => { registerForPushNotificationsAsync().then(setPushToken); }, []);
   // Toucher une notification d'alerte trafic : ouvre le volet Trafic sur la ligne concernée.
-  const [ligneAOuvrir, setLigneAOuvrir] = useState<{ id: string; n: number } | null>(null);
-  useEffect(() => ecouterToucherAlerteTrafic(id => { setActiveTab('trafic'); setLigneAOuvrir({ id, n: Date.now() }); }), []);
+  const [ligneAOuvrir, setLigneAOuvrir] = useState<{ id: string; n: number; alerte: AlerteRecue | null } | null>(null);
+  useEffect(() => ecouterToucherAlerteTrafic((id, alerte) => { setActiveTab('trafic'); setLigneAOuvrir({ id, n: Date.now(), alerte }); }), []);
+  // Alerte sur l'une de mes lignes pendant que l'app est ouverte : petit pop-up en haut (toucher = ouvrir la ligne).
+  const [alerteFlash, setAlerteFlash] = useState<AlerteRecue | null>(null);
+  useEffect(() => ecouterAlerteTraficRecue(setAlerteFlash), []);
 
   // ── Mise à jour Play Store depuis l'app ──────────────────────────────────
   // require() différé partout ci-dessous : ces deux libs plantent à l'évaluation
@@ -3685,6 +3689,11 @@ function AppInner() {
         mode={updateReady ? 'ready' : 'prompt'}
         onAccept={handleUpdateAccept}
         onDismiss={handleUpdateDismiss}
+      />
+      <AlerteFlash
+        alerte={alerteFlash}
+        onFermer={() => setAlerteFlash(null)}
+        onOuvrir={a => { setAlerteFlash(null); setActiveTab('trafic'); setLigneAOuvrir({ id: a.ligneId, n: Date.now(), alerte: a }); }}
       />
 
       </BlurCarteContext.Provider>

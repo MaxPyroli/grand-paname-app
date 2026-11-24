@@ -184,6 +184,9 @@ export type PerturbationLigne = {
   debut: number;
   fin: number;
   periode: string;   // « Jusqu'au 19 décembre », « À partir du 12 octobre »…
+  miseAJour: number | null;   // dernière mise à jour de l'annonce par l'exploitant (ms), si connue
+  // Annonce notifiée puis terminée : reconstruite depuis la mémoire des alertes reçues (voir TraficDetail) ; `miseAJour` = heure de réception.
+  terminee?: boolean;
 };
 
 // `stations` : noms des stations de la ligne, pour ne repérer dans les textes que les VRAIS noms de stations de la ligne.
@@ -197,6 +200,12 @@ const ENTITES: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"',
 function jourMois(t: number): string {
   const d = new Date(t);
   return `${d.getDate() === 1 ? '1er' : d.getDate()} ${MOIS[d.getMonth()]}`;
+}
+
+// « Mis à jour le 24 novembre à 13 h 52 ».
+export function libelleMiseAJour(t: number, prefixe = 'Mis à jour'): string {
+  const d = new Date(t);
+  return `${prefixe} le ${jourMois(t)} à ${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 // Texte d'une perturbation : les messages Navitia contiennent du HTML et des entités (« &#233; », « &lt; »).
@@ -260,15 +269,17 @@ export function analyserDetailLigne(data: any, maintenant = Date.now()): DetailL
 
     // Une même annonce est souvent publiée plusieurs fois (une par période) : on la garde une fois.
     const cle = titre + '|' + texte;
+    const miseAJour = /^\d{8}T\d{6}$/.test(d.updated_at || '') ? dateNavitia(d.updated_at) : null;
     const existante = parId.get(cle);
     if (existante) {
+      if (miseAJour !== null) existante.miseAJour = Math.max(existante.miseAJour ?? 0, miseAJour);
       existante.enCours = existante.enCours || enCours;
       existante.debut = Math.min(existante.debut, debut);
       existante.fin = Math.max(existante.fin, fin);
       if (existante.enCours) existante.periode = enCours ? periode : existante.periode;
       continue;
     }
-    parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, type, enCours, debut, fin, periode });
+    parId.set(cle, { id: d.id || cle, titre, texte: texte === titre ? '' : texte, cause, niveau, type, enCours, debut, fin, periode, miseAJour });
   }
   const rangCause: Record<CausePerturbation, number> = { perturbation: 0, travaux: 1, information: 2 };
   const gravite: Record<TypePerturbation, number> = { interrompu: 0, perturbe: 1, info: 2 };

@@ -9,7 +9,7 @@
 //   3. les compare à celles déjà signalées (document Firestore `systeme/alertesTrafic`) : seules les NOUVELLES, ou
 //      celles qui s'aggravent (perturbée → bloquante), déclenchent une notification ;
 //   4. envoie, à chaque appareil qui suit au moins une des lignes concernées (champ `alertesLignes` de son document
-//      `pushTokens`), UNE notification (regroupée s'il y a plusieurs lignes), via l'API Expo Push, canal « trafic ».
+//      `pushTokens`), UNE notification par nouvelle perturbation et par ligne suivie (regroupées au-delà de 5), via l'API Expo Push, canal « trafic ».
 //
 // Sécurité : en SIMULATION (reel = false) rien n'est envoyé et rien n'est écrit. Le premier passage (aucun état
 // enregistré) enregistre l'état sans rien envoyer.
@@ -83,32 +83,42 @@ function libelleLigne(l) {
 // ── Messages ───────────────────────────────────────────────────────────────────────────────────────────────────
 // Pour un appareil qui suit `suivies` (ids de lignes) : une seule notification qui regroupe les nouvelles alertes.
 // `francais` : Map idPerturbation → { titre, etiquette } (texte français de Navitia), facultatif.
-function composerMessage(nouvelles, suivies, francais = new Map()) {
-  const concernees = new Map();   // idLigne → { ligne, alerte }
+// UNE notification par nouvelle perturbation et par ligne suivie (« RER B : trafic interrompu »). Au-delà de
+// MAX_PAR_PASSAGE notifications pour un même appareil en un passage, les autres sont regroupées en une seule.
+const MAX_PAR_PASSAGE = 5;
+const LONGUEUR_MAX_CORPS = 400;
+// Titre de l'annonce, puis son détail (tronqué : une notification n'est pas un article).
+function corpsNotification(fr) {
+  if (!fr || !fr.titre) return '';   // pas de texte : pas de corps (plutôt qu'un « Touche pour voir le détail » générique)
+  const texte = fr.detail ? `${fr.titre}\n${fr.detail}` : fr.titre;
+  return texte.length <= LONGUEUR_MAX_CORPS ? texte : texte.slice(0, LONGUEUR_MAX_CORPS - 1).trimEnd() + '…';
+}
+function composerMessages(nouvelles, suivies, francais = new Map()) {
+  const liste = [];   // { ligne, alerte }
   for (const a of nouvelles) {
-    for (const l of a.lignes.values()) {
-      if (!suivies.includes(l.id)) continue;
-      const deja = concernees.get(l.id);
-      if (!deja || (l.niveau === 'interrompu' && deja.ligne.niveau !== 'interrompu')) concernees.set(l.id, { ligne: l, alerte: a });
-    }
+    for (const l of a.lignes.values()) if (suivies.includes(l.id)) liste.push({ ligne: l, alerte: a });
   }
-  if (concernees.size === 0) return null;
-  const liste = [...concernees.values()];
-  if (liste.length === 1) {
-    const { ligne, alerte } = liste[0];
+  // Les plus graves d'abord (lignes interrompues), pour qu'elles ne soient jamais celles qu'on regroupe.
+  liste.sort((x, y) => (y.ligne.niveau === 'interrompu') - (x.ligne.niveau === 'interrompu'));
+  const un = ({ ligne, alerte }) => {
     const fr = francais.get(alerte.id);
     const etat = (fr && fr.etiquette) ? fr.etiquette.toLowerCase() : ligne.niveau === 'interrompu' ? 'trafic interrompu' : 'trafic perturbé';
-    return {
-      title: `${libelleLigne(ligne)} : ${etat}`,
-      body: (fr && fr.titre) || 'Touche pour voir le détail.',
-      data: { type: 'trafic', ligneId: ligne.id },
-    };
-  }
-  return {
-    title: `${liste.length} de tes lignes sont perturbées`,
-    body: liste.map(x => libelleLigne(x.ligne)).join(', '),
-    data: { type: 'trafic', ligneId: liste[0].ligne.id },
+    const data = { type: 'trafic', ligneId: ligne.id };
+    // L'annonce voyage avec la notification : l'app la garde en mémoire et peut l'afficher « terminée » si elle l'est au toucher.
+    if (fr && fr.titre) data.perturbation = { id: alerte.id, titre: fr.titre, detail: (fr.detail || '').slice(0, 300), niveau: ligne.niveau };
+    const corps = corpsNotification(fr);
+    return { title: `${libelleLigne(ligne)} : ${etat}`, ...(corps ? { body: corps } : {}), data };
   };
+  if (liste.length <= MAX_PAR_PASSAGE) return liste.map(un);
+  const reste = liste.slice(MAX_PAR_PASSAGE - 1);
+  return [
+    ...liste.slice(0, MAX_PAR_PASSAGE - 1).map(un),
+    {
+      title: `${reste.length} autres perturbations sur tes lignes`,
+      body: [...new Set(reste.map(x => libelleLigne(x.ligne)))].join(', '),
+      data: { type: 'trafic', ligneId: reste[0].ligne.id },
+    },
+  ];
 }
 
 // ── Réseau ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -124,6 +134,19 @@ async function lireJson(url, cle, essais = 4) {
   throw new Error(`Trop d'échecs sur ${url}`);
 }
 
+// Les messages Navitia contiennent du HTML et des entités (« &#233; », « &lt; »).
+const ENTITES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+function nettoyerTexte(brut) {
+  return String(brut || '')
+    .replace(/<\s*br\s*\/?>|<\/p>|<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+    .replace(/&([a-z]+);/gi, (m, nom) => ENTITES[nom.toLowerCase()] ?? m)
+    .replace(/[ \t ]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{2,}/g, '\n')
+    .trim();
+}
+
 // Texte français des perturbations d'une ligne (titre + étiquette courte), par identifiant de perturbation.
 async function textesFrancais(idLigne, cle) {
   const sortie = new Map();
@@ -132,7 +155,10 @@ async function textesFrancais(idLigne, cle) {
     for (const x of d.disruptions || []) {
       const msg = canal => ((x.messages || []).find(m => m.channel && m.channel.name === canal && m.text) || {}).text;
       const titre = msg('titre') || msg('notification');
-      if (titre) sortie.set(x.id, { titre: titre.replace(/<[^>]+>/g, '').trim(), etiquette: msg('cbiv') || '' });
+      if (!titre) continue;
+      const net = nettoyerTexte(titre);
+      const detail = nettoyerTexte(msg('moteur') || msg('email') || msg('web') || msg('mobile') || '');
+      sortie.set(x.id, { titre: net, detail: detail === net ? '' : detail, etiquette: msg('cbiv') || '' });
     }
   } catch (e) {
     console.warn(`Texte français indisponible pour ${idLigne} : ${e.message}`);
@@ -227,10 +253,11 @@ async function passer({ db, horodatage, cle, reel, journal, bilan }) {
 
   const messages = [];
   for (const ab of abonnes) {
-    const m = composerMessage(nouvelles, ab.suivies, francais);
-    if (m) messages.push({ to: ab.token, sound: 'default', channelId: 'trafic', priority: 'high', ttl: 3600, ...m });
+    for (const m of composerMessages(nouvelles, ab.suivies, francais)) {
+      messages.push({ to: ab.token, sound: 'default', channelId: 'trafic', priority: 'high', ttl: 3600, ...m });
+    }
   }
-  for (const m of messages) journal(`→ ${m.title} | ${m.body}`);
+  for (const m of messages) journal(`→ ${m.title} | ${m.body || "(sans texte)"}`);
 
   if (reel && messages.length > 0) {
     const invalides = await envoyerExpo(messages);
@@ -243,4 +270,4 @@ async function passer({ db, horodatage, cle, reel, journal, bilan }) {
   await enregistrerEtat();
 }
 
-module.exports = { alertesActuelles, nouvellesAlertes, composerMessage, libelleLigne, dateNavitia, executerSurveillance };
+module.exports = { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia, executerSurveillance };

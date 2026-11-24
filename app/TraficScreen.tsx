@@ -6,6 +6,7 @@ import { Icon, IconInfoTraficCouleur } from './Icon';
 import { PanelLayout, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
 import { PanelHeader, PanelIconAction, PanelPillAction } from './PanelHeader';
 import TraficDetail from './TraficDetail';
+import type { AlerteRecue } from './notifications';
 import RechercheBus, { BoutonRechercheBus } from './RechercheBus';
 import AlertesTrafic, { EtatAlertes } from './AlertesTrafic';
 import { lireLignesSuivies, enregistrerLignesSuivies, lireBusSuivis, enregistrerBusSuivis, BusSuivi } from './notifications';
@@ -137,12 +138,13 @@ function Squelette({ couleur }: { couleur: string }) {
 }
 
 // Ce que le volet peut montrer par-dessus la liste : le détail d'une ligne ou le réglage des alertes.
-type Vue = { genre: 'ligne'; ligne: LigneTrafic } | { genre: 'alertes' };
+// `alerte` : l'alerte touchée dans la notification qui a ouvert la ligne (affichée « terminée » si elle l'est).
+type Vue = { genre: 'ligne'; ligne: LigneTrafic; alerte?: AlerteRecue | null } | { genre: 'alertes' };
 
 export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId }: {
   actif: boolean; verre?: boolean; retour?: number; onDetail?: (ouvert: boolean) => void;
   // Ligne à ouvrir (toucher d'une notification d'alerte) ; `n` change à chaque demande.
-  ouvrirId?: { id: string; n: number } | null;
+  ouvrirId?: { id: string; n: number; alerte?: AlerteRecue | null } | null;
 }) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
@@ -320,7 +322,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     if (!ouvrirId || !lignes || idTraite.current === ouvrirId.n) return;
     const ligne = lignes.find(l => l.id === ouvrirId.id);
     idTraite.current = ouvrirId.n;
-    if (ligne) ouvrirVue({ genre: 'ligne', ligne });
+    if (ligne) ouvrirVue({ genre: 'ligne', ligne, alerte: ouvrirId.alerte ?? null });
   }, [ouvrirId, lignes, ouvrirVue]);
 
   const nbPerturbees = (lignes ?? []).filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').length;
@@ -495,7 +497,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
             pointerEvents={vueOuverte ? 'auto' : 'none'}
           >
             {vueMontee.genre === 'ligne'
-              ? <TraficDetail key={vueMontee.ligne.id} ligne={vueMontee.ligne} verre={verre} pret={vueStable} />
+              ? <TraficDetail key={vueMontee.ligne.id} ligne={vueMontee.ligne} alerte={vueMontee.alerte ?? null} verre={verre} pret={vueStable} />
               : <AlertesTrafic lignes={lignes} suivies={suivies} onBasculer={basculerSuivie} bus={busSuivis} onBasculerBus={basculerBus} etat={etatAlertes} verre={verre} />}
           </Animated.View>
         )}
