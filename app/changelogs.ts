@@ -5,6 +5,8 @@ export type ChangelogEntry = {
   content: string;
 };
 
+// Rédaction (demande de l'utilisateur) : les corrections de bugs sont TOUJOURS à la fin de la liste, chacune au format
+// « Correction d'un bug … ». Les nouveautés et améliorations passent avant.
 export const CHANGELOGS: ChangelogEntry[] = [
   // ENTRÉE TEMPORAIRE : prochaine version, numéro non fixé (« 3.4.x »). À remplacer par le vrai numéro et la vraie date à la
   // sortie (ou à supprimer si les changements partent dans une autre version).
@@ -12,9 +14,14 @@ export const CHANGELOGS: ChangelogEntry[] = [
     version: '3.4.x',
     date: 'En préparation',
     content: `**🛠️ Améliorations et Corrections**
-* Si la mise à jour intégrée à l'app échoue, la fiche de l'app sur le Play Store s'ouvre directement au lieu de ne rien afficher.
-* Alertes trafic : toucher la notification d'une ligne de bus ouvre maintenant son détail.
 * Info trafic : les bus que tu suis (cloche) s'affichent en permanence dans la rubrique Bus, avec leur état, au-dessus de la recherche.
+* Info trafic : la date de mise à jour des perturbations est affichée de façon plus discrète.
+* Alertes trafic : consulter une ligne retire ses notifications de ton téléphone.
+* Les messages de l'app (alertes trafic, confirmations) ont un nouveau style commun qui suit ton thème, avec des animations plus fluides. Pour une alerte : symbole de la ligne, léger halo à sa couleur et vibration.
+* Correction d'un bug lors de l'ouverture d'une notification d'info trafic d'une ligne de bus qui n'affichait pas la perturbation.
+* Correction d'un bug où la mise à jour intégrée à l'app s'arrêtait sans rien afficher en cas d'échec : la fiche de l'app sur le Play Store s'ouvre maintenant directement.
+* Correction d'un bug où la ligne ouverte depuis une alerte trafic restait cachée derrière le volet des horaires.
+* Correction d'un bug où une alerte trafic reçue avec l'app ouverte s'affichait deux fois, en pop-up et en bannière du téléphone.
 
 Bon voyage !`,
   },

@@ -35,7 +35,8 @@ import NativeSchedules, { type SchedulesRef } from './NativeSchedules';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS, useFrameCallback } from 'react-native-reanimated';
 import { registerForPushNotificationsAsync, ecouterToucherAlerteTrafic, ecouterAlerteTraficRecue, type AlerteRecue } from './notifications';
-import { AlerteFlash } from './AlerteFlash';
+import { NotifCentre } from './NotifCentre';
+import { notifier, notifDAlerte } from './notifs';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
 import { useGeometrieBarres } from './responsive';
 import { PanelLayout, panelCardStyle, panelChipStyle, PANEL_CARD_RADIUS } from './PanelLayout';
@@ -244,6 +245,31 @@ function ChangelogContent({ content, c }: { content: string; c: ThemeColors }) {
 }
 
 // ─── PAGE PARAMÈTRES ─────────────────────────────────────────────────────────
+// Boutons « Tester les notifications » du Débogage : chaque forme et chaque cas du moteur (voir notifs.ts).
+const TESTS_NOTIFS: { libelle: string; lancer: () => void }[] = (() => {
+  const rien = () => {};
+  const perturbe = () => notifier(notifDAlerte({ ligneId: 'test-m9', ligneTitre: 'Métro 9 : trafic perturbé', titre: 'Un train stationne à Nation vers Mairie de Montreuil.', niveau: 'perturbe' }, rien));
+  const interrompu = () => notifier(notifDAlerte({ ligneId: 'test-rera', ligneTitre: 'RER A : trafic interrompu', titre: 'Trafic interrompu entre La Défense et Poissy dans les 2 sens.', niveau: 'interrompu' }, rien));
+  const bus = () => notifier(notifDAlerte({ ligneId: 'test-bus', ligneTitre: 'Bus 104 : trafic perturbé', titre: 'Arrêts non desservis en raison de travaux.', niveau: 'perturbe' }, rien));
+  const maj = () => notifier({ forme: 'carte', type: 'info', titre: 'Mise à jour prête', texte: "Touche pour redémarrer l'app.", cle: 'test-maj', onPress: rien });
+  const succes = () => notifier({ type: 'succes', titre: 'Cache de la carte vidé', cle: 'test-succes' });
+  const attention = () => notifier({ type: 'attention', titre: 'Autorisation de localisation refusée', icone: 'position', cle: 'test-attention' });
+  const erreur = () => notifier({ type: 'erreur', titre: 'Pas de connexion internet', cle: 'test-erreur' });
+  const choix = () => notifier({ forme: 'choix', type: 'info', titre: 'Nouvelle version disponible', texte: "Elle se télécharge pendant que tu utilises l'app.", cle: 'test-choix', actions: [{ libelle: 'Plus tard' }, { libelle: 'Mettre à jour', principal: true, onPress: succes }] });
+  return [
+    { libelle: 'Perturbation', lancer: perturbe },
+    { libelle: 'Interruption', lancer: interrompu },
+    { libelle: 'Bus', lancer: bus },
+    { libelle: 'Carte info', lancer: maj },
+    { libelle: 'Pilule succès', lancer: succes },
+    { libelle: 'Pilule attention', lancer: attention },
+    { libelle: 'Pilule erreur', lancer: erreur },
+    { libelle: 'Avec boutons', lancer: choix },
+    // File d'attente : la perturbation s'affiche, l'interruption passe devant, la carte info attend son tour.
+    { libelle: "File d'attente", lancer: () => { perturbe(); maj(); setTimeout(interrompu, 1500); } },
+  ];
+})();
+
 function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay, flouActif, setFlouActif, scannerBeta, setScannerBeta, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate, onClearMapCache, onReportBug }: { visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; flouActif: boolean; setFlouActif: (v: boolean) => void; scannerBeta: boolean; setScannerBeta: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void; onClearMapCache: () => void; onReportBug: () => void }) {
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
@@ -793,6 +819,16 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
                       </TouchableOpacity>
                     </>
                   )}
+                  <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
+                  {/* Essais des notifications internes (une ligne par forme et par cas). Elles s'affichent par-dessus les paramètres. */}
+                  <Text style={[styles.settingsRowLabel, { color: c.text, marginBottom: 8 }]}>Tester les notifications</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {TESTS_NOTIFS.map(t => (
+                      <TouchableOpacity key={t.libelle} onPress={t.lancer} activeOpacity={0.7} style={{ height: 32, borderRadius: 16, borderWidth: 1, borderColor: c.borderCard, backgroundColor: c.bgSubtle, paddingHorizontal: 12, justifyContent: 'center' }}>
+                        <Text style={{ color: c.text, fontSize: 12, fontFamily: 'GrandParis-Medium' }}>{t.libelle}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                   <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
                   <TouchableOpacity
                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
@@ -1483,9 +1519,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
       setLoadingGps(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        if (Platform.OS === 'android') {
-          ToastAndroid.show('📍 Autorisation de localisation refusée', ToastAndroid.SHORT);
-        }
+        notifier({ type: 'attention', titre: 'Autorisation de localisation refusée', icone: 'position', cle: 'localisation' });
         return;
       }
       let loc = await Location.getLastKnownPositionAsync();
@@ -2600,10 +2634,20 @@ function AppInner() {
   useEffect(() => { registerForPushNotificationsAsync().then(setPushToken); }, []);
   // Toucher une notification d'alerte trafic : ouvre le volet Trafic sur la ligne concernée.
   const [ligneAOuvrir, setLigneAOuvrir] = useState<{ id: string; n: number; alerte: AlerteRecue | null } | null>(null);
-  useEffect(() => ecouterToucherAlerteTrafic((id, alerte) => { setActiveTab('trafic'); setLigneAOuvrir({ id, n: Date.now(), alerte }); }), []);
+  // Ouvrir une ligne depuis une alerte (notification ou pop-up) : le volet des horaires se replie et les paramètres se
+  // ferment, sinon la ligne s'ouvrait DERRIÈRE. La référence garde les fonctions du dernier rendu pour l'écouteur.
+  const ouvrirAlerteRef = useRef((_id: string, _alerte: AlerteRecue | null) => {});
+  ouvrirAlerteRef.current = (id, alerte) => {
+    if (panelIsOpenRef.current) fermerPanelRef.current();
+    setShowSettings(false);
+    setActiveTab('trafic');
+    setLigneAOuvrir({ id, n: Date.now(), alerte });
+  };
+  useEffect(() => ecouterToucherAlerteTrafic((id, alerte) => ouvrirAlerteRef.current(id, alerte)), []);
   // Alerte sur l'une de mes lignes pendant que l'app est ouverte : petit pop-up en haut (toucher = ouvrir la ligne).
-  const [alerteFlash, setAlerteFlash] = useState<AlerteRecue | null>(null);
-  useEffect(() => ecouterAlerteTraficRecue(setAlerteFlash), []);
+  useEffect(() => ecouterAlerteTraficRecue(alerte => {
+    notifier(notifDAlerte(alerte, () => ouvrirAlerteRef.current(alerte.ligneId, alerte)));
+  }), []);
 
   // ── Mise à jour Play Store depuis l'app ──────────────────────────────────
   // require() différé partout ci-dessous : ces deux libs plantent à l'évaluation
@@ -2783,7 +2827,7 @@ function AppInner() {
   const mapRef = useRef<MapWebViewRef | null>(null);
   const viderCacheCarte = useCallback(() => {
     mapRef.current?.clearCache();
-    if (Platform.OS === 'android') ToastAndroid.show('Cache de la carte vidé', ToastAndroid.SHORT);
+    notifier({ type: 'succes', titre: 'Cache de la carte vidé', cle: 'cache-carte' });
   }, []);
   const blurTargetRef = useRef<View | null>(null);
 
@@ -3701,11 +3745,8 @@ function AppInner() {
         onAccept={handleUpdateAccept}
         onDismiss={handleUpdateDismiss}
       />
-      <AlerteFlash
-        alerte={alerteFlash}
-        onFermer={() => setAlerteFlash(null)}
-        onOuvrir={a => { setAlerteFlash(null); setActiveTab('trafic'); setLigneAOuvrir({ id: a.ligneId, n: Date.now(), alerte: a }); }}
-      />
+      {/* Notifications internes de l'app (voir notifs.ts) : au-dessus de tout ; les pilules passent au-dessus des barres du bas. */}
+      <NotifCentre basEcart={geo.rechercheBottom + SEARCH_BAR_HEIGHT + 10} />
 
       </BlurCarteContext.Provider>
       </BlurTargetContext.Provider>

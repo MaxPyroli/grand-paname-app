@@ -160,5 +160,7 @@ test('détail : date et heure de mise à jour (la plus récente en cas de doublo
   const r = detail(dis({ updated_at: '20261124T135200' }), dis({ updated_at: '20261124T141500', application_periods: [{ begin: dans(-3), end: dans(9) }] }), dis({ messages: [msg('titre', 'Sans date')] }));
   assert.equal(r.enCours.find(p => p.titre === 'Titre A')!.miseAJour, new Date(2026, 10, 24, 14, 15, 0).getTime());
   assert.equal(r.enCours.find(p => p.titre === 'Sans date')!.miseAJour, null);
-  assert.equal(libelleMiseAJour(new Date(2026, 10, 24, 14, 5).getTime()), 'Mis à jour le 24 novembre à 14 h 05');
+  const t = new Date(2026, 10, 24, 14, 5).getTime();
+  assert.equal(libelleMiseAJour(t, 'Mis à jour', new Date(2026, 10, 26, 9, 0).getTime()), 'Mis à jour le 24/11 à 14:05');
+  assert.equal(libelleMiseAJour(t, 'Notifiée', new Date(2026, 10, 24, 23, 0).getTime()), 'Notifiée à 14:05');
 });

@@ -8,18 +8,22 @@ import { firebaseConfig } from './firebaseConfig';
 import { APP_VERSION } from './constants';
 import { logger } from './logger';
 
-// Comportement d'affichage quand une notif arrive alors que l'app est ouverte
+// Comportement d'affichage quand une notif arrive alors que l'app est ouverte.
+// Alerte trafic : UNIQUEMENT le pop-up de l'app (AlerteFlash), jamais la bannière du système en plus. La bibliothèque ne
+// sait pas « ranger sans bannière » (dès qu'on affiche, la catégorie « Info Trafic », en importance haute, fait surgir la
+// bannière). L'alerte reçue n'est donc pas affichée du tout, puis RELAYÉE : une copie locale est posée dans la catégorie
+// `CANAL_APP_OUVERTE` (importance normale : dans le volet, avec le son, sans bannière). Voir `ecouterAlerteTraficRecue`.
+const CANAL_APP_OUVERTE = 'trafic_ouvert';
 Notifications.setNotificationHandler({
-  // App ouverte : une alerte trafic n'affiche PAS la bannière du système (l'app montre son propre petit pop-up, voir
-  // AlerteFlash) ; elle reste dans le volet des notifications et joue son son. Les autres notifications gardent la bannière.
   handleNotification: async (notification) => {
-    const alerteTrafic = (notification?.request?.content?.data as any)?.type === 'trafic';
+    const data = notification?.request?.content?.data as any;
+    const alerteTrafic = data?.type === 'trafic';
+    const relais = alerteTrafic && data?.relais === true;
     return {
-      shouldShowAlert: !alerteTrafic,
-      shouldPlaySound: true,
+      shouldPlaySound: !alerteTrafic || relais,
       shouldSetBadge: false,
       shouldShowBanner: !alerteTrafic,
-      shouldShowList: true,
+      shouldShowList: !alerteTrafic || relais,
     };
   },
 });
@@ -105,6 +109,14 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
         name: 'Info Trafic',
         description: 'Perturbations et informations sur le trafic.',
         importance: Notifications.AndroidImportance.HIGH,
+      });
+      // Copies des alertes reçues app ouverte (voir le haut du fichier) : dans le volet, sans bannière ni vibration
+      // (le pop-up de l'app vibre déjà).
+      await Notifications.setNotificationChannelAsync(CANAL_APP_OUVERTE, {
+        name: 'Info Trafic (app ouverte)',
+        description: "Alertes reçues pendant que l'application est ouverte : gardées dans le volet, sans bannière.",
+        importance: Notifications.AndroidImportance.DEFAULT,
+        enableVibrate: false,
       });
       await Notifications.setNotificationChannelAsync('maj', {
         name: 'Mises à jour',
@@ -250,6 +262,18 @@ function heureNotification(n: Notifications.Notification | undefined): number {
   return d > 1e12 ? d : d > 1e9 ? d * 1000 : Date.now();
 }
 
+// La ligne vient d'être consultée : ses notifications d'alerte encore présentes dans le volet du téléphone sont retirées.
+export async function effacerNotificationsLigne(ligneId: string): Promise<void> {
+  try {
+    const presentes = await Notifications.getPresentedNotificationsAsync();
+    await Promise.all(presentes
+      .filter(n => { const d: any = n.request?.content?.data; return d?.type === 'trafic' && d.ligneId === ligneId; })
+      .map(n => Notifications.dismissNotificationAsync(n.request.identifier)));
+  } catch (e: any) {
+    logger.warn(`effacerNotificationsLigne: ${e?.message}`);
+  }
+}
+
 // Appelle `quand(idLigne)` quand l'utilisateur touche une notification d'alerte trafic (app ouverte, en arrière-plan
 // ou fermée : dans ce dernier cas, la notification qui a lancé l'app est relue au démarrage). L'alerte est gardée en
 // mémoire, puis transmise à l'écran Trafic : le détail de la ligne l'affiche « terminée » si elle l'est (et seulement
@@ -271,8 +295,17 @@ export function ecouterToucherAlerteTrafic(quand: (idLigne: string, alerte: Aler
 // gardée en mémoire tout de suite, sans attendre qu'on la touche.
 export function ecouterAlerteTraficRecue(quand: (alerte: AlerteRecue) => void): () => void {
   const abonnement = Notifications.addNotificationReceivedListener(n => {
+    const contenu = n.request?.content;
+    const data = contenu?.data as any;
+    if (data?.relais === true) return;   // la copie posée ci-dessous : ni pop-up ni nouvelle copie
     const alerte = alerteDepuis(n, Date.now());
     if (!alerte) return;
+    if (Platform.OS === 'android') {
+      Notifications.scheduleNotificationAsync({
+        content: { title: contenu.title ?? undefined, body: contenu.body ?? undefined, data: { ...data, relais: true }, sound: 'default' },
+        trigger: { channelId: CANAL_APP_OUVERTE },
+      }).catch((e: any) => logger.warn(`relais d'alerte: ${e?.message}`));
+    }
     memoriserAlerte(alerte);
     quand(alerte);
   });

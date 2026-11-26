@@ -222,10 +222,12 @@ function jourMois(t: number): string {
   return `${d.getDate() === 1 ? '1er' : d.getDate()} ${MOIS[d.getMonth()]}`;
 }
 
-// « Mis à jour le 24 novembre à 13 h 52 ».
-export function libelleMiseAJour(t: number, prefixe = 'Mis à jour'): string {
+// Mention courte : « Mis à jour à 13:52 » le jour même, « Mis à jour le 24/11 à 13:52 » sinon.
+export function libelleMiseAJour(t: number, prefixe = 'Mis à jour', maintenant = Date.now()): string {
   const d = new Date(t);
-  return `${prefixe} le ${jourMois(t)} à ${d.getHours()} h ${String(d.getMinutes()).padStart(2, '0')}`;
+  const deux = (n: number) => String(n).padStart(2, '0');
+  const jour = d.toDateString() === new Date(maintenant).toDateString() ? '' : ` le ${deux(d.getDate())}/${deux(d.getMonth() + 1)}`;
+  return `${prefixe}${jour} à ${deux(d.getHours())}:${deux(d.getMinutes())}`;
 }
 
 // Texte d'une perturbation : les messages Navitia contiennent du HTML et des entités (« &#233; », « &lt; »).

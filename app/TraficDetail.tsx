@@ -8,7 +8,7 @@ import { ListeFondue } from './ListeFondue';
 import { FONDU_BAS, hexToRgba } from './Fade';
 import { decouperSurligne, creerAnalyseStations, AnalyseStations } from './traficTexte';
 import { PanelEmptyState } from './PanelEmptyState';
-import type { AlerteRecue } from './notifications';
+import { effacerNotificationsLigne, type AlerteRecue } from './notifications';
 import { detailGPE } from './gpe';
 import { chargerDetailLigne, libelleMiseAJour, oublierDetailLigne, detailEnCache, DetailLigne, LigneTrafic, PerturbationLigne, CausePerturbation, TypePerturbation } from './traficApi';
 
@@ -194,6 +194,8 @@ export default function TraficDetail({ ligne, alerte = null, verre, pret = true 
     Animated.timing(apparition, { toValue: 1, duration: 220, useNativeDriver: true })
       .start(() => setSqueletteRetire(true));
   }, [contenuPret, apparition]);
+  // Perturbations affichées = vues : les notifications de cette ligne n'ont plus lieu d'être.
+  useEffect(() => { if (contenuPret) effacerNotificationsLigne(ligne.id); }, [contenuPret, ligne.id]);
   const analyse = useMemo(() => creerAnalyseStations(detail?.stations ?? []), [detail]);
 
   const charger = useCallback(async () => {
@@ -360,7 +362,7 @@ const styles = StyleSheet.create({
   pointTravauxCentre: { width: 5.5, height: 5.5, borderRadius: 2.75, backgroundColor: '#FFC400' },
   causeTexte: { fontSize: 11, fontFamily: 'GrandParis-Bold', letterSpacing: 0.6, flexShrink: 1 },
   periode: { fontSize: 12, fontFamily: 'GrandParis-Medium', marginBottom: 6 },
-  miseAJour: { fontSize: 11, fontFamily: 'GrandParis-Regular', marginTop: 8 },
+  miseAJour: { fontSize: 10, fontFamily: 'GrandParis-Light', marginTop: 6, alignSelf: 'flex-end', opacity: 0.7 },
   pastilleCause: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, height: 20, justifyContent: 'center', marginLeft: 8, flexShrink: 0 },
   pastilleCauseTexte: { fontSize: 11, fontFamily: 'GrandParis-Medium', includeFontPadding: false },
   titre: { fontSize: 15, fontFamily: 'GrandParis-Bold', lineHeight: 20 },

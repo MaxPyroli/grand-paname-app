@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, memo, startTransition, useRef, forwardRef, useImperativeHandle } from 'react';
-import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, ToastAndroid, Platform, Animated, Easing, ScrollView, FlatList } from 'react-native';
+import { notifier } from './notifs';
+import { View, Text, ActivityIndicator, TouchableOpacity, StyleSheet, Animated, Easing, ScrollView, FlatList } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { NAVITIA_BASE, NAVITIA_KEY } from './constants';
 import { useColors } from './theme';
@@ -814,7 +815,6 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
   // pas encore affichées n'ont pas de position).
   const itemsRef = useRef<any[]>([]);
   const [highlightState, setHighlightState] = useState<{ code: string; tick: number } | null>(null);
-  const toastCooldown = useRef(false);
 
   useImperativeHandle(ref, () => ({
     scrollTo: (code: string) => {
@@ -823,11 +823,8 @@ const NativeSchedules = forwardRef<SchedulesRef, Props>(function NativeSchedules
         scrollRef.current?.scrollToIndex({ index, animated: true });
         setHighlightState(prev => ({ code, tick: (prev?.tick ?? 0) + 1 }));
       } else {
-        if (Platform.OS === 'android' && !toastCooldown.current) {
-          toastCooldown.current = true;
-          ToastAndroid.show('Aucun départ actuellement pour cette ligne à cet arrêt', ToastAndroid.SHORT);
-          setTimeout(() => { toastCooldown.current = false; }, 2000);
-        }
+        // Même clé : toucher plusieurs fois ne les empile pas.
+        notifier({ type: 'info', titre: 'Aucun départ actuellement pour cette ligne à cet arrêt', icone: 'info-trafic', cle: 'aucun-depart' });
       }
     },
   }), []);

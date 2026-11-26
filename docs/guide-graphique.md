@@ -192,3 +192,12 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 ## Lignes du Grand Paris Express (décision du 2026-11-26)
 - Elles utilisent le MÊME menu de détail que les autres lignes (jamais d'écran à part : essayé, refusé, « tout dépasse ») : une carte « Information » avec les ouvertures prévues ; point bleu d'information sur leur symbole (`gpe.ts`).
 - Rubrique Bus (2026-11-26) : les bus suivis en grille (mêmes cases que les autres modes, élargies si le numéro est long) entre le titre et le champ de recherche ; rien si aucun bus suivi.
+- Mention de mise à jour d une perturbation (2026-11-26) : discrète, 10 px Light, alignée à droite, opacité 0,7, « Mis à jour à 13:52 » (avec la date seulement si ce n est pas aujourd hui). À valider sur téléphone.
+
+## Notifications internes : le moteur (décision du 2026-11-27)
+- Tout message de l'app passe par `notifier()` (`notifs.ts`), affiché par `NotifCentre.tsx`. Plus de petit message Android (`ToastAndroid`) ni de pop-up à part pour ce qui s'adresse à l'utilisateur (restent en toast : outils de débogage). Exclus : bandeau du câble, « Quoi de neuf », fenêtre de mise à jour (pour l'instant).
+- Trois formes : **carte** en haut (7 s, toucher = agir, flèche › si une action existe), **pilule** en bas au-dessus des barres (2,5 s, icône colorée + une phrase), **choix** en haut avec boutons pilules de 32 (reste jusqu'à la réponse).
+- Une seule à la fois en haut et en bas ; une interruption passe devant ; même clé = remplace ; file de 5 au plus. Balayer vers le bord ferme ; le doigt posé arrête le minuteur.
+- Style : carte de l'app (rayon des cartes, bordure 1 px), fond qui suit le thème (clair `bgCard`, sombre #0b2550, OLED #0d0d0d). Types : info (accent), succès vert, attention orange, erreur rouge, perturbé orange, interrompu rouge. Alerte trafic : symbole officiel + point d'état, bordure colorée à 55 % et UN léger halo (flou 18, étendue 1, 0,38 sombre / 0,28 clair) ; les autres ont une ombre neutre. Vibration pour les alertes seulement.
+- Écartés pour l'alerte (« sort trop de la DA ») : voile dégradé, surtitre « ALERTE TRAFIC », grosse pastille pleine, bordure 2 px, battements, fort halo.
+- Animation : Reanimated et gesture-handler (côté natif), ressort amortissement 18 / raideur 190 / masse 0,7 à l'entrée (lancée une image après le premier dessin), sortie 200 ms ; `renderToHardwareTextureAndroid` avec 24 px de marge pour que le halo ne soit pas rogné ni recalculé à chaque image.
