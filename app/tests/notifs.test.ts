@@ -32,14 +32,14 @@ test('notifs : file limitée, les moins prioritaires en attente partent d abord'
   assert.equal(f.at(-1)!.cle, 'i7');
 });
 
-test('notifs : haut et bas sont deux files indépendantes ; fermer fait avancer la file', () => {
+test('notifs : cartes et pilules sont deux files indépendantes ; fermer fait avancer la file', () => {
   toutFermer();
   notifier({ forme: 'carte', titre: 'carte', cle: 'c' });
   notifier({ titre: 'pilule', cle: 'p' });
   notifier({ forme: 'choix', titre: 'choix', cle: 'q' });
-  assert.deepEqual([cles(lireFile('haut')), cles(lireFile('bas'))], [['c', 'q'], ['p']]);
+  assert.deepEqual([cles(lireFile('cartes')), cles(lireFile('pilules'))], [['c', 'q'], ['p']]);
   fermerNotif('c');
-  assert.deepEqual(cles(lireFile('haut')), ['q']);
+  assert.deepEqual(cles(lireFile('cartes')), ['q']);
   toutFermer();
 });
 

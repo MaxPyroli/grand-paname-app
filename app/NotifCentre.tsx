@@ -25,18 +25,20 @@ const MARGE_HALO = 24;   // place autour de la carte pour que le halo tienne dan
 const HORS_CHAMP = 220;
 const RESSORT = { damping: 18, stiffness: 190, mass: 0.7 };
 
-export function NotifCentre({ basEcart }: { basEcart: number }) {
+export function NotifCentre() {
+  const insets = useSafeAreaInsets();
+  // Une colonne en haut de l'écran : la carte, puis la pilule dessous (ou à sa place s'il n'y a pas de carte).
   return (
-    <>
-      <Place emplacement="haut" ecart={0} />
-      <Place emplacement="bas" ecart={basEcart} />
-    </>
+    <View pointerEvents="box-none" style={[styles.conteneur, { top: insets.top + 8 - MARGE_HALO }]}>
+      <Place emplacement="cartes" />
+      <Place emplacement="pilules" />
+    </View>
   );
 }
 
-// Un emplacement (haut ou bas) : montre la première notification de sa file, fait sortir l'ancienne avant l'arrivée
+// Une file (cartes ou pilules) : montre la première notification de sa file, fait sortir l'ancienne avant l'arrivée
 // de la suivante.
-function Place({ emplacement, ecart }: { emplacement: Emplacement; ecart: number }) {
+function Place({ emplacement }: { emplacement: Emplacement }) {
   const [tete, setTete] = useState<Notif | undefined>(() => lireFile(emplacement)[0]);
   const [affichee, setAffichee] = useState<Notif | undefined>(tete);
   useEffect(() => suivreNotifs(() => setTete(lireFile(emplacement)[0])), [emplacement]);
@@ -45,14 +47,13 @@ function Place({ emplacement, ecart }: { emplacement: Emplacement; ecart: number
   const sortieFinie = useCallback(() => setAffichee(lireFile(emplacement)[0]), [emplacement]);
   if (!affichee) return null;
   const sortante = !tete || tete.cle !== affichee.cle;
-  return <Carte key={affichee.cle} n={affichee} sortante={sortante} onSortie={sortieFinie} emplacement={emplacement} ecart={ecart} />;
+  return <Carte key={affichee.cle} n={affichee} sortante={sortante} onSortie={sortieFinie} />;
 }
 
-function Carte({ n, sortante, onSortie, emplacement, ecart }: { n: Notif; sortante: boolean; onSortie: () => void; emplacement: Emplacement; ecart: number }) {
+function Carte({ n, sortante, onSortie }: { n: Notif; sortante: boolean; onSortie: () => void }) {
   const c = useColors();
   const { isDark, oled } = useContext(ThemeContext);
-  const insets = useSafeAreaInsets();
-  const sens = emplacement === 'haut' ? -1 : 1;
+  const sens = -1;   // tout arrive et repart par le haut
   const y = useSharedValue(sens * HORS_CHAMP);
   const opacite = useSharedValue(0);
   const minuteur = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,7 +109,6 @@ function Carte({ n, sortante, onSortie, emplacement, ecart }: { n: Notif; sortan
     ? [{ offsetX: 0, offsetY: 2, blurRadius: 18, spreadDistance: 1, color: hexToRgba(accent, isDark ? 0.38 : 0.28) }]
     : [{ offsetX: 0, offsetY: 3, blurRadius: 12, spreadDistance: 0, color: 'rgba(0,0,0,0.22)' }];
   const symbole = n.ligne ? symboleLigne(n.ligne.mode, n.ligne.code, isDark) : undefined;
-  const position = emplacement === 'haut' ? { top: insets.top + 8 - MARGE_HALO } : { bottom: ecart - MARGE_HALO };
 
   let contenu: React.ReactNode;
   if (n.forme === 'pilule') {
@@ -179,20 +179,22 @@ function Carte({ n, sortante, onSortie, emplacement, ecart }: { n: Notif; sortan
   }
 
   return (
-    <View pointerEvents="box-none" style={[styles.conteneur, position]}>
+    <>
       {/* La marge autour de la carte (pour le halo) ne capte aucun toucher : le geste est posé sur la carte seule. */}
       <Animated.View pointerEvents="box-none" renderToHardwareTextureAndroid style={[styles.mobile, n.forme !== 'pilule' && styles.pleineLargeur, style]}>
         <GestureDetector gesture={geste}>
           <View collapsable={false}>{contenu}</View>
         </GestureDetector>
       </Animated.View>
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  conteneur: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 9999, elevation: 20 },
-  mobile: { maxWidth: '100%', paddingVertical: MARGE_HALO, paddingHorizontal: 12 },
+  // Au-dessus de TOUT : les paramètres, le formulaire de bug et les fenêtres sont à zIndex 20000, élévation 20.
+  conteneur: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 30000, elevation: 30 },
+  // marginBottom : les marges de halo de la carte et de la pilule se recouvrent, il reste 8 entre les deux.
+  mobile: { maxWidth: '100%', paddingVertical: MARGE_HALO, paddingHorizontal: 12, marginBottom: 8 - 2 * MARGE_HALO },
   pleineLargeur: { width: '100%', maxWidth: 484 },   // carte de 460 au plus, à 12 des bords
   carte: { borderRadius: PANEL_CARD_RADIUS, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 14 },
   rangee: { flexDirection: 'row', alignItems: 'center', gap: 12 },

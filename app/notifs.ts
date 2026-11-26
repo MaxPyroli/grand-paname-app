@@ -3,10 +3,11 @@
 //
 // Trois formes (voir docs/guide-graphique.md) :
 //   carte   en haut ; la toucher agit ; disparaît seule (7 s)            — alerte trafic, mise à jour prête
-//   pilule  en bas ; petite confirmation ; disparaît seule (2,5 s)       — « Cache vidé », « Localisation refusée »
+//   pilule  en haut ; petite confirmation ; disparaît seule (2,5 s)      — « Cache vidé », « Localisation refusée »
 //   choix   en haut, avec des boutons ; reste jusqu'à la réponse
-// Règles : une seule à la fois par emplacement (haut / bas), les autres attendent ; une interruption passe devant ; une
-// notification de même `cle` remplace l'ancienne au lieu de s'ajouter.
+// Tout s'affiche en haut de l'écran. Règles : une seule carte (ou carte à boutons) et une seule pilule à la fois, la pilule
+// se plaçant sous la carte ; les autres attendent ; une interruption passe devant ; une notification de même `cle`
+// remplace l'ancienne au lieu de s'ajouter.
 //
 // Ce fichier ne dépend d'aucun composant : la file d'attente est testable seule (tests/notifs.test.ts).
 import type { IconName } from './Icon';
@@ -31,8 +32,9 @@ export type DemandeNotif = {
 };
 export type Notif = DemandeNotif & { cle: string; forme: FormeNotif; type: TypeNotif; duree: number | null; version: number };
 
-export type Emplacement = 'haut' | 'bas';
-export const emplacementDe = (forme: FormeNotif): Emplacement => (forme === 'pilule' ? 'bas' : 'haut');
+// Deux files indépendantes : les cartes (avec ou sans boutons) et les pilules.
+export type Emplacement = 'cartes' | 'pilules';
+export const emplacementDe = (forme: FormeNotif): Emplacement => (forme === 'pilule' ? 'pilules' : 'cartes');
 
 const DUREES: Record<FormeNotif, number | null> = { carte: 7000, pilule: 2500, choix: null };
 const PRIORITE: Record<TypeNotif, number> = { interrompu: 2, perturbe: 1, erreur: 1, attention: 0, info: 0, succes: 0 };
@@ -63,7 +65,7 @@ export function preparer(d: DemandeNotif): Notif {
 }
 
 // ── Magasin ───────────────────────────────────────────────────────────────────
-let files: Record<Emplacement, Notif[]> = { haut: [], bas: [] };
+let files: Record<Emplacement, Notif[]> = { cartes: [], pilules: [] };
 const abonnes = new Set<() => void>();
 const prevenir = () => abonnes.forEach(f => f());
 
@@ -76,11 +78,11 @@ export function notifier(d: DemandeNotif): string {
 }
 
 export function fermerNotif(cle: string): void {
-  files = { haut: files.haut.filter(n => n.cle !== cle), bas: files.bas.filter(n => n.cle !== cle) };
+  files = { cartes: files.cartes.filter(n => n.cle !== cle), pilules: files.pilules.filter(n => n.cle !== cle) };
   prevenir();
 }
 
-export function toutFermer(): void { files = { haut: [], bas: [] }; prevenir(); }
+export function toutFermer(): void { files = { cartes: [], pilules: [] }; prevenir(); }
 
 export const lireFile = (e: Emplacement): Notif[] => files[e];
 export function suivreNotifs(f: () => void): () => void { abonnes.add(f); return () => { abonnes.delete(f); }; }

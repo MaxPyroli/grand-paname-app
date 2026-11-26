@@ -3745,8 +3745,8 @@ function AppInner() {
         onAccept={handleUpdateAccept}
         onDismiss={handleUpdateDismiss}
       />
-      {/* Notifications internes de l'app (voir notifs.ts) : au-dessus de tout ; les pilules passent au-dessus des barres du bas. */}
-      <NotifCentre basEcart={geo.rechercheBottom + SEARCH_BAR_HEIGHT + 10} />
+      {/* Notifications internes de l'app (voir notifs.ts) : en haut, au-dessus de tout. */}
+      <NotifCentre />
 
       </BlurCarteContext.Provider>
       </BlurTargetContext.Provider>

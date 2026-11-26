@@ -440,3 +440,6 @@ Journal technique de continuité entre sessions. Les dates ci-dessous sont celle
 - Débogage : « Tester les notifications » (9 boutons, dont file d attente).
 - Fluidité : cause probable des saccades de l ancienne version = Animated démarré pendant le travail JavaScript de réception et halo flou redessiné (hypothèse, non mesurée). Tests 66 OK (6 nouveaux). RIEN vu sur téléphone, fluidité comprise. Rien commité.
 - 27/11 : utilisateur valide le moteur de notifications (« Oui, commite ») ; pas de détail sur chaque point vérifié.
+- 27/11 : les notifications internes passaient SOUS la page des paramètres (calques à zIndex 20000 contre 9999 pour NotifCentre). Corrigé : zIndex 30000, élévation 30. Non revu sur téléphone, non commité.
+- 27/11 : pilules déplacées en haut (demande de l utilisateur), sous la carte quand il y en a une ; files renommées « cartes » / « pilules » ; prop `basEcart` retirée. Non revu sur téléphone.
+- 27/11 : utilisateur valide le placement (« Oui, commite »).
