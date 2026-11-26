@@ -265,8 +265,8 @@ const TESTS_NOTIFS: { libelle: string; lancer: () => void }[] = (() => {
     { libelle: 'Pilule attention', lancer: attention },
     { libelle: 'Pilule erreur', lancer: erreur },
     { libelle: 'Avec boutons', lancer: choix },
-    // File d'attente : la perturbation s'affiche, l'interruption passe devant, la carte info attend son tour.
-    { libelle: "File d'attente", lancer: () => { perturbe(); maj(); setTimeout(interrompu, 1500); } },
+    // File d'attente : trois cartes s'empilent, puis l'interruption passe devant et pousse les autres au fond.
+    { libelle: "File d'attente", lancer: () => { perturbe(); maj(); bus(); setTimeout(interrompu, 1500); } },
   ];
 })();
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inserer, preparer, lireTitreAlerte, notifDAlerte, notifier, fermerNotif, toutFermer, lireFile, FILE_MAX, type Notif, type DemandeNotif } from '../notifs.ts';
+import { inserer, preparer, lireTitreAlerte, notifDAlerte, notifier, fermerNotif, toutFermer, lireFile, majElements, FILE_MAX, type Notif, type DemandeNotif } from '../notifs.ts';
 
 const n = (cle: string, d: Partial<DemandeNotif> = {}): Notif => preparer({ cle, titre: cle, forme: 'carte', ...d });
 const cles = (f: Notif[]) => f.map(x => x.cle);
@@ -48,4 +48,14 @@ test('notifs : alerte trafic → ligne, état et annonce', () => {
   assert.equal(lireTitreAlerte('3 autres perturbations sur tes lignes'), null);
   const d = notifDAlerte({ ligneId: 'L1', ligneTitre: 'RER A : trafic interrompu', titre: 'Panne à Poissy.', niveau: 'interrompu' }, () => {});
   assert.deepEqual([d.cle, d.type, d.titre, d.texte, d.ligne], ['alerte-L1', 'interrompu', 'Trafic interrompu', 'Panne à Poissy.', { mode: 'RER', code: 'A' }]);
+});
+
+test('notifs : la liste dessinée garde son ordre, seuls les rangs bougent', () => {
+  const [a, b, c, d] = ['a', 'b', 'c', 'd'].map(x => n(x));
+  let el = majElements([], [a, b, c, d], 3);
+  assert.deepEqual(el.map(e => [e.n.cle, e.rang]), [['a', 0], ['b', 1], ['c', 2]]);
+  el = majElements(el, [b, c, d], 3);   // « a » part
+  assert.deepEqual(el.map(e => [e.n.cle, e.rang, e.sortante]), [['a', 0, true], ['b', 0, false], ['c', 1, false], ['d', 2, false]]);
+  el = majElements(el, [n('urgent'), b, c, d], 3);   // une urgente pousse la pile, « d » est caché
+  assert.deepEqual(el.map(e => [e.n.cle, e.rang, e.sortante]), [['a', 0, true], ['b', 1, false], ['c', 2, false], ['urgent', 0, false]]);
 });

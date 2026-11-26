@@ -64,6 +64,25 @@ export function preparer(d: DemandeNotif): Notif {
   return { ...d, forme, type: d.type ?? 'info', duree: d.duree === undefined ? DUREES[forme] : d.duree, cle: d.cle ?? `notif-${compteur}`, version: compteur };
 }
 
+// ── Ce qui est affiché ────────────────────────────────────────────────────────
+export type Element = { n: Notif; rang: number; sortante: boolean };
+
+// Nouvelle liste des éléments à dessiner après un changement de file. L'ORDRE de la liste ne change jamais (seuls les
+// rangs bougent) : sinon les vues sont démontées puis remontées et l'animation saute. Un élément vu qui quitte la file
+// reste en « sortante » le temps de son animation ; au-delà de `max`, il est seulement caché (retiré).
+export function majElements(avant: Element[], file: Notif[], max: number): Element[] {
+  const suite: Element[] = [];
+  for (const el of avant) {
+    const i = file.findIndex(x => x.cle === el.n.cle);
+    if (i < 0) suite.push(el.sortante ? el : { ...el, rang: 0, sortante: true });
+    else if (i < max) suite.push({ n: file[i], rang: i, sortante: false });
+  }
+  file.slice(0, max).forEach((n, rang) => {
+    if (!suite.some(el => el.n.cle === n.cle)) suite.push({ n, rang, sortante: false });
+  });
+  return suite;
+}
+
 // ── Magasin ───────────────────────────────────────────────────────────────────
 let files: Record<Emplacement, Notif[]> = { cartes: [], pilules: [] };
 const abonnes = new Set<() => void>();
