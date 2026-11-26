@@ -155,15 +155,40 @@ async function textesFrancais(idLigne, cle) {
     for (const x of d.disruptions || []) {
       const msg = canal => ((x.messages || []).find(m => m.channel && m.channel.name === canal && m.text) || {}).text;
       const titre = msg('titre') || msg('notification');
-      if (!titre) continue;
-      const net = nettoyerTexte(titre);
+      const net = nettoyerTexte(titre || '');
       const detail = nettoyerTexte(msg('moteur') || msg('email') || msg('web') || msg('mobile') || '');
-      sortie.set(x.id, { titre: net, detail: detail === net ? '' : detail, etiquette: msg('cbiv') || '' });
+      sortie.set(x.id, {
+        titre: net, detail: detail === net ? '' : detail, etiquette: msg('cbiv') || '',
+        // Pour le journal des envois seulement : savoir ce qui reste stable d'une mise à jour d'un incident à l'autre.
+        disruptionId: x.disruption_id || '', impactId: x.impact_id || '', majAnnonce: x.updated_at || '',
+        periodes: (x.application_periods || []).slice(0, 4).map(p => `${p.begin}>${p.end}`),
+      });
     }
   } catch (e) {
     console.warn(`Texte français indisponible pour ${idLigne} : ${e.message}`);
   }
   return sortie;
+}
+
+// Journal de ce qui a été ENVOYÉ (collection Firestore `journalAlertes`, lue par scripts/journal-alertes.js), pour
+// comprendre les répétitions : une entrée par couple annonce + ligne envoyé à au moins un appareil. Aucun jeton ni rien
+// sur les appareils, seulement leur nombre.
+function entreesJournal(nouvelles, abonnes, francais, dejaSignalees) {
+  const entrees = [];
+  for (const a of nouvelles) {
+    for (const l of a.lignes.values()) {
+      const destinataires = abonnes.filter(x => x.suivies.includes(l.id)).length;
+      if (destinataires === 0) continue;
+      const fr = francais.get(a.id) || {};
+      entrees.push({
+        ligneId: l.id, ligne: libelleLigne(l), perturbationId: a.id, gravite: a.gravite, niveau: l.niveau,
+        motifEnvoi: dejaSignalees[a.id] === undefined ? 'nouvelle' : 'aggravation',
+        disruptionId: fr.disruptionId || '', impactId: fr.impactId || '', majAnnonce: fr.majAnnonce || '', periodes: fr.periodes || [],
+        etiquette: fr.etiquette || '', titre: fr.titre || '', detail: (fr.detail || '').slice(0, 1500), destinataires,
+      });
+    }
+  }
+  return entrees;
 }
 
 async function envoyerExpo(messages) {
@@ -264,6 +289,10 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
   if (reel && messages.length > 0) {
     const invalides = await envoyerExpo(messages);
     bilan.envoyees = messages.length - invalides.length;
+    // UN seul document par passage (Cloudflare limite le nombre de requêtes par passage) ; son échec ne gêne rien.
+    try {
+      await db.collection('journalAlertes').add({ at: new Date(), alertes: entreesJournal(nouvelles, abonnes, francais, etat.data().signalees || {}) });
+    } catch (e) { journal(`Journal des envois non enregistré : ${e.message}`); }
     for (const t of invalides) {
       const doc = abonnes.find(a => a.token === t);
       if (doc) { await doc.ref.delete(); bilan.jetonsPerimes++; journal('Jeton périmé supprimé.'); }

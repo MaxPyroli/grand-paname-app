@@ -14,10 +14,10 @@ const BULK = {
 };
 
 function fauxMonde({ etat, abonnes }) {
-  const ecritures = []; const suppressions = []; const envois = []; const bilans = [];
+  const ecritures = []; const suppressions = []; const envois = []; const bilans = []; const journaux = [];
   const db = {
     doc: () => ({ get: async () => ({ exists: etat !== null, data: () => etat }), set: async v => { ecritures.push(v); } }),
-    collection: nom => ({ add: async b => { if (nom === 'statsAlertes') bilans.push(b); }, get: async () => ({ docs: abonnes.map(a => ({ ref: { delete: async () => { suppressions.push(a.token); } }, data: () => a })) }) }),
+    collection: nom => ({ add: async b => { if (nom === 'statsAlertes') bilans.push(b); if (nom === 'journalAlertes') journaux.push(b); }, get: async () => ({ docs: abonnes.map(a => ({ ref: { delete: async () => { suppressions.push(a.token); } }, data: () => a })) }) }),
   };
   globalThis.fetch = async (url, opts) => {
     if (String(url).includes('disruptions_bulk')) return { ok: true, json: async () => BULK };
@@ -25,7 +25,7 @@ function fauxMonde({ etat, abonnes }) {
     if (String(url).includes('exp.host')) { const lot = JSON.parse(opts.body); envois.push(...lot); return { json: async () => ({ data: lot.map(() => ({ status: 'ok' })) }) }; }
     throw new Error('URL inattendue ' + url);
   };
-  return { db, ecritures, suppressions, envois, bilans };
+  return { db, ecritures, suppressions, envois, bilans, journaux };
 }
 const lancer = (m, reel) => executerSurveillance({ db: m.db, horodatage: 'T', cle: 'k', reel, journal: () => {} });
 
@@ -89,4 +89,17 @@ test('les installations de développement ne reçoivent pas les alertes (sauf de
   const m2 = fauxMonde({ etat: { signalees: {} }, abonnes });
   await executerSurveillance({ db: m2.db, horodatage: 'T', cle: 'k', reel: true, journal: () => {}, notifierDev: true });
   assert.deepEqual(m2.envois.map(e => e.to).sort(), ['ANCIEN', 'DEV', 'STABLE']);
+});
+
+test('journal des envois : ce qui part est noté (identifiants et texte), sans aucun jeton ; rien en simulation', async () => {
+  const abonnes = [{ token: 'ExponentPushToken[secret]', alertesLignes: ['L1'] }];
+  const m = fauxMonde({ etat: { signalees: {} }, abonnes });
+  await lancer(m, true);
+  assert.equal(m.journaux.length, 1);
+  const [e] = m.journaux[0].alertes;
+  assert.deepEqual([e.ligneId, e.ligne, e.perturbationId, e.motifEnvoi, e.destinataires], ['L1', 'Métro 8', 'd1', 'nouvelle', 1]);
+  assert.ok(!JSON.stringify(m.journaux).includes('secret'));
+  const simu = fauxMonde({ etat: { signalees: {} }, abonnes });
+  await lancer(simu, false);
+  assert.equal(simu.journaux.length, 0);
 });
