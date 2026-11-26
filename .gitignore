@@ -6,4 +6,5 @@ scripts/node_modules
 archive/
 desktop.ini
 scripts/historique-notifications.json
+scripts/brouillon-notification.json
 functions/.env*

@@ -27,6 +27,7 @@ const SECRET = crypto.randomBytes(16).toString('hex');
 const SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
   || path.join(__dirname, '..', 'firebase-service-account.json');
 const HISTORIQUE_PATH = path.join(__dirname, 'historique-notifications.json');
+const BROUILLON_PATH = path.join(__dirname, 'brouillon-notification.json');
 const HTML_PATH = path.join(__dirname, 'notifications-ui.html');
 
 // `id` = channelId côté Android (voir app/notifications.ts).
@@ -55,6 +56,29 @@ function ajouterHistorique(entree) {
   const h = lireHistorique();
   h.unshift(entree);
   fs.writeFileSync(HISTORIQUE_PATH, JSON.stringify(h.slice(0, 100), null, 2), 'utf8');
+}
+
+// ── Brouillon ─────────────────────────────────────────────────────────────────
+// Le texte en cours d'écriture (catégorie, titre, message) est gardé dans un fichier sur cet ordinateur : il survit à la
+// fermeture de la page ou de l'outil. Un seul brouillon ; effacé après un vrai envoi.
+
+function lireBrouillon() {
+  try {
+    const b = JSON.parse(fs.readFileSync(BROUILLON_PATH, 'utf8'));
+    return b && typeof b === 'object' ? b : null;
+  } catch { return null; }
+}
+function ecrireBrouillon(b) {
+  const categorie = CATEGORIES[b.categorie] ? b.categorie : 'default';
+  const titre = String(b.titre || '').slice(0, 80);
+  const message = String(b.message || '').slice(0, 300);
+  if (!titre.trim() && !message.trim()) { effacerBrouillon(); return null; }
+  const brouillon = { categorie, titre, message, enregistreLe: new Date().toISOString() };
+  fs.writeFileSync(BROUILLON_PATH, JSON.stringify(brouillon, null, 2), 'utf8');
+  return brouillon;
+}
+function effacerBrouillon() {
+  try { fs.unlinkSync(BROUILLON_PATH); } catch { /* déjà absent */ }
 }
 
 // ── Appareils (Firestore) ─────────────────────────────────────────────────────
@@ -192,6 +216,7 @@ async function lancerEnvoi(job, { categorie, titre, message, cible, token, simul
     }
 
     job.resume = { envoyes: tokens.length, livres, echecs, simulation: false, destinataires: tokens.length };
+    effacerBrouillon();   // envoyé pour de bon : le brouillon n'a plus lieu d'être
     ajouterHistorique({
       date: new Date().toISOString(), categorie, titre, message,
       cible: cible === 'un' ? 'un appareil' : cible === 'recents' ? 'actifs (30 j)' : 'tous', destinataires: tokens.length, livres, echecs,
@@ -253,6 +278,11 @@ const gerer = async (req, res) => {
         const aSupprimer = await appareilsInactifs(jours);
         await Promise.all(aSupprimer.map(d => d.ref.delete()));
         return envoyerJson(res, 200, { supprimes: aSupprimer.length });
+      }
+      if (url.pathname === '/api/brouillon') {
+        if (req.method === 'GET') return envoyerJson(res, 200, { brouillon: lireBrouillon() });
+        if (req.method === 'PUT') return envoyerJson(res, 200, { brouillon: ecrireBrouillon(await lireCorps(req)) });
+        if (req.method === 'DELETE') { effacerBrouillon(); return envoyerJson(res, 200, { brouillon: null }); }
       }
       if (req.method === 'GET' && url.pathname === '/api/historique') {
         return envoyerJson(res, 200, { historique: lireHistorique() });

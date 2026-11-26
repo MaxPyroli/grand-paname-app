@@ -92,6 +92,7 @@
         <label class="champ"><span>Message <b id="cMessage">0/300</b></span>
           <textarea id="message" maxlength="300" placeholder="Le texte qui s'affichera sous le titre"></textarea>
         </label>
+        <p class="petit" style="margin:0"><span id="etatBrouillon">Brouillon : rien d'enregistré.</span> <a href="#" id="effacerBrouillon" style="display:none">Effacer le brouillon</a></p>
       </section>
 
       <section class="carte">
@@ -184,12 +185,46 @@ function depuis(iso) {
   return `il y a ${Math.round(min / 1440)} j`;
 }
 
+// ── Brouillon : le texte écrit est enregistré tout seul (0,6 s après la dernière frappe) et revient à la réouverture. ──
+let minuteurBrouillon = null;
+function etatBrouillon(b) {
+  const heure = b && b.enregistreLe ? new Date(b.enregistreLe).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : null;
+  $('etatBrouillon').textContent = b ? `Brouillon enregistré à ${heure}.` : "Brouillon : rien d'enregistré.";
+  $('effacerBrouillon').style.display = b ? '' : 'none';
+}
+function planifierBrouillon() {
+  clearTimeout(minuteurBrouillon);
+  minuteurBrouillon = setTimeout(async () => {
+    try {
+      const r = await api('api/brouillon', { method: 'PUT', body: JSON.stringify({ categorie, titre: $('titre').value, message: $('message').value }) });
+      etatBrouillon(r.brouillon);
+    } catch { $('etatBrouillon').textContent = "Brouillon non enregistré (outil arrêté ?)."; }
+  }, 600);
+}
+async function restaurerBrouillon() {
+  try {
+    const { brouillon } = await api('api/brouillon');
+    if (brouillon && !$('titre').value && !$('message').value) {
+      categorie = CATEGORIES.some(c => c.id === brouillon.categorie) ? brouillon.categorie : categorie;
+      $('titre').value = brouillon.titre || ''; $('message').value = brouillon.message || '';
+      afficherCategories(); afficherModeles(); majApercu();
+    }
+    etatBrouillon(brouillon);
+  } catch { /* pas de brouillon lisible : on repart de zéro */ }
+}
+$('effacerBrouillon').onclick = async e => {
+  e.preventDefault();
+  clearTimeout(minuteurBrouillon);
+  try { await api('api/brouillon', { method: 'DELETE' }); } catch { /* sans gravité */ }
+  $('titre').value = ''; $('message').value = ''; majApercu(); etatBrouillon(null);
+};
+
 function afficherCategories() {
   $('categories').innerHTML = CATEGORIES.map(c => `
     <div class="cat ${c.id === categorie ? 'actif' : ''}" data-id="${c.id}">
       <span class="e">${c.emoji}</span><span class="n">${echapper(c.nom)}</span>
     </div>`).join('');
-  $('categories').querySelectorAll('.cat').forEach(el => el.onclick = () => { categorie = el.dataset.id; afficherCategories(); afficherModeles(); majApercu(); });
+  $('categories').querySelectorAll('.cat').forEach(el => el.onclick = () => { categorie = el.dataset.id; afficherCategories(); afficherModeles(); majApercu(); planifierBrouillon(); });
 }
 
 function afficherModeles() {
@@ -254,7 +289,7 @@ async function chargerHistorique() {
     $('historique').querySelectorAll('button').forEach(b => b.onclick = () => {
       const h = historique[b.dataset.i];
       categorie = h.categorie; $('titre').value = h.titre; $('message').value = h.message;
-      afficherCategories(); afficherModeles(); majApercu(); window.scrollTo({ top: 0, behavior: 'smooth' });
+      afficherCategories(); afficherModeles(); majApercu(); planifierBrouillon(); window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   } catch (e) { $('historique').textContent = e.message; }
 }
@@ -304,6 +339,7 @@ async function envoyer() {
   } catch (e) {
     $('resultat').innerHTML = `<div class="bandeau erreur">${echapper(e.message)}</div>`;
   }
+  if (!simulation) etatBrouillon(null);   // envoyé pour de bon : le serveur a effacé le brouillon
   majApercu(); chargerHistorique(); chargerAppareils();
 }
 
@@ -322,11 +358,11 @@ $('nettoyerInactifs').onclick = async e => {
 };
 if (ERREUR_FIREBASE) $('bandeauFirebase').innerHTML = `<div class="bandeau erreur">${echapper(ERREUR_FIREBASE)}</div>`;
 document.querySelectorAll('input[name=cible]').forEach(r => r.onchange = majCible);
-['titre', 'message'].forEach(id => $(id).oninput = majApercu);
+['titre', 'message'].forEach(id => $(id).oninput = () => { majApercu(); planifierBrouillon(); });
 $('appareil').onchange = majApercu;
 $('envoyer').onclick = envoyer;
 afficherCategories(); afficherModeles(); majCible(); majApercu();
-chargerAppareils(); chargerHistorique();
+chargerAppareils(); chargerHistorique(); restaurerBrouillon();
 </script>
 </body>
 </html>
