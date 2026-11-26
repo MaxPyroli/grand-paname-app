@@ -6,13 +6,26 @@ export type ChangelogEntry = {
 };
 
 export const CHANGELOGS: ChangelogEntry[] = [
+  // ENTRÉE TEMPORAIRE : prochaine version, numéro non fixé (« 3.4.x »). À remplacer par le vrai numéro et la vraie date à la
+  // sortie (ou à supprimer si les changements partent dans une autre version).
+  {
+    version: '3.4.x',
+    date: 'En préparation',
+    content: `**🛠️ Améliorations et Corrections**
+* Si la mise à jour intégrée à l'app échoue, la fiche de l'app sur le Play Store s'ouvre directement au lieu de ne rien afficher.
+* Alertes trafic : toucher la notification d'une ligne de bus ouvre maintenant son détail.
+* Info trafic : les bus que tu suis (cloche) s'affichent en permanence dans la rubrique Bus, avec leur état, au-dessus de la recherche.
+
+Bon voyage !`,
+  },
   {
     version: '3.4.0',
     date: '24 novembre 2026',
     codename: 'Emmental',
     content: `**🚀 Nouveautés**
-* Info trafic : l'état de toutes les lignes de Train / RER, métro, tramway, câble et bus en un coup d'œil, avec les symboles officiels des lignes, dans le volet Trafic. Chaque ligne a deux onglets, « En cours » et « Plus tard », et la recherche permet de trouver n'importe quelle ligne de bus.
-* Alertes trafic : choisis tes lignes (bus compris) avec la cloche du volet Trafic et reçois une notification dès qu'une nouvelle perturbation ou une interruption touche l'une d'elles, avec le détail de l'annonce. Quand l'app est ouverte, un petit pop-up t'avertit directement, et une perturbation déjà terminée quand tu ouvres la notification s'affiche quand même, marquée « Terminée ».
+* Chers voyageurs, votre app passe en version 3.4.0 Emmental ! J'espère que ces nouveautés vous plairons !
+* Info trafic : l'état de toutes les lignes de Train / RER, métro, tramway, câble et bus en un coup d'œil, dans le nouveau volet Trafic. La recherche vous permet de trouver n'importe quelle ligne de bus.
+* Alertes trafic : choisis tes lignes avec la cloche du volet Trafic et reçois une notification dès qu'une nouvelle perturbation ou une interruption touche l'une d'elles, avec le détail de l'annonce. Quand l'app est ouverte, un petit pop-up t'avertit directement.
 * Mode paysage repensé : mêmes menus qu'en portrait avec une disposition adaptée, barre de navigation et de recherche côte à côte, volet des horaires sur le côté.
 
 **🛠️ Améliorations et Corrections**

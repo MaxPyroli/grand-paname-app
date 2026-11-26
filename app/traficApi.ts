@@ -160,6 +160,26 @@ export async function rechercherLignesBus(texte: string, signal?: AbortSignal): 
   return etatDesLignes(brutes, bulk);
 }
 
+// Une ligne de BUS d'après son identifiant (toucher d'une notification : les bus ne sont pas dans la liste des lignes),
+// avec son état d'après les perturbations. Null si ce n'est pas un bus connu.
+export async function chargerLigneBus(id: string, signal?: AbortSignal): Promise<LigneTrafic | null> {
+  const r = await fetch(`${NAVITIA_BASE}/lines/${encodeURIComponent(id)}?depth=1&disable_geojson=true&disable_disruption=true`, { headers: { apiKey: NAVITIA_KEY }, signal });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const l = ((await r.json()).lines || [])[0];
+  if (!l || !(l.physical_modes || []).some((m: any) => String(m.id).includes('Bus'))) return null;
+  const brute: LigneBrute = { id: l.id, code: l.code || l.name, color: l.color || '888888', textColor: l.text_color || 'FFFFFF', mode: 'BUS' };
+  const bulk = await chargerPerturbations(signal).catch(() => null);
+  return etatDesLignes([brute], bulk)[0];
+}
+
+// État des bus suivis (numéro et couleurs gardés sur le téléphone), d'après les perturbations. Sans réseau : « normal ».
+export async function etatDesBus(bus: { id: string; code: string; color: string; textColor: string }[]): Promise<LigneTrafic[]> {
+  const brutes: LigneBrute[] = bus.map(b => ({ id: b.id, code: b.code, color: b.color, textColor: b.textColor, mode: 'BUS' as const }))
+    .sort((a, b) => comparerCodes(a.code, b.code));
+  const bulk = await chargerPerturbations().catch(() => null);
+  return etatDesLignes(brutes, bulk);
+}
+
 // Force une relecture (tirer pour actualiser) : vide les caches de perturbations.
 export function oublierPerturbations() { cachePerturbations = null; }
 

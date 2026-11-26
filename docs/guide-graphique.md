@@ -188,3 +188,7 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 - Quand une alerte sur l'une de MES lignes arrive pendant que l'app est ouverte, une petite carte glisse en haut de l'écran (`AlerteFlash.tsx`) : point de la couleur du type (rouge interrompu, orange perturbé), titre de la notification (« Métro 9 : trafic perturbé ») en Bold 14, texte de l'annonce en Regular 12 (2 lignes max), flèche ›. Carte OPAQUE (`bgCard`, bordure `borderCard`, rayon `PANEL_CARD_RADIUS`) : l'ombre native est donc permise.
 - Elle remplace la bannière du système (app ouverte seulement ; la notification reste dans le volet et le son est joué). Toucher = ouvrir la ligne dans Info trafic (avec la carte « Terminée » si elle l'est) ; glisser vers le haut = fermer ; fermeture automatique après 7 s ; une nouvelle alerte prend la place de la précédente. Entrée au ressort commun (raideur 120, amortissement 15, masse 0,5).
 - À valider sur téléphone : position sous la caméra, lisibilité en trois thèmes, comportement en paysage (largeur max 460).
+
+## Lignes du Grand Paris Express (décision du 2026-11-26)
+- Elles utilisent le MÊME menu de détail que les autres lignes (jamais d'écran à part : essayé, refusé, « tout dépasse ») : une carte « Information » avec les ouvertures prévues ; point bleu d'information sur leur symbole (`gpe.ts`).
+- Rubrique Bus (2026-11-26) : les bus suivis en grille (mêmes cases que les autres modes, élargies si le numéro est long) entre le titre et le champ de recherche ; rien si aucun bus suivi.

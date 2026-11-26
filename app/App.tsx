@@ -2661,8 +2661,15 @@ function AppInner() {
   // l'app utilisable pendant le téléchargement en arrière-plan. On la rouvre
   // en mode "ready" une fois le téléchargement terminé, plutôt que de
   // redémarrer l'app tout seul sans prévenir.
+  // La mise à jour intégrée peut être refusée par le Play Store (ex. « compte de l'installation introuvable » après un
+  // changement de compte, vu le 2026-11-24) : plutôt que de se fermer sans rien dire, l'app ouvre la fiche Play Store de
+  // Grand Paname, où le bouton « Mettre à jour » passe par un autre chemin.
+  const ouvrirFichePlayStore = () => {
+    const id = 'fun.grandpaname.app';
+    Linking.openURL(`market://details?id=${id}`).catch(() => Linking.openURL(`https://play.google.com/store/apps/details?id=${id}`).catch(() => {}));
+  };
   const declarerMiseAJour = () => {
-    if (!inAppUpdates.current) { setShowUpdateModal(false); return; }
+    if (!inAppUpdates.current) { setShowUpdateModal(false); ouvrirFichePlayStore(); return; }
     try {
       const { IAUUpdateKind, IAUInstallStatus } = require('sp-react-native-in-app-updates');
       const onStatus = (status: { status: AndroidInstallStatus }) => {
@@ -2674,6 +2681,8 @@ function AppInner() {
         } else if (status.status === IAUInstallStatus.FAILED || status.status === IAUInstallStatus.CANCELED) {
           inAppUpdates.current?.removeStatusUpdateListener(onStatus);
           setUpdateDownloadingBg(false);
+          // Échec (pas une annulation voulue) : fiche Play Store.
+          if (status.status === IAUInstallStatus.FAILED) ouvrirFichePlayStore();
         }
       };
       inAppUpdates.current.addStatusUpdateListener(onStatus);
@@ -2684,10 +2693,12 @@ function AppInner() {
           logger.warn(`startUpdate: ${e?.message}`);
           inAppUpdates.current?.removeStatusUpdateListener(onStatus);
           setShowUpdateModal(false);
+          ouvrirFichePlayStore();
         });
     } catch (e: any) {
       logger.warn(`declarerMiseAJour: ${e?.message}`);
       setShowUpdateModal(false);
+      ouvrirFichePlayStore();
     }
   };
 

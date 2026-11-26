@@ -9,6 +9,7 @@ import { FONDU_BAS, hexToRgba } from './Fade';
 import { decouperSurligne, creerAnalyseStations, AnalyseStations } from './traficTexte';
 import { PanelEmptyState } from './PanelEmptyState';
 import type { AlerteRecue } from './notifications';
+import { detailGPE } from './gpe';
 import { chargerDetailLigne, libelleMiseAJour, oublierDetailLigne, detailEnCache, DetailLigne, LigneTrafic, PerturbationLigne, CausePerturbation, TypePerturbation } from './traficApi';
 
 // Détail d'une ligne du volet Trafic (étape 1.3 du plan de la 3.4.0) : ses perturbations en cours puis à venir,
@@ -161,7 +162,7 @@ function SqueletteDetail() {
 export default function TraficDetail({ ligne, alerte = null, verre, pret = true }: { ligne: LigneTrafic; alerte?: AlerteRecue | null; verre?: boolean; pret?: boolean }) {
   const c = useColors();
   // Données déjà là (préchargées, ou ligne déjà ouverte) : affichées dès le premier rendu, sans écran de chargement.
-  const [detail, setDetail] = useState<DetailLigne | null>(() => detailEnCache(ligne.id));
+  const [detail, setDetail] = useState<DetailLigne | null>(() => ligne.id.startsWith('gpe-') ? detailGPE(ligne.code) : detailEnCache(ligne.id));
   const [erreur, setErreur] = useState(false);
   // Onglet choisi par l'utilisateur ; tant qu'il n'a rien choisi : « En cours » s'il y en a, sinon « Plus tard ».
   const [ongletChoisi, setOngletChoisi] = useState<'enCours' | 'plusTard' | null>(null);
@@ -196,6 +197,7 @@ export default function TraficDetail({ ligne, alerte = null, verre, pret = true 
   const analyse = useMemo(() => creerAnalyseStations(detail?.stations ?? []), [detail]);
 
   const charger = useCallback(async () => {
+    if (ligne.id.startsWith('gpe-')) return;   // ligne pas encore en service : rien à demander au serveur
     setErreur(false);
     try {
       let d = await chargerDetailLigne(ligne.id);

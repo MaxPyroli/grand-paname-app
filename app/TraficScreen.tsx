@@ -5,6 +5,7 @@ import { useColors, ThemeContext } from './theme';
 import { Icon, IconInfoTraficCouleur } from './Icon';
 import { PanelLayout, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
 import { PanelHeader, PanelIconAction, PanelPillAction } from './PanelHeader';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import TraficDetail from './TraficDetail';
 import type { AlerteRecue } from './notifications';
 import RechercheBus, { BoutonRechercheBus } from './RechercheBus';
@@ -13,7 +14,7 @@ import { lireLignesSuivies, enregistrerLignesSuivies, lireBusSuivis, enregistrer
 import { ListeFondue } from './ListeFondue';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
-import { chargerTrafic, oublierPerturbations, prechargerDetailLigne, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
+import { chargerTrafic, chargerLigneBus, etatDesBus, oublierPerturbations, prechargerDetailLigne, SECTIONS_TRAFIC, LigneTrafic, EtatTrafic } from './traficApi';
 import { symboleLigne } from './symbolesLignes';
 import { FONDU_BAS } from './Fade';
 
@@ -43,7 +44,7 @@ function Pastille({ ligne, fond, sombre, onPress, onAppui }: { ligne: LigneTrafi
   const symbole = symboleLigne(ligne.mode, ligne.code, sombre);
   const contenu = (
     <View
-      style={styles.pastilleCase}
+      style={[styles.pastilleCase, ligne.mode === 'BUS' && styles.pastilleCaseBus]}
       {...(onAppui && ligne.mode === 'METRO' && DOIGTS_GPE.includes(ligne.code) ? {
         onTouchStart: () => onAppui(ligne.code, true),
         onTouchEnd: () => onAppui(ligne.code, false),
@@ -62,7 +63,7 @@ function Pastille({ ligne, fond, sombre, onPress, onAppui }: { ligne: LigneTrafi
   );
   // Le 14 reste devant les lignes de l'easter egg qui sortent de derrière lui.
   const devant = ligne.mode === 'METRO' && ligne.code === '14' ? { zIndex: 2 } : null;
-  return onPress ? <TouchableOpacity activeOpacity={0.6} onPress={onPress} onPressIn={() => prechargerDetailLigne(ligne.id)} style={devant}>{contenu}</TouchableOpacity> : <View style={devant}>{contenu}</View>;
+  return onPress ? <TouchableOpacity activeOpacity={0.6} onPress={onPress} onPressIn={() => { if (!ligne.id.startsWith('gpe-')) prechargerDetailLigne(ligne.id); }} style={devant}>{contenu}</TouchableOpacity> : <View style={devant}>{contenu}</View>;
 }
 
 // « Métro 7 bis », « RER A », « Transilien J », « Tram T3a », « Câble C1 ».
@@ -79,10 +80,12 @@ function libelleLigne(l: LigneTrafic): string {
 const LIBELLE_ETAT: Record<EtatTrafic, string> = { normal: 'Trafic normal', info: 'Information', travaux: 'Travaux en cours', perturbe: 'Trafic perturbé', interrompu: 'Trafic interrompu' };
 
 // Easter egg : un appui de 3 secondes sur le symbole du métro 14 fait apparaître (ou disparaître)
-// les lignes 15 à 18 du Grand Paris Express parmi les lignes de métro. Pas encore en service : aucun état, juste leur symbole.
+// les lignes 15 à 18 du Grand Paris Express parmi les lignes de métro. Pas encore en service : elles se présentent comme les
+// autres, avec une information sur leurs ouvertures prévues (voir `gpe.ts`).
 const DOIGTS_GPE = ['14'];
+const CLE_GPE = '@gp_easter_gpe';
 const LIGNES_GPE: LigneTrafic[] = ['15', '16', '17', '18'].map(code => ({
-  id: 'gpe-' + code, code, color: '888888', textColor: 'FFFFFF', mode: 'METRO', etat: 'normal', nbPerturbations: 0,
+  id: 'gpe-' + code, code, color: '888888', textColor: 'FFFFFF', mode: 'METRO', etat: 'info', nbPerturbations: 1,
 }));
 
 // Les lignes de l'easter egg sortent de derrière le métro 14 : chacune part de la case du 14 (décalage `dx`, `dy`
@@ -161,10 +164,15 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     if (minuteurGeste.current) { clearTimeout(minuteurGeste.current); minuteurGeste.current = null; }
     if (pose) {
       secretFait.current = false;
-      minuteurGeste.current = setTimeout(() => { minuteurGeste.current = null; secretFait.current = true; setGpe(v => !v); }, 3000);
+      minuteurGeste.current = setTimeout(() => {
+        minuteurGeste.current = null; secretFait.current = true;
+        setGpe(v => { AsyncStorage.setItem(CLE_GPE, v ? '0' : '1').catch(() => {}); return !v; });
+      }, 3000);
     }
   }, []);
   useEffect(() => () => { if (minuteurGeste.current) clearTimeout(minuteurGeste.current); }, []);
+  // L'easter egg reste activé (ou désactivé) d'un lancement à l'autre.
+  useEffect(() => { AsyncStorage.getItem(CLE_GPE).then(v => { if (v === '1') setGpe(true); }).catch(() => {}); }, []);
   // Détail d'une ligne ou réglage des alertes : la vue glisse par-dessus la liste (qui reste montée, donc ses symboles
   // restent décodés et réapparaissent sans délai au retour) avec le ressort commun des volets. `vueOuverte` = vue
   // voulue ; `vueMontee` = vue affichée, gardée le temps de l'animation de fermeture.
@@ -254,6 +262,21 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     fermerLigne();
   }, [retour, fermerLigne]);
 
+  // Bus suivis affichés dans la liste (au-dessus du champ de recherche), avec leur état : recalculé à chaque relecture du
+  // trafic (`releve`) et quand la liste des bus suivis change.
+  const [releve, setReleve] = useState(0);
+  const [busAffiches, setBusAffiches] = useState<LigneTrafic[]>([]);
+  useEffect(() => {
+    let annule = false;
+    if (busSuivis.length === 0) { setBusAffiches([]); return; }
+    etatDesBus(busSuivis).then(liste => {
+      if (!annule) setBusAffiches(avant => avant.length === liste.length
+        && avant.every((l, i) => l.id === liste[i].id && l.etat === liste[i].etat && l.nbPerturbations === liste[i].nbPerturbations)
+        ? avant : liste);
+    });
+    return () => { annule = true; };
+  }, [busSuivis, releve]);
+
   const lignesAffichees = useMemo(() => {
     if (!lignes || !gpe) return lignes;
     const dernierMetro = lignes.map(l => l.mode).lastIndexOf('METRO');
@@ -272,6 +295,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
         && avant.every((l, i) => l.id === nouvelles[i].id && l.etat === nouvelles[i].etat && l.nbPerturbations === nouvelles[i].nbPerturbations)
         ? avant : nouvelles);
       derniere.current = Date.now();
+      setReleve(derniere.current);
     } catch {
       if (!silencieux) setErreur(true);
     }
@@ -320,9 +344,19 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   const idTraite = useRef(0);
   useEffect(() => {
     if (!ouvrirId || !lignes || idTraite.current === ouvrirId.n) return;
-    const ligne = lignes.find(l => l.id === ouvrirId.id);
-    idTraite.current = ouvrirId.n;
-    if (ligne) ouvrirVue({ genre: 'ligne', ligne, alerte: ouvrirId.alerte ?? null });
+    const demande = ouvrirId;
+    const ligne = lignes.find(l => l.id === demande.id);
+    idTraite.current = demande.n;
+    const ouvrir = (l: LigneTrafic) => ouvrirVue({ genre: 'ligne', ligne: l, alerte: demande.alerte ?? null });
+    if (ligne) { ouvrir(ligne); return; }
+    // Pas dans la liste : c'est un BUS. Sa fiche est demandée au serveur ; sans réseau, celle gardée par les alertes suffit
+    // (numéro et couleurs). Rien n'est ouvert si une autre notification a été touchée entre-temps.
+    chargerLigneBus(demande.id)
+      .catch(async () => {
+        const b = (await lireBusSuivis()).find(x => x.id === demande.id);
+        return b ? { ...b, mode: 'BUS' as const, etat: 'normal' as const, nbPerturbations: 0 } : null;
+      })
+      .then(bus => { if (bus && idTraite.current === demande.n) ouvrir(bus); });
   }, [ouvrirId, lignes, ouvrirVue]);
 
   const nbPerturbees = (lignes ?? []).filter(l => l.etat === 'perturbe' || l.etat === 'interrompu').length;
@@ -382,7 +416,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
                 </View>
                 <View style={styles.grille} onLayout={e => setLargeurGrille(e.nativeEvent.layout.width)}>
                   {deSection.map((l, i) => {
-                    const pastille = <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onPress={l.id.startsWith('gpe-') ? undefined : () => ouvrirLigne(l)} onAppui={appuiSymbole} />;
+                    const pastille = <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onPress={() => ouvrirLigne(l)} onAppui={appuiSymbole} />;
                     if (!l.id.startsWith('gpe-')) return pastille;
                     // Position (colonne, rangée) de chaque case dans la grille à cases de 50 px espacées de 6 px.
                     const colonnes = largeurGrille > 0 ? Math.max(1, Math.floor((largeurGrille + 6) / 56)) : 6;
@@ -395,19 +429,24 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
               </View>
             );
           })}
-          {/* Catégorie « Bus » : même titre (icône + libellé) que les autres modes, mais SANS grille de lignes : seulement le champ
-              de recherche (demande de l'utilisateur). */}
+          {/* Catégorie « Bus » : même titre que les autres modes ; dessous, seulement les bus que l'utilisateur SUIT (cloche),
+              puis le champ de recherche (demandes de l'utilisateur : jamais tous les bus). */}
           <View style={styles.section}>
             <View style={styles.sectionTitre}>
               <ExpoImage source={{ uri: MODE_ICONS['BUS'] }} style={[styles.sectionIcone, { tintColor: c.textSub }]} contentFit="contain" />
               <Text style={[styles.sectionTexte, { color: c.textSub }]}>BUS</Text>
             </View>
+            {busAffiches.length > 0 && (
+              <View style={[styles.grille, { marginBottom: 10 }]}>
+                {busAffiches.map(l => <Pastille key={l.id} ligne={l} fond={verre ? c.bgCard : c.bg} sombre={isDark} onPress={() => ouvrirLigne(l)} />)}
+              </View>
+            )}
           </View>
           {/* Faux champ : le toucher ouvre le mode recherche (titre « Bus » en haut, résultats défilants, barre en bas). */}
           <BoutonRechercheBus onPress={() => setRechercheOuverte(true)} />
         </ScrollView>
         </ListeFondue>
-  ) : null, [lignesAffichees, verre, isDark, c, largeurGrille, ouvrirLigne, appuiSymbole]);
+  ) : null, [lignesAffichees, busAffiches, verre, isDark, c, largeurGrille, ouvrirLigne, appuiSymbole]);
 
   // EN-TÊTE À DEUX COUCHES, pilotées par la MÊME animation que le glissement (valeur native `ouverture`), sans aucune
 // bascule de texte à un instant précis : « Info trafic » (liste) s'efface sur le premier tiers, puis l'en-tête de la vue
@@ -524,6 +563,7 @@ const styles = StyleSheet.create({
   busTexte: { fontSize: 14, fontFamily: 'GrandParis-Medium' },
   // La case est un peu plus grande que le symbole pour que le point d'état, qui dépasse du coin, ne soit pas coupé.
   pastilleCase: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center' },
+  pastilleCaseBus: { width: undefined, minWidth: 50 },   // « N122 », « 1234 » : la case s'élargit au lieu de déborder
   symbole: { width: 42, height: 42 },
   pastille: { minWidth: 48, height: 32, borderRadius: 12, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
   pastilleTexte: { fontSize: 14, fontFamily: 'GrandParis-Bold' },
