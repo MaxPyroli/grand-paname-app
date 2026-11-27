@@ -8,10 +8,8 @@ export type ChangelogEntry = {
 // Rédaction (demande de l'utilisateur) : les corrections de bugs sont TOUJOURS à la fin de la liste, chacune au format
 // « Correction d'un bug … ». Les nouveautés et améliorations passent avant.
 export const CHANGELOGS: ChangelogEntry[] = [
-  // ENTRÉE TEMPORAIRE : prochaine version, numéro non fixé (« 3.4.x »). À remplacer par le vrai numéro et la vraie date à la
-  // sortie (ou à supprimer si les changements partent dans une autre version).
   {
-    version: '3.4.x',
+    version: '3.4.1',
     date: 'En préparation',
     content: `**🛠️ Améliorations et Corrections**
 * Les bus que tu suis (cloche) dans l'info trafic s'affichent en permanence dans la rubrique Bus, avec leur état, au-dessus de la recherche.
@@ -25,6 +23,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
 * Correction d'un bug où la mise à jour intégrée à l'app s'arrêtait sans rien afficher en cas d'échec : la fiche de l'app sur le Play Store s'ouvre maintenant directement.
 * Correction d'un bug où la ligne ouverte depuis une alerte trafic restait cachée derrière le volet des horaires.
 * Correction d'un bug où les lignes de transport clignotaient sur la carte pendant un zoom.
+* Correction d'un bug où un volet d'horaires vide pouvait apparaître au milieu de l'écran, par exemple à l'ouverture de l'app.
 * Correction d'un bug où une alerte trafic reçue avec l'app ouverte s'affichait deux fois, en pop-up et en bannière du téléphone.
 
 Bon voyage !`,

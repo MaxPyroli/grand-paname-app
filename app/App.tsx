@@ -3476,8 +3476,12 @@ function AppInner() {
       </View>
       </Animated.View>
 
-      {/* Panel gare : bottom sheet animé */}
-      <View style={[StyleSheet.absoluteFill, { zIndex: 500, elevation: 0 }]} pointerEvents="box-none">
+      {/* Panel gare : bottom sheet animé.
+          RÈGLE ABSOLUE contre le « volet fantôme » (volet vide à mi-écran, vu à l'ouverture de l'app et après une
+          rotation) : sans arrêt, rien n'est visible ni touchable. La position du volet vient de valeurs animées qui
+          peuvent se désaccorder quand les dimensions de l'écran changent ; `gareActuelle`, lui, ne ment pas (il reste
+          renseigné jusqu'à la fin de l'animation de fermeture, voir quitterVueArret). */}
+      <View style={[StyleSheet.absoluteFill, { zIndex: 500, elevation: 0, opacity: gareActuelle ? 1 : 0 }]} pointerEvents={gareActuelle ? 'box-none' : 'none'}>
         <ReanimatedLib.View style={[styles.garePanel, { height: PANEL_H, ...(paysage ? { left: geo.rechercheLeft, width: geo.rechercheWidth, right: undefined } : { width: largeurVolet, right: undefined }), backgroundColor: c.bg }, panelAnimatedStyle]}>
 
           <GestureDetector gesture={headerPanGesture}>

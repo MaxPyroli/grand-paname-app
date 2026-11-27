@@ -21,7 +21,7 @@ export default {
   expo: {
     name: IS_DEV ? 'Grand Paname Dev' : 'Grand Paname',
     slug: 'grand-paname',
-    version: '3.4.0',
+    version: '3.4.1',
     // Pas de verrou statique ici : l'orientation est libre partout, y
     // compris sur téléphone (paysage supporté depuis la 3.3.1, panneau
     // Favoris/Trafic permanent — voir responsive.ts), géré au runtime via
@@ -63,7 +63,7 @@ export default {
       // Fix inclus sans changer le nom de version : re-upload sous le même
       // nom "3.3.2", donc numéro d'upload 1 au lieu de 0 → 30302*10+1.
       // 3.3.3 → 30303*10+0. 3.4.0 → 304000 (premier build), 304001 (version testée sur le Play Store), 304002 (version définitive « Emmental ») : changer le code À CHAQUE nouvel AAB, même si le précédent n'a pas été publié.
-      versionCode: 304002,
+      versionCode: 304010,
       // google-services.json est gitignore (pas commité) donc EAS Build ne le
       // voit pas nativement — on le fournit via une variable d'environnement
       // EAS de type "fichier" (GOOGLE_SERVICES_JSON), qui pointe vers un
