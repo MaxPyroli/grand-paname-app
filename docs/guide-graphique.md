@@ -202,3 +202,12 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 - Écartés pour l'alerte (« sort trop de la DA ») : voile dégradé, surtitre « ALERTE TRAFIC », grosse pastille pleine, bordure 2 px, battements, fort halo.
 - Animation : Reanimated et gesture-handler (côté natif), ressort amortissement 18 / raideur 190 / masse 0,7 à l'entrée (lancée une image après le premier dessin), sortie 200 ms ; `renderToHardwareTextureAndroid` avec 24 px de marge pour que le halo ne soit pas rogné ni recalculé à chaque image.
 - Les notifications internes passent au-dessus de tout (zIndex 30000, élévation 30), y compris paramètres et fenêtres.
+
+## Surface commune des éléments par-dessus l'app (2026-11-27)
+- Notifications ET fenêtres (« Quoi de neuf », mise à jour, visite guidée) : `app/surface.ts`. Surface opaque suivant le thème (clair `bgCard`, sombre #0b2550, OLED #0d0d0d), rayon `PANEL_CARD_RADIUS`, bordure 1 px `borderCard`. Les fenêtres n'ont plus de verre flouté (rayon 18 et bordure blanche abandonnés) : voile noir 45 % derrière, ombre ample (flou 28), boutons de 48 en pilule (rayon 24), texte sur accent noir en sombre et blanc en clair ; bouton secondaire sans bordure. Icône de titre = puce teintée 40, rayon 15.
+
+## Verre des notifications et des fenêtres (décision du 2026-11-27, remplace la surface opaque du même jour)
+- Notifications, pilules (dont le téléchargement de mise à jour, désormais une pilule du moteur avec rond tournant) et fenêtres (Quoi de neuf, mise à jour, visite guidée) : le VERRE DE L'EN-TÊTE (`surface.tsx`) : flou natif intensité 30, teinte 45 % (clair) / 50 % (sombre, OLED : noir), reflet en dégradé, bordure `bordureVerre` (alertes : bordure et halo colorés conservés).
+- Flou NATIF obligatoire ici (le flou « dans la carte » ne voit pas les paramètres ni les volets) : UN SEUL à la fois pour les notifications (carte de devant, sinon la pilule) ; les cartes en attente et le flou coupé = teinte à 96 %. Voile des fenêtres 25 %. `renderToHardwareTextureAndroid` retiré (incompatible avec le flou) : fluidité à revérifier.
+
+- Pilules (2026-11-27) : SOUS le titre de l'app, 8 sous l'en-tête, comme l'ancienne pastille de mise à jour ; quand une carte est affichée, sous la carte. Les cartes restent tout en haut.

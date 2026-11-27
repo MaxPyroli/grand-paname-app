@@ -1,10 +1,11 @@
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { LayoutChangeEvent, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
+import { ActivityIndicator, LayoutChangeEvent, StyleSheet, Text, TouchableOpacity, Vibration, View } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay, runOnJS, Easing } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, ThemeContext } from './theme';
+import { CoucheSurface, useSurfaceVerre, useTexteSurAccent } from './surface';
 import { hexToRgba } from './Fade';
 import { Icon, IconName } from './Icon';
 import { PANEL_CARD_RADIUS } from './PanelLayout';
@@ -13,8 +14,7 @@ import { Element, Emplacement, Notif, TypeNotif, fermerNotif, lireFile, majEleme
 
 // Affichage des notifications internes (voir `notifs.ts`). Posé une seule fois, au-dessus de tout, dans `App.tsx`.
 // Animations et geste exécutés ENTIÈREMENT côté interface native (Reanimated + gesture-handler) : le travail JavaScript
-// du moment (réception d'une alerte, mémorisation…) ne les saccade pas. La carte est dessinée une fois en image puis
-// seulement déplacée (`renderToHardwareTextureAndroid`) : le halo flou n'est pas recalculé à chaque image.
+// du moment (réception d'une alerte, mémorisation…) ne les saccade pas. Surface en verre dépoli (voir surface.tsx).
 const COULEURS: Record<TypeNotif, string | null> = {
   info: null, succes: '#2E9E5B', attention: '#F39C12', erreur: '#E5493E', perturbe: '#F39C12', interrompu: '#E5493E',
 };
@@ -29,13 +29,21 @@ const CARTES_VISIBLES = 3;
 const DECALAGE_PILE = 12;
 const REDUCTION_PILE = 0.05;
 
-export function NotifCentre() {
+// `basTitre` : bas de l'en-tête « Grand Paname » (depuis le haut de l'écran) ; les pilules se placent dessous.
+export function NotifCentre({ basTitre }: { basTitre: number }) {
   const insets = useSafeAreaInsets();
+  // UN SEUL flou natif pour tout le moteur (limite de la carte) : la carte de devant ; la pilule seulement s'il n'y a
+  // aucune carte à l'écran.
+  const [desCartes, setDesCartes] = useState(() => lireFile('cartes').length > 0);
+  useEffect(() => suivreNotifs(() => setDesCartes(lireFile('cartes').length > 0)), []);
   // Une colonne en haut de l'écran : la carte, puis la pilule dessous (ou à sa place s'il n'y a pas de carte).
   return (
     <View pointerEvents="box-none" style={[styles.conteneur, { top: insets.top + 8 - MARGE_HALO }]}>
-      <Place emplacement="cartes" />
-      <Place emplacement="pilules" />
+      <Place emplacement="cartes" flouPermis />
+      {/* Sous le titre, comme l'ancienne pastille de mise à jour ; avec une carte à l'écran, sous la carte (plus basse). */}
+      <View pointerEvents="box-none" style={{ width: '100%', alignItems: 'center', marginTop: desCartes || basTitre <= 0 ? 0 : Math.max(0, basTitre - insets.top) }}>
+        <Place emplacement="pilules" flouPermis={!desCartes} />
+      </View>
     </View>
   );
 }
@@ -44,7 +52,7 @@ export function NotifCentre() {
 // carte part, celle du dessous remonte et se dévoile ; quand une plus urgente arrive, elle pousse les autres vers le fond.
 // Les pilules se suivent une à une. TOUTES les vues sont posées au même endroit et ne changent jamais de mode de
 // disposition ni d'ordre : seules des valeurs animées bougent (position, taille, hauteur), sinon l'animation saute.
-function Place({ emplacement }: { emplacement: Emplacement }) {
+function Place({ emplacement, flouPermis }: { emplacement: Emplacement; flouPermis: boolean }) {
   const max = emplacement === 'cartes' ? CARTES_VISIBLES : 1;
   const [elements, setElements] = useState<Element[]>(() => majElements([], lireFile(emplacement), max));
   useEffect(() => suivreNotifs(() => setElements(avant => majElements(avant, lireFile(emplacement), max))), [emplacement, max]);
@@ -63,18 +71,24 @@ function Place({ emplacement }: { emplacement: Emplacement }) {
       style={[styles.place, { height: hauteurTete + 2 * MARGE_HALO, marginBottom: 8 - 2 * MARGE_HALO + attente * DECALAGE_PILE }]}
     >
       {elements.map(e => (
-        <Carte key={e.n.cle} n={e.n} rang={e.rang} sortante={e.sortante} hauteurTete={hauteurTete} onMesure={mesurer} onSortie={sortieFinie} />
+        <Carte
+          key={e.n.cle} n={e.n} rang={e.rang} sortante={e.sortante} hauteurTete={hauteurTete} onMesure={mesurer} onSortie={sortieFinie}
+          // Le flou va à la carte de devant ; pendant qu'une autre sort, il reste sur celle qui arrive.
+          avecFlou={flouPermis && e.n.cle === tete.n.cle}
+        />
       ))}
     </View>
   );
 }
 
-function Carte({ n, rang, sortante, hauteurTete, onMesure, onSortie }: {
-  n: Notif; rang: number; sortante: boolean; hauteurTete: number;
+function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }: {
+  n: Notif; rang: number; sortante: boolean; hauteurTete: number; avecFlou: boolean;
   onMesure: (cle: string, h: number) => void; onSortie: (cle: string) => void;
 }) {
   const c = useColors();
-  const { isDark, oled } = useContext(ThemeContext);
+  const { isDark } = useContext(ThemeContext);
+  const surface = useSurfaceVerre(avecFlou);
+  const texteSurAccent = useTexteSurAccent();
   const sens = -1;   // tout arrive et repart par le haut
   const devant = rang === 0 && !sortante;
   // Une carte qui arrive directement devant glisse depuis le haut ; une carte qui arrive en attente apparaît à sa place.
@@ -155,9 +169,8 @@ function Carte({ n, rang, sortante, hauteurTete, onMesure, onSortie }: {
 
   const accent = COULEURS[n.type] ?? c.accent;
   const alerte = n.type === 'perturbe' || n.type === 'interrompu';
-  // La carte suit le thème : presque noire en OLED, un cran plus claire que les écrans en sombre.
-  const fond = isDark ? (oled ? '#0d0d0d' : '#0b2550') : c.bgCard;
-  const bordure = alerte ? hexToRgba(accent, 0.55) : c.borderCard;
+  const fond = surface.fond;
+  const bordure = alerte ? hexToRgba(accent, 0.55) : surface.bordure;
   const halo = alerte
     ? [{ offsetX: 0, offsetY: 2, blurRadius: 18, spreadDistance: 1, color: hexToRgba(accent, isDark ? 0.38 : 0.28) }]
     : [{ offsetX: 0, offsetY: 3, blurRadius: 12, spreadDistance: 0, color: 'rgba(0,0,0,0.22)' }];
@@ -170,10 +183,11 @@ function Carte({ n, rang, sortante, hauteurTete, onMesure, onSortie }: {
       <TouchableOpacity
         activeOpacity={n.onPress ? 0.8 : 1}
         onPress={() => { n.onPress?.(); fermer(); }}
-        style={[styles.pilule, { backgroundColor: fond, borderColor: bordure, boxShadow: halo }]}
+        style={[styles.pilule, { borderColor: bordure, boxShadow: halo }]}
         accessibilityRole="alert"
       >
-        <Icon name={n.icone ?? ICONES[n.type]} size={16} color={accent} />
+        <View pointerEvents="none" style={styles.verrePilule}><CoucheSurface fond={fond} flou={surface.flou} /></View>
+        {n.chargement ? <ActivityIndicator size="small" color={accent} /> : <Icon name={n.icone ?? ICONES[n.type]} size={16} color={accent} />}
         <Text style={[styles.piluleTexte, { color: c.text }]} numberOfLines={2}>{n.titre}</Text>
       </TouchableOpacity>
       </View>
@@ -190,7 +204,7 @@ function Carte({ n, rang, sortante, hauteurTete, onMesure, onSortie }: {
                 <Text style={[styles.repliTexte, { color: c.text }]} numberOfLines={1}>{n.ligne.code}</Text>
               </View>
             )}
-            <View style={[styles.point, { backgroundColor: accent, borderColor: fond }]} />
+            <View style={[styles.point, { backgroundColor: accent, borderColor: bordure }]} />
           </View>
         ) : (
           <View style={[styles.puce, { backgroundColor: hexToRgba(accent, 0.16) }]}>
@@ -205,7 +219,8 @@ function Carte({ n, rang, sortante, hauteurTete, onMesure, onSortie }: {
     );
     // La boîte (fond, bordure, halo) a une hauteur animée ; le contenu, lui, garde sa hauteur naturelle (mesurée).
     const boite = (
-      <Animated.View style={[styles.boite, { backgroundColor: fond, borderColor: bordure, boxShadow: halo }, styleHauteur]}>
+      <Animated.View style={[styles.boite, { borderColor: bordure, boxShadow: halo }, styleHauteur]}>
+        <CoucheSurface fond={fond} flou={surface.flou} />
         <View onLayout={surMesure} style={styles.interieur}>
           <Animated.View style={styleContenu}>
             <View style={styles.rangee}>
@@ -222,7 +237,7 @@ function Carte({ n, rang, sortante, hauteurTete, onMesure, onSortie }: {
                     onPress={() => { fermer(); a.onPress?.(); }}
                     style={[styles.bouton, a.principal && { backgroundColor: c.accent }]}
                   >
-                    <Text style={[styles.boutonTexte, { color: a.principal ? (isDark ? '#000000' : '#ffffff') : c.textSub }]}>{a.libelle}</Text>
+                    <Text style={[styles.boutonTexte, { color: a.principal ? texteSurAccent : c.textSub }]}>{a.libelle}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -248,7 +263,6 @@ function Carte({ n, rang, sortante, hauteurTete, onMesure, onSortie }: {
     // La marge autour de la carte (pour le halo) ne capte aucun toucher : le geste est posé sur la carte seule.
     <Animated.View
       pointerEvents={devant ? 'box-none' : 'none'}
-      renderToHardwareTextureAndroid
       style={[styles.mobile, n.forme === 'pilule' && styles.centree, { zIndex: sortante ? 20 : 10 - rang }, style]}
     >
       <GestureDetector gesture={geste}>
@@ -279,6 +293,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 12 },
   bouton: { height: 32, borderRadius: 16, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
   boutonTexte: { fontSize: 13, fontFamily: 'GrandParis-Medium' },
+  verrePilule: { ...StyleSheet.absoluteFill, borderRadius: 15, overflow: 'hidden' },
   pilule: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
   piluleTexte: { fontSize: 13, fontFamily: 'GrandParis-Medium', flexShrink: 1 },
 });

@@ -36,7 +36,8 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS, useFrameCallback } from 'react-native-reanimated';
 import { registerForPushNotificationsAsync, ecouterToucherAlerteTrafic, ecouterAlerteTraficRecue, type AlerteRecue } from './notifications';
 import { NotifCentre } from './NotifCentre';
-import { notifier, notifDAlerte } from './notifs';
+import { BlurTargetContext, CoucheSurface, autoriserFlouSurface, useSurfaceVerre, useTexteSurAccent } from './surface';
+import { notifier, fermerNotif, notifDAlerte } from './notifs';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
 import { useGeometrieBarres } from './responsive';
 import { PanelLayout, panelCardStyle, panelChipStyle, PANEL_CARD_RADIUS } from './PanelLayout';
@@ -264,6 +265,7 @@ const TESTS_NOTIFS: { libelle: string; lancer: () => void }[] = (() => {
     { libelle: 'Pilule succès', lancer: succes },
     { libelle: 'Pilule attention', lancer: attention },
     { libelle: 'Pilule erreur', lancer: erreur },
+    { libelle: 'Téléchargement', lancer: () => { notifier({ cle: 'test-telechargement', titre: 'Mise à jour...', chargement: true, duree: null }); setTimeout(() => fermerNotif('test-telechargement'), 6000); } },
     { libelle: 'Avec boutons', lancer: choix },
     // File d'attente : trois cartes s'empilent, puis l'interruption passe devant et pousse les autres au fond.
     { libelle: "File d'attente", lancer: () => { perturbe(); maj(); bus(); setTimeout(interrompu, 1500); } },
@@ -1265,16 +1267,6 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
   const logoSpinDeg = logoSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
   // Pilule "mise à jour en cours" qui glisse depuis le haut, sous le header
-  const [updatePillMounted, setUpdatePillMounted] = useState(false);
-  const updatePillAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (updateDownloadingBg) {
-      setUpdatePillMounted(true);
-      Animated.spring(updatePillAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 12 }).start();
-    } else if (updatePillMounted) {
-      Animated.timing(updatePillAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => setUpdatePillMounted(false));
-    }
-  }, [updateDownloadingBg]);
 
   const blurCarteRef = useContext(BlurCarteContext);
   const origineCarteRef = useRef<View>(null);
@@ -1661,24 +1653,6 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
             {debugInfo.lat.toFixed(4)}, {debugInfo.lon.toFixed(4)}
           </Text>
         </View>
-      )}
-
-      {/* Pilule "mise à jour en cours" qui glisse depuis le haut, sous le header */}
-      {updatePillMounted && (
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: 'absolute', top: insets.top + 12 + headerBarHeight + 8, left: 0, right: 0,
-            alignItems: 'center', zIndex: 9,
-            opacity: updatePillAnim,
-          }}
-        >
-          <View style={[styles.updateBgPill, { backgroundColor: teinteVerre(isDark, c, true, 'pastilles'), ...bordureVerre(isDark, c) }]}>
-            <CoucheVerre zone="pastilles" idVerre="pastille_maj" rayon={20} fondu masque={!updateDownloadingBg} />
-            <ActivityIndicator size="small" color={c.accent} />
-            <Text style={{ fontFamily: 'GrandParis-Medium', fontSize: 12, color: c.text }}>Mise à jour...</Text>
-          </View>
-        </Animated.View>
       )}
 
       {/* Header pill flottant */}
@@ -2105,7 +2079,6 @@ function useModalCardAnim(visible: boolean, sansRebond = false) {
 // racine (voir App(), qui enveloppe tout le contenu visible derrière les
 // modales dans un <BlurTargetView>) jusqu'à ModalCard, sans la faire
 // traverser WhatsNewModal/OnboardingTour/UpdateModal en props.
-const BlurTargetContext = createContext<React.RefObject<View | null> | null>(null);
 
 // Pas de <Modal> ici : sur Android, une Modal s'ouvre dans une fenêtre native
 // séparée de l'activité principale — un BlurView posé dedans ne peut flouter
@@ -2126,9 +2099,8 @@ function ModalBackdrop({ mounted, anim, onRequestClose, fullBleed, children }: {
   if (!mounted) return null;
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex: 20000, elevation: 20 }]}>
-      {/* Léger voile (pas de flou) juste pour la lisibilité — le fond de
-          l'app reste net. */}
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.15)', opacity: anim }]} />
+      {/* Voile léger : la fenêtre en verre reste lisible et l'app se devine derrière. */}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.25)', opacity: anim }]} />
       {/* Le tap en dehors de la carte ne ferme la modale que si onRequestClose
           est fourni (WhatsNew, mise à jour) — sinon (visite guidée) on bloque
           quand même les taps vers ce qu'il y a derrière, sans rien fermer. */}
@@ -2163,8 +2135,7 @@ function ModalCard({ anim, style, containerStyle, pulseKey, children }: {
   pulseKey?: string | number;
   children: React.ReactNode;
 }) {
-  const { isDark } = useContext(ThemeContext);
-  const blurTargetRef = useContext(BlurTargetContext);
+  const surface = useSurfaceVerre(true);
   const pulse = useRef(new Animated.Value(1)).current;
   const firstRender = useRef(true);
   useEffect(() => {
@@ -2176,15 +2147,17 @@ function ModalCard({ anim, style, containerStyle, pulseKey, children }: {
 
   return (
     <Animated.View style={[{
-      width: '100%', maxWidth: 420, borderRadius: 18,
+      // Même verre que les notifications internes (voir surface.tsx), avec une ombre plus ample : une fenêtre pèse plus.
+      width: '100%', maxWidth: 420, borderRadius: PANEL_CARD_RADIUS,
       overflow: 'hidden',
-      borderWidth: 1.5, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.55)',
+      borderWidth: 1, borderColor: surface.bordure,
+      boxShadow: [{ offsetX: 0, offsetY: 8, blurRadius: 28, spreadDistance: 0, color: 'rgba(0,0,0,0.35)' }],
       transform: [
         { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) },
         { scale: pulse },
       ],
     }, containerStyle]}>
-      <BlurView intensity={45} tint={isDark ? 'dark' : 'light'} blurMethod="dimezisBlurView" blurTarget={blurTargetRef ?? undefined} style={StyleSheet.absoluteFill} />
+      <CoucheSurface fond={surface.fond} flou={surface.flou} />
       <View style={[{ padding: 22, gap: 14 }, style]}>
         {children}
       </View>
@@ -2208,7 +2181,7 @@ function ModalButton({ onPress, backgroundColor, style, children }: {
     <TouchableOpacity
       onPress={onPress}
       style={[{
-        backgroundColor, borderRadius: 30, paddingVertical: 14, minHeight: 48,
+        backgroundColor, borderRadius: 24, paddingVertical: 14, minHeight: 48,
         alignItems: 'center', justifyContent: 'center',
       }, style]}
     >
@@ -2220,6 +2193,7 @@ function ModalButton({ onPress, backgroundColor, style, children }: {
 // ─── MODALE "QUOI DE NEUF" ───────────────────────────────────────────────────
 function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean; onClose: () => void; onOpenChangelog: () => void }) {
   const c = useColors();
+  const texteSurAccent = useTexteSurAccent();
   const { anim, mounted } = useModalCardAnim(visible);
   // Toujours la dernière entrée de la liste (WHATSNEW est trié du plus
   // récent au plus ancien, comme CHANGELOGS) — pas un match exact sur
@@ -2237,7 +2211,7 @@ function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean
   if (!mounted || !entry) return null;
 
   const Feature = ({ emoji, title, description }: { emoji: string; title: string; description: string }) => (
-    <View style={{ borderRadius: 10, borderWidth: 1, borderColor: c.accent, backgroundColor: c.bgCard, padding: 12, gap: 4 }}>
+    <View style={{ borderRadius: 15, borderWidth: 1, borderColor: c.borderCard, backgroundColor: hexToRgba(c.text, 0.05), padding: 12, gap: 4 }}>
       <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 14, color: c.text }}>{emoji}  {title}</Text>
       <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 13, color: c.text, lineHeight: 19 }}>{description}</Text>
     </View>
@@ -2248,8 +2222,8 @@ function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean
       <ModalCard anim={anim} style={{ padding: 24, gap: 16 }}>
         <View style={{ gap: 8 }}>
           <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>✨ Quoi de neuf ?</Text>
-          <View style={{ backgroundColor: c.accent, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' }}>
-            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 11, color: '#fff', letterSpacing: 0.5 }}>v{entry.version}</Text>
+          <View style={{ backgroundColor: hexToRgba(c.accent, 0.16), borderRadius: 16, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' }}>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 11, color: c.accent, letterSpacing: 0.5 }}>v{entry.version}</Text>
           </View>
         </View>
 
@@ -2269,7 +2243,7 @@ function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean
         )}
 
         <ModalButton onPress={handleClose} backgroundColor={c.accent}>
-          <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>C'est parti !</Text>
+          <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: texteSurAccent }}>C'est parti !</Text>
         </ModalButton>
       </ModalCard>
     </ModalBackdrop>
@@ -2412,6 +2386,7 @@ function UpdateModal({ visible, mode, onAccept, onDismiss }: {
   onDismiss: () => void;
 }) {
   const c = useColors();
+  const texteSurAccent = useTexteSurAccent();
   const { anim, mounted } = useModalCardAnim(visible);
   // `displayedMode` ne se met à jour que quand la modale est (re)ouverte —
   // si on suivait `mode` directement, un changement de mode simultané à la
@@ -2426,9 +2401,14 @@ function UpdateModal({ visible, mode, onAccept, onDismiss }: {
   return (
     <ModalBackdrop mounted={mounted} anim={anim}>
       <ModalCard anim={anim} style={{ padding: 24, gap: 16 }}>
-        <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 20, color: c.text }}>
-          {ready ? '✅ Mise à jour prête' : '⬆️ Mise à jour disponible'}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={{ width: 40, height: 40, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: hexToRgba(ready ? '#2E9E5B' : c.accent, 0.16) }}>
+            <Icon name={ready ? 'valider' : 'notifications'} size={20} color={ready ? '#2E9E5B' : c.accent} />
+          </View>
+          <Text style={{ flex: 1, fontFamily: 'GrandParis-Bold', fontSize: 18, color: c.text }}>
+            {ready ? 'Mise à jour prête' : 'Mise à jour disponible'}
+          </Text>
+        </View>
 
         <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 13, color: c.text, lineHeight: 19 }}>
           {ready
@@ -2437,11 +2417,11 @@ function UpdateModal({ visible, mode, onAccept, onDismiss }: {
         </Text>
 
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          <ModalButton onPress={onDismiss} backgroundColor="transparent" style={{ flex: 1, borderWidth: 1, borderColor: c.borderCard }}>
+          <ModalButton onPress={onDismiss} backgroundColor="transparent" style={{ flex: 1 }}>
             <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: c.textSub }}>Plus tard</Text>
           </ModalButton>
           <ModalButton onPress={onAccept} backgroundColor={c.accent} style={{ flex: 1 }}>
-            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>{ready ? 'Redémarrer' : 'Mettre à jour'}</Text>
+            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: texteSurAccent }}>{ready ? 'Redémarrer' : 'Mettre à jour'}</Text>
           </ModalButton>
         </View>
       </ModalCard>
@@ -2666,6 +2646,7 @@ function AppInner() {
     return () => clearTimeout(t);
   }, [fenetreFlou]);
   flouNatifActif = !flouSuspendu && !fenetreFlou;
+  autoriserFlouSurface(flouGlobalActif);
   const [updateReady, setUpdateReady] = useState(false);
   // true dès qu'une vraie mise à jour (pas le test dev) a été détectée ou
   // téléchargée, et reste vrai même après avoir tapé "Plus tard" — permet de
@@ -2673,6 +2654,11 @@ function AppInner() {
   // qu'elle se represente au prochain lancement de l'app.
   const [hasPendingUpdate, setHasPendingUpdate] = useState(false);
   const [updateDownloadingBg, setUpdateDownloadingBg] = useState(false);
+  // Téléchargement d'une mise à jour en arrière-plan : pilule du moteur, avec un rond qui tourne, tant qu'il dure.
+  useEffect(() => {
+    if (updateDownloadingBg) notifier({ cle: 'maj-telechargement', titre: 'Mise à jour...', chargement: true, duree: null });
+    else fermerNotif('maj-telechargement');
+  }, [updateDownloadingBg]);
   const [fakeUpdateTest, setFakeUpdateTest] = useState(false);
   const fakeUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (fakeUpdateTimerRef.current) clearTimeout(fakeUpdateTimerRef.current); }, []);
@@ -3745,8 +3731,8 @@ function AppInner() {
         onAccept={handleUpdateAccept}
         onDismiss={handleUpdateDismiss}
       />
-      {/* Notifications internes de l'app (voir notifs.ts) : en haut, au-dessus de tout. */}
-      <NotifCentre />
+      {/* Notifications internes de l'app (voir notifs.ts) : en haut, au-dessus de tout ; les pilules sous le titre. */}
+      <NotifCentre basTitre={headerHeight} />
 
       </BlurCarteContext.Provider>
       </BlurTargetContext.Provider>
@@ -3793,12 +3779,6 @@ const styles = StyleSheet.create({
   },
 
   // Pilule "mise à jour en cours" (sous le header)
-  updateBgPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderRadius: 20, paddingVertical: 6, paddingHorizontal: 12, overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0, shadowRadius: 8, elevation: 0,
-  },
 
   // Barre de recherche
   bottomSearchBar: {

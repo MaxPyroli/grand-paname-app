@@ -59,3 +59,9 @@ test('notifs : la liste dessinée garde son ordre, seuls les rangs bougent', () 
   el = majElements(el, [n('urgent'), b, c, d], 3);   // une urgente pousse la pile, « d » est caché
   assert.deepEqual(el.map(e => [e.n.cle, e.rang, e.sortante]), [['a', 0, true], ['b', 1, false], ['c', 2, false], ['urgent', 0, false]]);
 });
+
+test('notifs : une pilule persistante (téléchargement) laisse passer les messages passagers, puis revient', () => {
+  let f = inserer([], preparer({ cle: 'maj', titre: 'Mise à jour...', duree: null, chargement: true }));
+  f = inserer(f, preparer({ cle: 'ok', titre: 'Cache vidé' }));
+  assert.deepEqual(cles(f), ['ok', 'maj']);
+});

@@ -14,10 +14,11 @@ export const CHANGELOGS: ChangelogEntry[] = [
     version: '3.4.x',
     date: 'En préparation',
     content: `**🛠️ Améliorations et Corrections**
-* Info trafic : les bus que tu suis (cloche) s'affichent en permanence dans la rubrique Bus, avec leur état, au-dessus de la recherche.
-* Info trafic : la date de mise à jour des perturbations est affichée de façon plus discrète.
-* Alertes trafic : consulter une ligne retire ses notifications de ton téléphone.
+* Les bus que tu suis (cloche) dans l'info trafic s'affichent en permanence dans la rubrique Bus, avec leur état, au-dessus de la recherche.
+* La date de mise à jour des perturbations est affichée de façon plus discrète.
+* Consulter la perturbation d'une ligne retire ses notifications de ton téléphone.
 * Les messages de l'app (alertes trafic, confirmations) ont un nouveau style commun qui suit ton thème, avec des animations plus fluides. Pour une alerte : symbole de la ligne, léger halo à sa couleur et vibration.
+* Les fenêtres de l'app (Quoi de neuf, mise à jour, visite guidée) reprennent le même style que les notifications.
 * Correction d'un bug lors de l'ouverture d'une notification d'info trafic d'une ligne de bus qui n'affichait pas la perturbation.
 * Correction d'un bug où la mise à jour intégrée à l'app s'arrêtait sans rien afficher en cas d'échec : la fiche de l'app sur le Play Store s'ouvre maintenant directement.
 * Correction d'un bug où la ligne ouverte depuis une alerte trafic restait cachée derrière le volet des horaires.

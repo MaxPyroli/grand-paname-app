@@ -28,6 +28,7 @@ export type DemandeNotif = {
   actions?: ActionNotif[];   // choix : les boutons
   duree?: number | null;     // ms ; null = reste jusqu'à ce qu'on la ferme
   vibration?: boolean;
+  chargement?: boolean;       // pilule : un rond qui tourne à la place de l'icône (tâche en cours)
   cle?: string;              // même clé = remplace
 };
 export type Notif = DemandeNotif & { cle: string; forme: FormeNotif; type: TypeNotif; duree: number | null; version: number };
@@ -44,6 +45,8 @@ export const FILE_MAX = 5;
 export function inserer(file: Notif[], n: Notif): Notif[] {
   const meme = file.findIndex(x => x.cle === n.cle);
   if (meme >= 0) return file.map((x, i) => (i === meme ? n : x));
+  // Une pilule qui reste (tâche en cours) ne bloque pas les messages passagers : ils passent devant, elle revient ensuite.
+  if (file.length > 0 && file[0].forme === 'pilule' && file[0].duree === null && n.duree !== null) return limiter([n, ...file]);
   // Plus prioritaire que celle affichée (une interruption, par exemple) : elle passe devant, l'autre reviendra après.
   if (file.length > 0 && PRIORITE[n.type] > PRIORITE[file[0].type]) return limiter([n, ...file]);
   return limiter([...file, n]);
