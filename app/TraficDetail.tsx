@@ -21,6 +21,9 @@ const LIBELLE_TYPE: Record<TypePerturbation, string> = { interrompu: 'Trafic int
 const COULEUR_TERMINEE = '#2E9E5B';
 const LIBELLE_CAUSE: Record<CausePerturbation, string> = { travaux: 'Travaux', perturbation: 'Incident', information: 'Info' };
 
+const CARTES_IMMEDIATES = 3;      // de quoi remplir l'écran : le reste attend la fin du glissement
+const DUREE_APPARITION_MS = 130;
+
 type Mot = { texte: string; puce: 'station' | 'quand' | null; espace: boolean };
 
 // Texte d'une perturbation avec un contour arrondi autour des noms de stations, des dates et des horaires.
@@ -177,21 +180,22 @@ export default function TraficDetail({ ligne, alerte = null, verre, pret = true 
   };
   // Pas encore de données : le squelette est visible dès l'ouverture (l'écran glisse avec ses cases grises), puis il
   // s'efface en fondu pendant que le contenu apparaît (pas de blanc, pas de bascule sèche). Données déjà en mémoire :
-  // pas de squelette. Le contenu part toujours de transparent (160-200 ms), même depuis la mémoire : si le téléphone
-  // réutilise une vue de la ligne précédente, son ancien contenu n'est jamais visible.
+  // pas de squelette, les premières cartes arrivent avec le glissement. Le contenu part toujours de transparent, même
+  // depuis la mémoire : si le téléphone réutilise une vue de la ligne précédente, son ancien contenu n'est jamais visible.
   const apparition = useRef(new Animated.Value(0)).current;
-  // `pret` : l'écran a fini de glisser. Le contenu (beaucoup de petites vues) n'est monté qu'à ce moment-là, sinon son
-  // montage fait saccader le glissement ; le squelette occupe la place pendant ce temps.
-  const [squeletteRetire, setSqueletteRetire] = useState(false);
-  // Une fois le contenu monté, il le reste tant que cette vue existe : si on rouvre la même ligne pendant que la vue se
-  // referme (elle n'est pas démontée), `pret` repasse à faux ; sans cette mémoire le contenu disparaissait alors que le
-  // squelette était déjà retiré → écran vide, sans animation de chargement.
+  const [squeletteRetire, setSqueletteRetire] = useState(() => detail !== null);
+  // `pret` : l'écran a fini de glisser. Le contenu complet (beaucoup de petites vues) n'est monté qu'à ce moment-là,
+  // sinon son montage fait saccader le glissement. AVANT, on ne monte que le visible : les premières cartes de
+  // « En cours » (`CARTES_IMMEDIATES`), dès que les données sont là, sans attendre la fin du mouvement.
+  // Une fois complet, il le reste tant que cette vue existe : si on rouvre la même ligne pendant que la vue se referme
+  // (elle n'est pas démontée), `pret` repasse à faux.
   const [dejaPret, setDejaPret] = useState(pret);
   useEffect(() => { if (pret) setDejaPret(true); }, [pret]);
-  const contenuPret = (pret || dejaPret) && detail !== null;
+  const complet = pret || dejaPret;
+  const contenuPret = detail !== null;
   useEffect(() => {
     if (!contenuPret) return;
-    Animated.timing(apparition, { toValue: 1, duration: 220, useNativeDriver: true })
+    Animated.timing(apparition, { toValue: 1, duration: DUREE_APPARITION_MS, useNativeDriver: true })
       .start(() => setSqueletteRetire(true));
   }, [contenuPret, apparition]);
   // Perturbations affichées = vues : les notifications de cette ligne n'ont plus lieu d'être.
@@ -324,7 +328,7 @@ export default function TraficDetail({ ligne, alerte = null, verre, pret = true 
                     opacity: position.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
                     transform: [{ translateX: position.interpolate({ inputRange: [0, 1], outputRange: [0, -28] }) }],
                   }]}
-                >{liste(elementsEnCours, { titre: 'Rien en cours', texte: 'Aucune perturbation en cours sur cette ligne.' })}</Animated.View>
+                >{liste(complet ? elementsEnCours : elementsEnCours.slice(0, CARTES_IMMEDIATES), { titre: 'Rien en cours', texte: 'Aucune perturbation en cours sur cette ligne.' })}</Animated.View>
                 <Animated.View
                   needsOffscreenAlphaCompositing
                   pointerEvents={onglet === 'plusTard' ? 'auto' : 'none'}
@@ -332,7 +336,7 @@ export default function TraficDetail({ ligne, alerte = null, verre, pret = true 
                     opacity: position,
                     transform: [{ translateX: position.interpolate({ inputRange: [0, 1], outputRange: [28, 0] }) }],
                   }]}
-                >{liste(elementsPlusTard, { titre: "Rien d'annoncé", texte: 'Aucune perturbation annoncée prochainement sur cette ligne.' })}</Animated.View>
+                >{(complet || onglet === 'plusTard') && liste(elementsPlusTard, { titre: "Rien d'annoncé", texte: 'Aucune perturbation annoncée prochainement sur cette ligne.' })}</Animated.View>
               </View>
             ) : null}
             </>

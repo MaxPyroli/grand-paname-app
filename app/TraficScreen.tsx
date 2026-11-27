@@ -194,7 +194,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId,
     setVueOuverte(v);
     Animated.spring(ouverture, { toValue: 1, damping: 15, stiffness: 120, mass: 0.5, useNativeDriver: true })
       .start(({ finished }) => { if (finished) setVueStable(true); });
-    // Le contenu se monte sans attendre la toute fin du ressort (qui oscille encore ~0,5 s) : dès 320 ms.
+    // Le contenu COMPLET se monte sans attendre la toute fin du ressort (qui oscille encore ~0,5 s) : dès 320 ms.
     const numero = ++numeroOuverture.current;
     setTimeout(() => { if (numeroOuverture.current === numero) setVueStable(true); }, 320);
   }, [ouverture]);
