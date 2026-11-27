@@ -88,6 +88,7 @@ Tout volet latéral se construit avec `PanelLayout` (`app/PanelLayout.tsx`) : en
 - Le volet des horaires (bottom sheet) descend sous la barre de nav : la barre y a un flou natif dont la cible est le volet seul.
 
 ## 5 quater. Pages plein écran (Paramètres)
+n- Paramètres (décisions du 27/11, voir docs/maquettes/parametres.html ; pas encore codé) : puces d’icône par famille — bleu : notifications et affichage ; or : découverte (tutoriel, historique) ; vert : aide (bug, contact) ; orange : avancé ; le rouge reste réservé au trafic. Icônes nouvelles dans le style existant (trait épais et point « station »). Textes sans tutoiement pour les avertissements. Pas de titres de section. Les réglages doivent être construits avec des composants communs (ajouter un réglage = ajouter une ligne).
 
 - Fond opaque (`bg`) ; glisse depuis le bas avec le ressort commun (raideur 120, amortissement 15, masse 0,5), se ferme en 260 ms.
 - En-tête = `PanelHeader` : icône 26 px accent, titre 24 px, action `PanelPillAction` « Fermer » à droite ; pas de ligne de séparation dessous.
@@ -175,6 +176,7 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 - **Tiroirs en paysage** : 340 dp max, collés à leur bord, montent jusqu'en haut de l'écran ; celui de droite (Trafic) descend aussi jusqu'en bas (rien dessous), celui de gauche (Favoris) s'arrête au-dessus de la barre de navigation. L'en-tête (à gauche) ou la bulle des réglages (à droite) s'efface quand le tiroir de son côté est ouvert.
 - Reste à harmoniser : Paramètres et fenêtres modales en paysage ; transition de la rotation.
 - Rotation et verre dépoli (27/11) : le flou doit être là dès la première image de la nouvelle orientation. La carte le replace elle-même d’après les positions mémorisées ; pas de masquage ni de fondu, sauf pour une surface jamais vue dans cette orientation, qui apparaît en fondu doux (260 ms, ralenti en fin).
+- Recherche de bus (27/11) : la barre part de l’endroit touché et monte avec le clavier ; jamais de saut. Titre et résultats en fondu.
 - Flou d’une carte qui remonte dans la pile (27/11) : il arrive en fondu PENDANT que la carte remonte (20 ms puis 260 ms), jamais d’un coup.
 - Balayage d’une notification interne (27/11) : au lâcher, la carte continue immédiatement à la vitesse du doigt (comme les volets) ; aucun arrêt, aucun redémarrage de l’animation.
 - Alerte trafic app ouverte (27/11, remplace la copie rangée dans le volet) : uniquement la notification interne, rien côté téléphone.

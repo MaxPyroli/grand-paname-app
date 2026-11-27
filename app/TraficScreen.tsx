@@ -376,6 +376,20 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
   // Clavier : le volet n'est pas redimensionné par Android, le clavier le recouvre. On mesure de combien il recouvre la zone de la
   // liste ; le mode recherche de bus s'en sert pour garder sa barre de saisie AU-DESSUS du clavier.
   const [basClavier, setBasClavier] = useState(0);
+  const [departBarre, setDepartBarre] = useState(16);
+  const clavierConnu = useRef<Record<string, number>>({});
+  useEffect(() => {
+    AsyncStorage.getItem('@gp_clavier_bus').then(v => { if (v) clavierConnu.current = { ...JSON.parse(v), ...clavierConnu.current }; }).catch(() => {});
+  }, []);
+  const largeurEcran = () => String(Math.round(Dimensions.get('window').width));
+  const ouvrirRechercheBus = useCallback((basBouton: number) => {
+    const conteneur: any = defilement.current;
+    if (!conteneur?.measureInWindow) { setDepartBarre(16); setRechercheOuverte(true); return; }
+    conteneur.measureInWindow((_x: number, y: number, _w: number, h: number) => {
+      setDepartBarre(Math.max(16, Math.round(y + h - basBouton)));
+      setRechercheOuverte(true);
+    });
+  }, []);
   useEffect(() => {
     const evtAffiche = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const evtCache = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -383,7 +397,12 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
       // `screenY` = haut du clavier en coordonnées d'écran (fiable avec la barre de gestes) ; à défaut, hauteur d'écran − hauteur du clavier.
       const hautClavier = (e.endCoordinates as any).screenY ?? (Dimensions.get('screen').height - e.endCoordinates.height);
       (defilement.current as any)?.measureInWindow?.((_x: number, y: number, _w: number, h: number) => {
-        setBasClavier(Math.max(0, Math.round(y + h - hautClavier)) + 12);
+        const recouvert = Math.max(0, Math.round(y + h - hautClavier)) + 12;
+        setBasClavier(recouvert);
+        if (recouvert > 12 && clavierConnu.current[largeurEcran()] !== recouvert) {
+          clavierConnu.current = { ...clavierConnu.current, [largeurEcran()]: recouvert };
+          AsyncStorage.setItem('@gp_clavier_bus', JSON.stringify(clavierConnu.current)).catch(() => {});
+        }
       });
     });
     const b = Keyboard.addListener(evtCache, () => setBasClavier(0));
@@ -444,7 +463,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
             )}
           </View>
           {/* Faux champ : le toucher ouvre le mode recherche (titre « Bus » en haut, résultats défilants, barre en bas). */}
-          <BoutonRechercheBus onPress={() => setRechercheOuverte(true)} />
+          <BoutonRechercheBus onPress={ouvrirRechercheBus} />
         </ScrollView>
         </ListeFondue>
   ) : null, [lignesAffichees, busAffiches, verre, isDark, c, largeurGrille, ouvrirLigne, appuiSymbole]);
@@ -528,7 +547,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
       </View>
       {/* Mode recherche de bus : prend la place de la liste (celle-ci reste montée, invisible, pour garder sa position). */}
       {rechercheOuverte && (
-        <RechercheBus onOuvrir={ouvrirLigne} onFermer={() => setRechercheOuverte(false)} basClavier={basClavier} suivies={suivies} onBasculerBus={basculerBus} />
+        <RechercheBus onOuvrir={ouvrirLigne} onFermer={() => setRechercheOuverte(false)} basClavier={basClavier} depart={departBarre} prevu={clavierConnu.current[largeurEcran()] ?? 0} suivies={suivies} onBasculerBus={basculerBus} />
       )}
         </Animated.View>
         {vueMontee && (

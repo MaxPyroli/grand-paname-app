@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Keyboard, Animated, Easing } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import Reanimee, { useSharedValue, useAnimatedStyle, withTiming, Easing as CourbeUI } from 'react-native-reanimated';
 import { useColors } from './theme';
 import { hexToRgba } from './Fade';
 import { MODE_ICONS } from './modeIcons';
@@ -20,12 +21,16 @@ import { rechercherLignesBus, prechargerDetailLigne, LigneTrafic, EtatTrafic } f
 const LIBELLE_ETAT: Record<EtatTrafic, string> = { normal: 'Trafic normal', info: 'Information', travaux: 'Travaux en cours', perturbe: 'Trafic perturbé', interrompu: 'Trafic interrompu' };
 const COULEUR_ETAT: Record<EtatTrafic, string> = { normal: '#2ECC71', info: '#3C91DC', travaux: '#FFC400', perturbe: '#F39C12', interrompu: '#E5493E' };
 
-export function BoutonRechercheBus({ onPress }: { onPress: () => void }) {
+// `onPress` reçoit la position du bas du faux champ à l'écran : la vraie barre PART de là.
+export function BoutonRechercheBus({ onPress }: { onPress: (basEcran: number) => void }) {
   const c = useColors();
+  const cadre = useRef<View>(null);
   return (
-    <TouchableOpacity activeOpacity={0.7} onPress={onPress} style={[styles.champ, { backgroundColor: hexToRgba(c.text, 0.07), borderColor: c.borderCard }]}>
-      <Text style={[styles.saisie, { color: c.textSub }]}>Rechercher un bus (ex. 104, N32)</Text>
-    </TouchableOpacity>
+    <View ref={cadre} collapsable={false}>
+      <TouchableOpacity activeOpacity={0.7} onPress={() => cadre.current?.measureInWindow((_x, y, _w, h) => onPress(y + h))} style={[styles.champ, { backgroundColor: hexToRgba(c.text, 0.07), borderColor: c.borderCard }]}>
+        <Text style={[styles.saisie, { color: c.textSub }]}>Rechercher un bus (ex. 104, N32)</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -106,8 +111,17 @@ function Message({ children }: { children: React.ReactNode }) {
   return <Animated.Text style={[styles.info, { color: c.textSub, opacity: v }]}>{children}</Animated.Text>;
 }
 
+// Marge sous la barre sans clavier ; durées de son trajet (montée avec le clavier, puis ajustement).
+const MARGE_BASSE = 16;
+const HAUTEUR_BARRE = 40;
+const MONTEE = { duration: 300, easing: CourbeUI.out(CourbeUI.cubic) };
+const AJUSTEMENT = { duration: 180, easing: CourbeUI.out(CourbeUI.quad) };
+
 // `basClavier` : hauteur dont le clavier recouvre le bas de cette zone (0 sans clavier).
-export default function RechercheBus({ onOuvrir, onFermer, basClavier, suivies, onBasculerBus }: { onOuvrir: (l: LigneTrafic) => void; onFermer: () => void; basClavier: number; suivies: string[]; onBasculerBus: (l: LigneTrafic) => void }) {
+// `depart` : marge sous la barre à l'ouverture (là où était le faux champ). `prevu` : hauteur recouverte la dernière fois
+// (0 si inconnue). Android n'annonce le clavier qu'une fois monté : la barre monte donc vers la hauteur prévue sans
+// l'attendre, puis s'ajuste. Avant, elle sautait tout en bas puis au-dessus du clavier.
+export default function RechercheBus({ onOuvrir, onFermer, basClavier, depart, prevu, suivies, onBasculerBus }: { depart: number; prevu: number; onOuvrir: (l: LigneTrafic) => void; onFermer: () => void; basClavier: number; suivies: string[]; onBasculerBus: (l: LigneTrafic) => void }) {
   const c = useColors();
   const [texte, setTexte] = useState('');
   const [resultats, setResultats] = useState<LigneTrafic[] | null>(null);
@@ -115,6 +129,27 @@ export default function RechercheBus({ onOuvrir, onFermer, basClavier, suivies, 
   const [erreur, setErreur] = useState(false);
   const numero = useRef(0);
   const defilement = useRef<ScrollView>(null);
+
+  // La barre ne bouge que par une TRANSFORMATION (aucune remise en page à chaque image, qui saccadait). Seule la liste
+  // change de place, en une fois, quand la hauteur visée change.
+  const marge = useSharedValue(depart);
+  const visee = useRef(depart);
+  const [reserve, setReserve] = useState(prevu > 0 ? prevu : depart);
+  const clavierVu = useRef(false);
+  useEffect(() => {
+    if (basClavier > 0) clavierVu.current = true;
+    const nouvelle = basClavier > 0 ? basClavier : clavierVu.current ? MARGE_BASSE : prevu > 0 ? prevu : depart;
+    // Même destination à un cheveu près (le clavier a la hauteur prévue) : surtout ne pas relancer l'animation en
+    // route, elle repartirait avec une autre vitesse.
+    if (Math.abs(nouvelle - visee.current) < 3) return;
+    visee.current = nouvelle;
+    setReserve(nouvelle);
+    marge.value = withTiming(nouvelle, clavierVu.current ? AJUSTEMENT : MONTEE);
+  }, [basClavier]);
+  const styleBarre = useAnimatedStyle(() => ({ transform: [{ translateY: -marge.value }] }));
+  // Le titre et les résultats arrivent en fondu ; la barre, elle, reste visible tout du long.
+  const entree = useRef(new Animated.Value(0)).current;
+  useEffect(() => { Animated.timing(entree, { toValue: 1, duration: 220, useNativeDriver: true }).start(); }, [entree]);
 
   useEffect(() => {
     const q = texte.trim();
@@ -135,15 +170,15 @@ export default function RechercheBus({ onOuvrir, onFermer, basClavier, suivies, 
   useEffect(() => { const t = setTimeout(() => defilement.current?.scrollToEnd({ animated: false }), 30); return () => clearTimeout(t); }, [resultats, erreur, basClavier]);
 
   return (
-    <View style={[StyleSheet.absoluteFill, { paddingBottom: basClavier > 0 ? basClavier : 16 }]}>
-      <View style={styles.titre}>
+    <View style={StyleSheet.absoluteFill}>
+      <Animated.View style={[styles.titre, { opacity: entree }]}>
         <ExpoImage source={{ uri: MODE_ICONS['BUS'] }} style={[styles.titreIcone, { tintColor: c.textSub }]} contentFit="contain" />
         <Text style={[styles.titreTexte, { color: c.textSub }]}>BUS</Text>
         <View style={{ marginLeft: 'auto' }}>
           <PanelPillAction label="Fermer" onPress={() => { Keyboard.dismiss(); onFermer(); }} />
         </View>
-      </View>
-      <View style={{ flex: 1 }}>
+      </Animated.View>
+      <Animated.View style={{ flex: 1, opacity: entree, marginBottom: reserve + HAUTEUR_BARRE }}>
         <ListeFondue verre sansBas>
           <ScrollView
             ref={defilement}
@@ -159,8 +194,8 @@ export default function RechercheBus({ onOuvrir, onFermer, basClavier, suivies, 
             {liste.map((l, i) => <LigneResultat key={l.id} l={l} rang={liste.length - 1 - i} attenue={charge} onOuvrir={onOuvrir} suivie={suivies.includes(l.id)} onBasculerBus={onBasculerBus} />)}
           </ScrollView>
         </ListeFondue>
-      </View>
-      <View style={[styles.champ, { backgroundColor: hexToRgba(c.text, 0.07), borderColor: c.borderCard }]}>
+      </Animated.View>
+      <Reanimee.View style={[styles.champ, styles.barreBas, { backgroundColor: hexToRgba(c.text, 0.07), borderColor: c.borderCard }, styleBarre]}>
         <TextInput
           style={[styles.saisie, { color: c.text }]}
           value={texte}
@@ -178,7 +213,7 @@ export default function RechercheBus({ onOuvrir, onFermer, basClavier, suivies, 
             <Text style={{ color: c.textSub, fontSize: 16 }}>✕</Text>
           </TouchableOpacity>
         )}
-      </View>
+      </Reanimee.View>
     </View>
   );
 }
@@ -189,6 +224,7 @@ const styles = StyleSheet.create({
   titreTexte: { fontSize: 12, fontFamily: 'GrandParis-Bold', letterSpacing: 0.8 },
   menu: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: 8, paddingTop: 22, paddingBottom: 6 },
   champ: { flexDirection: 'row', alignItems: 'center', height: 40, borderRadius: 14, borderWidth: 1, paddingHorizontal: 12, gap: 8 },
+  barreBas: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   saisie: { flex: 1, fontSize: 14, fontFamily: 'GrandParis-Medium', paddingVertical: 0 },
   info: { fontSize: 12, fontFamily: 'GrandParis-Light', marginBottom: 8, marginLeft: 4 },
   ligne: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 14, borderWidth: 1 },
