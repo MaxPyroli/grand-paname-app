@@ -513,7 +513,7 @@ function getMapHTML(isDark: boolean, oled: boolean) {
     return list.map(function(r){
       var m=connus[r.id];
       if(m) return copieRect(m,{op:r.op,anim:false,fo:false});
-      if(gAvant[r.id]!==undefined && gAvant[r.id]!==forme(r)) return copieRect(r,{anim:false,fo:false});
+      if(gAvant[r.id]!==undefined && gAvant[r.id]!==forme(r)) return copieRect(r,{anim:false,fo:true});
       return copieRect(r,{op:0,anim:false,fo:false});
     });
   }
@@ -549,7 +549,7 @@ function getMapHTML(isDark: boolean, oled: boolean) {
       var neuf=false;
       if(!el){ el=document.createElement('div'); el.id='gl_'+r.id; el.className='gl'; host.appendChild(el); neuf=true; }
       var d=r.d||450;
-      el.style.transition=r.fo?'opacity 80ms linear':((r.anim&&!neuf)?('transform '+d+'ms '+CB+', bottom '+d+'ms '+CB+', opacity '+d+'ms linear'):'none');
+      el.style.transition=r.fo?'opacity 260ms ease-out':((r.anim&&!neuf)?('transform '+d+'ms '+CB+', bottom '+d+'ms '+CB+', opacity '+d+'ms linear'):'none');
       el.style.opacity=(r.op==null)?'1':String(r.op);
       el.style.left=r.x+'px';
       el.style.top=(r.y==null)?'auto':r.y+'px';

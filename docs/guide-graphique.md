@@ -174,7 +174,7 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 - **Barres du bas en paysage** : navigation (44 % de la largeur, 400 dp max) et recherche CÔTE À CÔTE sur la même ligne (`useGeometrieBarres` dans `responsive.ts`) ; en portrait, recherche au-dessus de la navigation (88 % de large).
 - **Tiroirs en paysage** : 340 dp max, collés à leur bord, montent jusqu'en haut de l'écran ; celui de droite (Trafic) descend aussi jusqu'en bas (rien dessous), celui de gauche (Favoris) s'arrête au-dessus de la barre de navigation. L'en-tête (à gauche) ou la bulle des réglages (à droite) s'efface quand le tiroir de son côté est ouvert.
 - Reste à harmoniser : Paramètres et fenêtres modales en paysage ; transition de la rotation.
-- Rotation et verre dépoli (27/11) : le flou doit être là dès la première image de la nouvelle orientation. La carte le replace elle-même d’après les positions mémorisées ; pas de masquage ni de fondu, sauf pour une surface jamais vue dans cette orientation (fondu de 80 ms).
+- Rotation et verre dépoli (27/11) : le flou doit être là dès la première image de la nouvelle orientation. La carte le replace elle-même d’après les positions mémorisées ; pas de masquage ni de fondu, sauf pour une surface jamais vue dans cette orientation, qui apparaît en fondu doux (260 ms, ralenti en fin).
 
 ## Volet Info trafic (3.4.0)
 - **Liste** : champ « Rechercher un bus » en haut (numéro, ex. 104 ou N32 ; résultats = pastille aux couleurs de la ligne + libellé + point d'état + état en toutes lettres), puis légende, puis une section par mode (Train / RER regroupés, Métro, Tram, Câble) avec les symboles officiels (version foncée en thème sombre). Pas de symbole officiel pour les bus : pastille aux couleurs de la ligne.
