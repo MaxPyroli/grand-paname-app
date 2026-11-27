@@ -7,6 +7,7 @@ import { PanelLayout, PANEL_CONTENT_TOP_PAD } from './PanelLayout';
 import { PanelHeader, PanelIconAction, PanelPillAction } from './PanelHeader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TraficDetail from './TraficDetail';
+import { refCible } from './tutoCibles';
 import type { AlerteRecue } from './notifications';
 import RechercheBus, { BoutonRechercheBus } from './RechercheBus';
 import AlertesTrafic, { EtatAlertes } from './AlertesTrafic';
@@ -459,7 +460,7 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
       icon={<IconInfoTraficCouleur size={26} dotColor={c.text} />}
       title="Info trafic"
       subtitle={sousTitre}
-      right={<PanelIconAction icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" onPress={() => ouvrirVue({ genre: 'alertes' })} />}
+      right={<PanelIconAction cibleRef={refCible('cloche')} icon={<Icon name="notifications" size={18} color={c.accent} />} label="Alertes trafic" onPress={() => ouvrirVue({ genre: 'alertes' })} />}
     />
   );
   const enteteVue = vueMontee ? (

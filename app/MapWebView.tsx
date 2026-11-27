@@ -6,9 +6,9 @@ import { GRANDPARIS_BOLD_BASE64 } from './assets/grandParisBoldBase64';
 import { CARTO_API_KEY } from './constants';
 import { LEAFLET_JS, LEAFLET_CSS } from './leafletInline';
 
-function getMapHTML(isDark: boolean) {
+function getMapHTML(isDark: boolean, oled: boolean) {
   const iconsJson = JSON.stringify(MODE_ICONS);
-  const bg = isDark ? '#031a3a' : '#eef2f7';
+  const bg = isDark ? (oled ? '#000000' : '#031a3a') : '#eef2f7';
   // CARTO a fermé l'accès anonyme à ces tuiles (basemaps.cartocdn.com) et
   // exige désormais une clé API + le préfixe /rastertiles/ dans l'URL (les
   // anciennes URLs, encore documentées un peu partout, renvoient une tuile
@@ -512,7 +512,9 @@ function getMapHTML(isDark: boolean) {
     });
   }
 
-  function setTheme(isDark){
+  function setTheme(isDark, oled){
+    var fondCarte = isDark ? (oled ? '#000000' : '#031a3a') : '#eef2f7';
+    var fondPuce = oled ? '#0a0a0a' : '#010e26';
     var url = isDark
       // « v=… » : version du style des tuiles. CARTO a changé son style le 26/10/2026 mais ses anciennes tuiles restent dans le
       // cache de la WebView jusqu'à 180 jours : on voyait des rectangles de l'ancien style (fin et discret) à côté du
@@ -521,19 +523,25 @@ function getMapHTML(isDark: boolean) {
       : 'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}&v=20261117';
     if(window._tileLayer){ map.removeLayer(window._tileLayer); }
     window._tileLayer = L.tileLayer(url,{maxZoom:19,subdomains:'abcd'}).addTo(map);
-    document.body.style.background = isDark ? '#031a3a' : '#eef2f7';
-    document.getElementById('map').style.background = isDark ? '#031a3a' : '#eef2f7';
+    document.body.style.background = fondCarte;
+    document.getElementById('map').style.background = fondCarte;
     var s = document.getElementById('_gp_dots');
     if(!s){ s=document.createElement('style'); s.id='_gp_dots'; document.head.appendChild(s); }
     s.textContent = isDark
       // Teinte bleue de la carte sombre, posée UNE fois sur tout le fond de carte (couche leaflet-tile-pane) et non sur chaque
-      // tuile (le défaut de la carte coupée en deux venait en réalité du cache, voir plus bas). Valeurs adoucies le 17/11 : 2,5 / 2,2 donnait un rendu fluo ; 1,8 / 1,6 donne un bleu marine sobre.
-      ? '.leaflet-tile-pane{filter:sepia(0.9) hue-rotate(180deg) saturate(1.8) brightness(1.6)!important}'
+      // tuile (le défaut de la carte coupée en deux venait en réalité du cache, voir plus bas). Valeurs adoucies le 17/11 : 2,5 / 2,2 donnait un rendu fluo ; 1,8 / 1,6 donne un bleu marine sobre. Le 27/11, blancs adoucis (« ça pique les yeux ») : luminosité 1,45 puis contraste 0,88, qui abaisse les clairs (~ -14 %) en laissant les fonds sombres comme avant.
+      // OLED : le contraste (1,12) sans surluminosité rend le fond des tuiles (#0a0a0a) NOIR PUR et garde des rues bleutées
+      // discrètes (mesuré sur une tuile de Paris : fond #000003, rue principale #405271, contre #1c1f24 et #6a7ea2 en sombre).
+      // Sombre classique : BLEU NUIT du thème. Le premier contraste (0,75) relève le fond presque noir en gris AVANT la teinte,
+      // qui peut alors le colorer (mesuré : fond #020d22, proche du fond des écrans #010e26, rues #243d67 ; assombri à la demande ; l'ancien réglage donnait un gris #1c1f24).
+      ? '.leaflet-tile-pane{filter:' + (oled
+          ? 'sepia(0.9) hue-rotate(180deg) saturate(1.8) brightness(1) contrast(1.12)'
+          : 'contrast(0.8) sepia(0.8) hue-rotate(180deg) saturate(3.5) brightness(0.7) contrast(1.15)') + '!important}'
         + '.n-icon{filter:invert(1)!important}'
-        + '.n-wrap{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
-        + '.sp-badge{background:#010e26!important;border-color:rgba(90,179,245,0.3)!important}'
+        + '.n-wrap{background:' + fondPuce + '!important;border-color:rgba(90,179,245,0.3)!important}'
+        + '.sp-badge{background:' + fondPuce + '!important;border-color:rgba(90,179,245,0.3)!important}'
         + '.map-tail{border-top-color:rgba(90,179,245,0.3)!important}'
-        + '.map-tail::after{border-top-color:#010e26!important}'
+        + '.map-tail::after{border-top-color:' + fondPuce + '!important}'
         + '.exit-pin{stroke:rgba(255,255,255,0.75)!important;stroke-width:1.5px!important}'
       : '.n-icon{filter:none!important}'
         + '.n-wrap{background:#ffffff!important;border-color:rgba(0,0,0,0.12)!important}'
@@ -783,17 +791,21 @@ type Props = {
   onFollowExited?: () => void;
   onReady?: () => void;
   isDark?: boolean;
+  oled?: boolean;
 };
 
-const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onViewportChanged, onMapTapped, onFollowExited, onReady, isDark }, ref) => {
+const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onViewportChanged, onMapTapped, onFollowExited, onReady, isDark, oled }, ref) => {
+  // Lu par `setTheme`, y compris quand il est appelé de l'extérieur (au chargement de la carte).
+  const oledRef = useRef(!!oled);
+  oledRef.current = !!oled;
   const wvRef = useRef<WebView>(null);
-  const [htmlSource] = useState(() => ({ html: getMapHTML(isDark ?? false) }));
+  const [htmlSource] = useState(() => ({ html: getMapHTML(isDark ?? false, !!oled) }));
   const isMounted = useRef(false);
 
   useEffect(() => {
     if (!isMounted.current) { isMounted.current = true; return; }
-    wvRef.current?.injectJavaScript(`setTheme(${isDark ?? false});true;`);
-  }, [isDark]);
+    wvRef.current?.injectJavaScript(`setTheme(${isDark ?? false}, ${oledRef.current});true;`);
+  }, [isDark, oled]);
 
   useImperativeHandle(ref, () => ({
     setUserLocation: (lat, lon) => {
@@ -809,7 +821,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
       wvRef.current?.injectJavaScript(`clearActiveStation();true;`);
     },
     setTheme: (isDark) => {
-      wvRef.current?.injectJavaScript(`setTheme(${isDark});true;`);
+      wvRef.current?.injectJavaScript(`setTheme(${isDark}, ${oledRef.current});true;`);
     },
     flyTo: (lat, lon) => {
       wvRef.current?.injectJavaScript(`flyToStation(${lat},${lon});true;`);
@@ -852,7 +864,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
         startInLoadingState={true}
         onLoadEnd={onReady}
         renderLoading={() => (
-          <View style={[styles.loader, { backgroundColor: isDark ? '#031a3a' : '#eef2f7' }]}>
+          <View style={[styles.loader, { backgroundColor: isDark ? (oled ? '#000000' : '#031a3a') : '#eef2f7' }]}>
             <ActivityIndicator size="large" color="#3498db" />
           </View>
         )}

@@ -103,11 +103,11 @@ export function PanelPillAction({ label, onPress, actif }: { label: string; onPr
 
 // Bouton d'action d'en-tête en forme de pastille ronde avec une icône (ex: la cloche des alertes du volet
 // Trafic) : même hauteur que la ligne du titre. Sans `onPress`, la pastille s'affiche sans réagir au toucher.
-export function PanelIconAction({ icon, onPress, label }: { icon: React.ReactNode; onPress?: () => void; label: string }) {
+export function PanelIconAction({ icon, onPress, label, cibleRef }: { icon: React.ReactNode; onPress?: () => void; label: string; cibleRef?: (n: unknown) => void }) {
   const c = useColors();
   const style = [styles.pillIcon, { backgroundColor: c.pillCenter }];
   return onPress ? (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={style} accessibilityRole="button" accessibilityLabel={label}>{icon}</TouchableOpacity>
+    <TouchableOpacity ref={cibleRef} onPress={onPress} activeOpacity={0.7} style={style} accessibilityRole="button" accessibilityLabel={label}>{icon}</TouchableOpacity>
   ) : (
     <View style={style} accessibilityLabel={label}>{icon}</View>
   );

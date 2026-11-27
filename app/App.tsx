@@ -36,6 +36,9 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import ReanimatedLib, { useSharedValue, useDerivedValue, useAnimatedStyle, withSpring, runOnJS, useFrameCallback } from 'react-native-reanimated';
 import { registerForPushNotificationsAsync, ecouterToucherAlerteTrafic, ecouterAlerteTraficRecue, type AlerteRecue } from './notifications';
 import { NotifCentre } from './NotifCentre';
+import { TutoGuide } from './TutoGuide';
+import { refCible } from './tutoCibles';
+import type { EtapeId } from './tuto';
 import { BlurTargetContext, CoucheSurface, autoriserFlouSurface, useSurfaceVerre, useTexteSurAccent } from './surface';
 import { notifier, fermerNotif, notifDAlerte } from './notifs';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
@@ -453,6 +456,8 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
   }, [pref]);
 
   const LIENS = [
+    // Pour le public ; en mode dev il ferait doublon avec « Rejouer le tutoriel » du Débogage.
+    ...(devMode ? [] : [{ icon: '👋', label: 'Revoir le tutoriel', url: 'tuto', action: () => { onClose(); setTimeout(onReplayOnboarding, 200); } }]),
     { icon: '🐛', label: 'Signaler un bug',      url: BUG_FORM_URL, action: onReportBug },
     { icon: '✉️',  label: 'Contact',              url: 'mailto:contact@grandpaname.fun' },
   ];
@@ -1226,7 +1231,7 @@ function CoucheVerre({ zone, rayon = 16, ombre, idVerre, fondu, masque, cibleNat
 
 function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoisie, onOpenSettings, onClosePanel, onMapTapped, activeTab, mapRef, panelOpen, updateDownloadingBg, showDebugOverlay, gareActuelle, onQuitterVueArret, onRevenirAccueil, mapLeftInset, mapRightInset, voileOpacity }: AccueilProps) {
   const c = useColors();
-  const { isDark } = useContext(ThemeContext);
+  const { isDark, oled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
   const [loadingGps, setLoadingGps] = useState(false);
   const [gpsSearchStatus, setGpsSearchStatus] = useState<string | null>(null);
@@ -1598,6 +1603,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
         <MapWebView
           ref={mapRef}
           isDark={isDark}
+          oled={oled}
           onStationSelected={onGareChoisie}
           onViewportChanged={handleViewportChanged}
           onMapTapped={onMapTapped}
@@ -1772,7 +1778,7 @@ function AccueilScreen({ onBasculerFavori, estFavori, onHeaderLayout, onGareChoi
 
       {/* Barre de recherche flottante, ou nom de l'arrêt affiché tant qu'on
           reste sur sa vue (poteaux compris), même horaires fermées */}
-      <Animated.View style={[styles.bottomSearchBar, { left: geo.rechercheLeft, right: geo.rechercheRight, bottom: searchBarBottom, opacity: barreOpacite, backgroundColor: teinteVerre(isDark, c, true, 'recherche'), ...bordureVerre(isDark, c) }]}>
+      <Animated.View ref={refCible('recherche')} collapsable={false} style={[styles.bottomSearchBar, { left: geo.rechercheLeft, right: geo.rechercheRight, bottom: searchBarBottom, opacity: barreOpacite, backgroundColor: teinteVerre(isDark, c, true, 'recherche'), ...bordureVerre(isDark, c) }]}>
         <CoucheVerre zone="recherche" natifForce={barreNative} />
         {gareActuelle ? (
           <>
@@ -2078,7 +2084,7 @@ function useModalCardAnim(visible: boolean, sansRebond = false) {
 // voile flouté, juste le fond net). Ce contexte porte cette ref depuis la
 // racine (voir App(), qui enveloppe tout le contenu visible derrière les
 // modales dans un <BlurTargetView>) jusqu'à ModalCard, sans la faire
-// traverser WhatsNewModal/OnboardingTour/UpdateModal en props.
+// traverser WhatsNewModal/UpdateModal en props.
 
 // Pas de <Modal> ici : sur Android, une Modal s'ouvre dans une fenêtre native
 // séparée de l'activité principale — un BlurView posé dedans ne peut flouter
@@ -2250,134 +2256,6 @@ function WhatsNewModal({ visible, onClose, onOpenChangelog }: { visible: boolean
   );
 }
 
-// ─── VISITE GUIDÉE (premier lancement) ─────────────────────────────────────
-// Cartes centrées façon "Quoi de neuf", sans halo positionné sur un élément
-// réel : une première version pointait la barre de recherche / la carte /
-// l'onglet favoris via measureInWindow(), mais ces coordonnées se sont
-// révélées peu fiables d'un appareil à l'autre (encoche, barre de statut,
-// gestes de nav...), avec un halo qui se retrouvait décalé du vrai élément.
-// Une carte centrée ne dépend d'aucune mesure et s'affiche donc correctement
-// partout.
-type TourStep = { key: string; emoji: string; title: string; text: string };
-
-function OnboardingTour({ visible, steps, onFinish }: { visible: boolean; steps: TourStep[]; onFinish: () => void }) {
-  const c = useColors();
-  const { anim, mounted } = useModalCardAnim(visible);
-  // Rebond du logo/emoji à chaque étape — seule Animated.View imbriquée dans
-  // la carte, et seulement sur le petit logo/emoji (jamais sur un conteneur
-  // qui porte aussi le fond/les boutons, contrairement à la version d'avant
-  // qui rendait la carte translucide sur certains appareils).
-  const logoBounce = useRef(new Animated.Value(1)).current;
-  const [stepIndex, setStepIndex] = useState(0);
-
-  useEffect(() => { if (visible) setStepIndex(0); }, [visible]);
-
-  // Rebond du logo/emoji à chaque étape (le pulse de la carte elle-même est
-  // géré par ModalCard via pulseKey, sans toucher à `anim` — un reset de
-  // `anim` ici perturbait aussi l'opacité du fond, partagée avec la carte).
-  useEffect(() => {
-    if (!mounted || stepIndex === 0) return;
-    logoBounce.setValue(0.5);
-    Animated.timing(logoBounce, { toValue: 1, duration: 260, easing: Easing.out(Easing.back(1.6)), useNativeDriver: true }).start();
-  }, [stepIndex]);
-
-  if (!mounted) return null;
-  const step = steps[stepIndex];
-  const isFirst = stepIndex === 0;
-  const isLast = stepIndex === steps.length - 1;
-
-  const finir = () => {
-    Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }).start(onFinish);
-  };
-  const suivant = () => {
-    if (isLast) { finir(); return; }
-    setStepIndex(i => i + 1);
-  };
-  const precedent = () => setStepIndex(i => Math.max(0, i - 1));
-
-  const dots = (
-    <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-      {steps.map((s, i) => (
-        <View key={s.key} style={{
-          width: i === stepIndex ? 18 : 6, height: 6, borderRadius: 3,
-          backgroundColor: i === stepIndex ? c.accent : c.borderCard,
-        }} />
-      ))}
-    </View>
-  );
-
-  // Pas de onRequestClose : impossible de fermer la visite guidée en tapant
-  // en dehors — voir aussi le BackHandler central dans AppInner qui neutralise
-  // aussi le bouton retour matériel pendant le tuto.
-  return (
-    <ModalBackdrop mounted={mounted} anim={anim} fullBleed={isFirst}>
-      {isFirst ? (
-        // Écran d'accueil : un fond glassmorphique plein écran (contrairement
-        // aux étapes suivantes, dont la carte ne fait que la taille de son
-        // contenu) pour bien détacher le texte du fond réel derrière, quel
-        // qu'il soit.
-        <ModalCard
-          anim={anim}
-          pulseKey={stepIndex}
-          containerStyle={{ flex: 1, width: '100%', maxWidth: '100%', borderRadius: 0, borderWidth: 0 }}
-          style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 22, padding: 32 }}
-        >
-          <LinearGradient
-            colors={[c.accent, '#7c3aed']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-            style={{
-              width: 108, height: 108, borderRadius: 30,
-              alignItems: 'center', justifyContent: 'center',
-              shadowColor: c.accent, shadowOpacity: 0.6, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 14,
-            }}
-          >
-            <View style={{ width: 84, height: 84, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-              <Animated.Image source={require('./assets/icon.png')} style={{ width: 66, height: 66, borderRadius: 14 }} resizeMode="contain" />
-            </View>
-          </LinearGradient>
-
-          <View style={{ alignItems: 'center', gap: 8 }}>
-            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 28, color: c.text, textAlign: 'center' }}>{step.title}</Text>
-            <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 15, color: c.text, textAlign: 'center', lineHeight: 21, maxWidth: 300 }}>
-              {step.text}
-            </Text>
-          </View>
-
-          {dots}
-
-          <ModalButton onPress={suivant} backgroundColor={c.accent} style={{ paddingHorizontal: 52 }}>
-            <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>Suivant</Text>
-          </ModalButton>
-        </ModalCard>
-      ) : (
-        <ModalCard anim={anim} pulseKey={stepIndex}>
-          <Animated.Text style={{ fontSize: 40, transform: [{ scale: logoBounce }] }}>{step.emoji}</Animated.Text>
-          <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 19, color: c.text, marginTop: 12 }}>{step.title}</Text>
-          <Text style={{ fontFamily: 'GrandParis-Regular', fontSize: 14, color: c.text, lineHeight: 20, marginTop: 6 }}>{step.text}</Text>
-
-          <View style={{ marginTop: 2 }}>{dots}</View>
-
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-            <ModalButton onPress={precedent} backgroundColor="#fff" style={{ width: 48 }}>
-              {/* Chevron (deux traits en "L" pivoté) plutôt qu'un triangle
-                  plein ou un caractère "‹", qui n'est jamais bien centré
-                  selon la police/le rendu. */}
-              <View style={{
-                width: 10, height: 10, marginLeft: 3,
-                borderLeftWidth: 2.5, borderBottomWidth: 2.5, borderColor: '#25303b',
-                transform: [{ rotate: '45deg' }],
-              }} />
-            </ModalButton>
-            <ModalButton onPress={suivant} backgroundColor={c.accent} style={{ flex: 1 }}>
-              <Text style={{ fontFamily: 'GrandParis-Bold', fontSize: 15, color: '#fff' }}>{isLast ? "C'est parti !" : 'Suivant'}</Text>
-            </ModalButton>
-          </View>
-        </ModalCard>
-      )}
-    </ModalBackdrop>
-  );
-}
-
 // ─── MODALE "MISE À JOUR DISPONIBLE" ────────────────────────────────────────
 function UpdateModal({ visible, mode, onAccept, onDismiss }: {
   visible: boolean;
@@ -2467,7 +2345,10 @@ function NavItem({ id, actif, label, onPress, icone, couleurTexte }: {
     : id === 'scanner' ? []
     : [{ scale: kf([0, 0.4, 1], [1, 1.7, 1]) }];
   return (
-    <TouchableOpacity style={styles.tabItem} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity
+      ref={id === 'favoris' ? refCible('navFavoris') : id === 'trafic' ? refCible('navTrafic') : undefined}
+      style={styles.tabItem} onPress={onPress} activeOpacity={0.7}
+    >
       <View style={styles.tabPill}>
         <Animated.View style={{ transform }}>
           {icone}
@@ -2525,7 +2406,8 @@ function AppInner() {
   // Incrémenté quand on touche l'onglet Trafic alors qu'il est déjà ouvert : ramène le volet à son menu principal.
   const [retourTrafic, setRetourTrafic] = useState(0);
   const traficDetailRef = useRef(false);
-  const onDetailTrafic = useCallback((ouvert: boolean) => { traficDetailRef.current = ouvert; }, []);
+  const [traficVueOuverte, setTraficVueOuverte] = useState(false);
+  const onDetailTrafic = useCallback((ouvert: boolean) => { traficDetailRef.current = ouvert; setTraficVueOuverte(ouvert); }, []);
   const [scannerBeta, setScannerBeta] = useState(false);
   useEffect(() => { AsyncStorage.getItem('@gp_scanner_beta').then(v => { if (v === '1') setScannerBeta(true); }).catch(() => {}); }, []);
   useEffect(() => {
@@ -2587,6 +2469,11 @@ function AppInner() {
     });
   }, []);
 
+  // Gardé pour permettre de le copier depuis Paramètres > Débogage (essais de notifications).
+  const [pushToken, setPushToken] = useState<string | null>(null);
+  // Autorisation des notifications et enregistrement de l'appareil. Au tout premier lancement, la demande n'arrive qu'après
+  // l'étape des alertes du tutoriel (ou à sa fin), au moment où elle a un sens.
+  const demanderNotifs = useCallback(() => { registerForPushNotificationsAsync().then(setPushToken); }, []);
   useEffect(() => {
     AsyncStorage.getItem('@gp_onboarding_seen').then(seen => {
       if (seen !== '1') {
@@ -2596,22 +2483,16 @@ function AppInner() {
         // marquer silencieusement "quoi de neuf" comme vu privait ces
         // utilisateurs existants de l'annonce, sans qu'ils l'aient jamais
         // vue (bug de la 3.2.0). On enchaîne donc avec "quoi de neuf" juste
-        // après le tuto (voir onFinish du OnboardingTour) au lieu de le
+        // après le tuto (voir terminerTuto) au lieu de le
         // supprimer.
         setShowOnboarding(true);
         AsyncStorage.setItem('@gp_onboarding_seen', '1').catch(() => {});
         return;
       }
+      demanderNotifs();
       checkWhatsNew();
     });
-  }, [checkWhatsNew]);
-  // Gardé pour permettre de le copier depuis Paramètres > Débogage — sans
-  // ça, tester une notif push demande de la ligne de commande (curl vers
-  // l'API Expo Push, ou passer par Firebase Console) pour se procurer le
-  // token de CET appareil. Avec le token copié, il suffit d'aller sur
-  // https://expo.dev/notifications, de le coller et d'envoyer.
-  const [pushToken, setPushToken] = useState<string | null>(null);
-  useEffect(() => { registerForPushNotificationsAsync().then(setPushToken); }, []);
+  }, [checkWhatsNew, demanderNotifs]);
   // Toucher une notification d'alerte trafic : ouvre le volet Trafic sur la ligne concernée.
   const [ligneAOuvrir, setLigneAOuvrir] = useState<{ id: string; n: number; alerte: AlerteRecue | null } | null>(null);
   // Ouvrir une ligne depuis une alerte (notification ou pop-up) : le volet des horaires se replie et les paramètres se
@@ -2638,7 +2519,7 @@ function AppInner() {
   const inAppUpdates = useRef<SpInAppUpdatesType | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   // Fenêtre à flou affichée (ou en train de se fermer, ~0,6 s) → flous natifs coupés.
-  const fenetreFlou = showWhatsNew || showOnboarding || showUpdateModal;
+  const fenetreFlou = showWhatsNew || showUpdateModal;
   const [flouSuspendu, setFlouSuspendu] = useState(false);
   useEffect(() => {
     if (fenetreFlou) { setFlouSuspendu(true); return; }
@@ -2779,6 +2660,18 @@ function AppInner() {
   };
 
   const handleOpenPendingUpdate = () => setShowUpdateModal(true);
+  // Arrêt d'exemple (« Me montrer avec Châtelet ») à retirer des favoris à la fin du tutoriel.
+  const exempleTutoRef = useRef<Gare | null>(null);
+  const terminerTuto = () => {
+    setShowOnboarding(false);
+    const exemple = exempleTutoRef.current;
+    if (exemple && estFavori(exemple.id)) basculerFavori(exemple);
+    exempleTutoRef.current = null;
+    if (gareActuelle) quitterVueArret();
+    setActiveTab('accueil');
+    demanderNotifs();
+    checkWhatsNew();
+  };
   const nativeSchedulesRef = useRef<SchedulesRef>(null);
   const svLayout = useSharedValue(0);
   const [panelLines, setPanelLines] = useState<LineChip[] | null>(null);
@@ -3588,7 +3481,7 @@ function AppInner() {
         <ReanimatedLib.View style={[styles.garePanel, { height: PANEL_H, ...(paysage ? { left: geo.rechercheLeft, width: geo.rechercheWidth, right: undefined } : { width: largeurVolet, right: undefined }), backgroundColor: c.bg }, panelAnimatedStyle]}>
 
           <GestureDetector gesture={headerPanGesture}>
-            <View style={styles.dragZone}>
+            <View ref={refCible('volet')} collapsable={false} style={styles.dragZone}>
               <View style={[styles.dragBar, { backgroundColor: c.dragBar }]} />
             </View>
           </GestureDetector>
@@ -3617,7 +3510,7 @@ function AppInner() {
                   </TouchableOpacity>
                 )}
                 {gareActuelle && !gareActuelle.osmOnly && (
-                  <View style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]}>
+                  <View ref={refCible('etoile')} collapsable={false} style={[styles.sheetBoutonAction, { backgroundColor: c.btnBg }]}>
                     <FavoriStar
                       active={estFavori(gareActuelle.id)}
                       onPress={() => basculerFavori({ id: gareActuelle.id, label: gareActuelle.label })}
@@ -3714,22 +3607,43 @@ function AppInner() {
       <SettingsModal onReportBug={() => setShowBugForm(true)} onClearMapCache={viderCacheCarte} visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} flouActif={flouActif} setFlouActif={(v) => { setFlouActif(v); AsyncStorage.setItem('@gp_debug_flou', v ? '1' : '0').catch(() => {}); }} scannerBeta={scannerBeta} setScannerBeta={(v) => { setScannerBeta(v); AsyncStorage.setItem('@gp_scanner_beta', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
       <BugReportModal visible={showBugForm} onClose={() => setShowBugForm(false)} />
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
-      <OnboardingTour
-        visible={showOnboarding}
-        onFinish={() => { setShowOnboarding(false); checkWhatsNew(); }}
-        steps={[
-          { key: 'welcome', emoji: '👋', title: 'Bienvenue sur Grand Paname', text: "Naviguez le Grand Paris, tout simplement !\n Découvrez votre nouveau compagnon de transport en Île-de-France." },
-          { key: 'search', emoji: '🔎', title: 'Vos horaires en un clic !', text: "Tapez le nom d'un arrêt dans la barre de recherche pour accéder à tous ses horaires en un instant.\nVous pouvez également utiliser la géolocalisation pour trouver les arrêts à proximité." },
-          { key: 'map', emoji: '🗺️', title: 'Explorez la carte', text: 'Accédez au plan du réseau et cliquez directement sur un arrêt pour voir ses horaires, ligne par ligne.' },
-          { key: 'favoris', emoji: '⭐', title: 'Retrouve tes favoris', text: "Ajoute un arrêt en favori avec l'étoile dans son panneau d'horaires : il apparaîtra dans l'onglet Favoris pour un accès rapide." },
-          { key: 'wip', emoji: '🚧', title: 'Work in Progress', text: "L'application est encore en développement : certaines fonctionnalités sont en cours de construction.\nMerci pour votre patience et vos retours !" },
-        ]}
-      />
       <UpdateModal
         visible={showUpdateModal}
         mode={updateReady ? 'ready' : 'prompt'}
         onAccept={handleUpdateAccept}
         onDismiss={handleUpdateDismiss}
+      />
+      {/* Tutoriel guidé (premier lancement, ou rejoué depuis les paramètres). */}
+      <TutoGuide
+        visible={showOnboarding}
+        etat={{
+          gareOuverte: panelIsOpen && !!gareActuelle,
+          gareEnFavori: !!gareActuelle && estFavori(gareActuelle.id),
+          onglet: activeTab,
+          vueTraficOuverte: traficVueOuverte,
+        }}
+        onEtape={(id: EtapeId) => {
+          if (id === 'bienvenue') { exempleTutoRef.current = null; setShowSettings(false); }
+          // La barre de recherche doit être libre : on quitte l'arrêt affiché.
+          if (id === 'bienvenue' || id === 'recherche') { setActiveTab('accueil'); if (gareActuelle) quitterVueArret(); }
+          // Le volet des horaires passerait devant le tiroir des favoris.
+          if (id === 'favoris' && gareActuelle) quitterVueArret();
+          if (id === 'alertes' && traficVueOuverte) setRetourTrafic(n => n + 1);
+          if (id === 'fin') demanderNotifs();
+        }}
+        onPasser={terminerTuto}
+        onFin={terminerTuto}
+        onExemple={async () => {
+          try {
+            const [gare] = await searchGares('Châtelet');
+            if (!gare) return false;
+            // Retiré à la fin seulement s'il n'était pas déjà dans les favoris.
+            exempleTutoRef.current = estFavori(gare.id) ? null : { id: gare.id, label: gare.label };
+            Keyboard.dismiss();
+            ouvrirGare(gare.id, gare.label);
+            return true;
+          } catch { return false; }
+        }}
       />
       {/* Notifications internes de l'app (voir notifs.ts) : en haut, au-dessus de tout ; les pilules sous le titre. */}
       <NotifCentre basTitre={headerHeight} />

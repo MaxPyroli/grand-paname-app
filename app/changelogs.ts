@@ -17,8 +17,10 @@ export const CHANGELOGS: ChangelogEntry[] = [
 * Les bus que tu suis (cloche) dans l'info trafic s'affichent en permanence dans la rubrique Bus, avec leur état, au-dessus de la recherche.
 * La date de mise à jour des perturbations est affichée de façon plus discrète.
 * Consulter la perturbation d'une ligne retire ses notifications de ton téléphone.
-* Les messages de l'app (alertes trafic, confirmations) ont un nouveau style commun qui suit ton thème, avec des animations plus fluides. Pour une alerte : symbole de la ligne, léger halo à sa couleur et vibration.
-* Les fenêtres de l'app (Quoi de neuf, mise à jour, visite guidée) reprennent le même style que les notifications.
+* Les messages de l'app (alertes trafic, confirmations) ont un nouveau style commun qui suit ton thème, avec des animations plus fluides.
+* Les fenêtres de l'app (Quoi de neuf, mise à jour) et les notifications ont le même style en verre dépoli.
+* Carte : en mode sombre, les zones claires sont moins éblouissantes ; en mode OLED, le fond est vraiment noir.
+* Nouveau tutoriel guidé : il éclaire les vrais boutons et tu apprends en faisant les gestes. Tu peux le passer, ou le revoir depuis les paramètres.
 * Correction d'un bug lors de l'ouverture d'une notification d'info trafic d'une ligne de bus qui n'affichait pas la perturbation.
 * Correction d'un bug où la mise à jour intégrée à l'app s'arrêtait sans rien afficher en cas d'échec : la fiche de l'app sur le Play Store s'ouvre maintenant directement.
 * Correction d'un bug où la ligne ouverte depuis une alerte trafic restait cachée derrière le volet des horaires.
