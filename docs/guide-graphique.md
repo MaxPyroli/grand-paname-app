@@ -175,6 +175,8 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 - **Tiroirs en paysage** : 340 dp max, collés à leur bord, montent jusqu'en haut de l'écran ; celui de droite (Trafic) descend aussi jusqu'en bas (rien dessous), celui de gauche (Favoris) s'arrête au-dessus de la barre de navigation. L'en-tête (à gauche) ou la bulle des réglages (à droite) s'efface quand le tiroir de son côté est ouvert.
 - Reste à harmoniser : Paramètres et fenêtres modales en paysage ; transition de la rotation.
 - Rotation et verre dépoli (27/11) : le flou doit être là dès la première image de la nouvelle orientation. La carte le replace elle-même d’après les positions mémorisées ; pas de masquage ni de fondu, sauf pour une surface jamais vue dans cette orientation, qui apparaît en fondu doux (260 ms, ralenti en fin).
+- Vibration des notifications internes (27/11) : une seule, à l’arrivée de l’alerte (même mise en attente) ; jamais quand une carte déjà reçue remonte dans la pile.
+- Verre des notifications et fenêtres (27/11) : il floute toujours ce qui est réellement derrière. Toute nouvelle page plein écran posée au-dessus de l’app doit devenir la cible du flou tant qu’elle est affichée (comme les paramètres).
 
 ## Volet Info trafic (3.4.0)
 - **Liste** : champ « Rechercher un bus » en haut (numéro, ex. 104 ou N32 ; résultats = pastille aux couleurs de la ligne + libellé + point d'état + état en toutes lettres), puis légende, puis une section par mode (Train / RER regroupés, Métro, Tram, Câble) avec les symboles officiels (version foncée en thème sombre). Pas de symbole officiel pour les bus : pastille aux couleurs de la ligne.

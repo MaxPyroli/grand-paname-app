@@ -195,7 +195,7 @@ export default function TraficDetail({ ligne, alerte = null, verre, pret = true 
       .start(() => setSqueletteRetire(true));
   }, [contenuPret, apparition]);
   // Perturbations affichées = vues : les notifications de cette ligne n'ont plus lieu d'être.
-  useEffect(() => { if (contenuPret) effacerNotificationsLigne(ligne.id); }, [contenuPret, ligne.id]);
+  useEffect(() => { if (contenuPret) effacerNotificationsLigne(ligne); }, [contenuPret, ligne.id]);
   const analyse = useMemo(() => creerAnalyseStations(detail?.stations ?? []), [detail]);
 
   const charger = useCallback(async () => {

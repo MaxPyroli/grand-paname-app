@@ -36,6 +36,19 @@ export function NotifCentre({ basTitre }: { basTitre: number }) {
   // aucune carte à l'écran.
   const [desCartes, setDesCartes] = useState(() => lireFile('cartes').length > 0);
   useEffect(() => suivreNotifs(() => setDesCartes(lireFile('cartes').length > 0)), []);
+  // Vibration à l'ARRIVÉE d'une alerte, une seule fois, même si elle attend dans la pile. Pas au moment où elle passe
+  // devant : on sentait alors une vibration longtemps après, sans rien de nouveau.
+  const derniereVibree = useRef(0);
+  useEffect(() => {
+    const signaler = () => {
+      const arrivees = lireFile('cartes').filter(n => n.vibration && n.version > derniereVibree.current);
+      if (arrivees.length === 0) return;
+      derniereVibree.current = Math.max(...arrivees.map(n => n.version));
+      Vibration.vibrate([0, 180, 110, 180]);
+    };
+    signaler();
+    return suivreNotifs(signaler);
+  }, []);
   // Une colonne en haut de l'écran : la carte, puis la pilule dessous (ou à sa place s'il n'y a pas de carte).
   return (
     <View pointerEvents="box-none" style={[styles.conteneur, { top: insets.top + 8 - MARGE_HALO }]}>
@@ -96,7 +109,6 @@ function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }:
   const profondeur = useSharedValue(rang);
   const opacite = useSharedValue(0);
   const minuteur = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const vibree = useRef(0);
 
   const arreterMinuteur = useCallback(() => { if (minuteur.current) { clearTimeout(minuteur.current); minuteur.current = null; } }, []);
   // Seule la carte de devant s'écoule : celles de la pile attendent leur tour sans perdre de temps.
@@ -117,7 +129,6 @@ function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }:
   useEffect(() => { profondeur.value = withSpring(rang, RESSORT); }, [rang, profondeur]);
   useEffect(() => {
     if (!devant) return;
-    if (n.vibration && vibree.current !== n.version) { vibree.current = n.version; Vibration.vibrate([0, 180, 110, 180]); }
     lancerMinuteur();
     return arreterMinuteur;
   }, [n.version, devant]);

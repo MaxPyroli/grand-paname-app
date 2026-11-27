@@ -275,7 +275,7 @@ const TESTS_NOTIFS: { libelle: string; lancer: () => void }[] = (() => {
   ];
 })();
 
-function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay, flouActif, setFlouActif, scannerBeta, setScannerBeta, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate, onClearMapCache, onReportBug }: { visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; flouActif: boolean; setFlouActif: (v: boolean) => void; scannerBeta: boolean; setScannerBeta: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void; onClearMapCache: () => void; onReportBug: () => void }) {
+function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugOverlay, setShowDebugOverlay, flouActif, setFlouActif, scannerBeta, setScannerBeta, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate, onClearMapCache, onReportBug }: { cibleFlouRef: React.RefObject<View | null>; onCibleFlou: (prete: boolean) => void; visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; flouActif: boolean; setFlouActif: (v: boolean) => void; scannerBeta: boolean; setScannerBeta: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void; onClearMapCache: () => void; onReportBug: () => void }) {
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -287,6 +287,7 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
   // modales "maison" (voir useModalCardAnim), en glissant depuis le bas.
   const { height: winH } = useWindowDimensions();
   const { anim: slideAnim, mounted } = useModalCardAnim(visible, true);
+  useEffect(() => { onCibleFlou(visible && mounted); }, [visible, mounted]);
   // Thème sombre : l'ombre claire des cartes est invisible, on la renforce (noire, plus large).
   const ombreCarte = isDark ? { shadowColor: '#000', shadowOpacity: 0.55, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 } : null;
   const [showLogs, setShowLogs] = useState(false);
@@ -468,6 +469,8 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
       zIndex: 20000, elevation: 20,
       transform: [{ translateY: slideAnim.interpolate({ inputRange: [0, 1], outputRange: [winH, 0] }) }],
     }]}>
+      {/* Ce que floutent les notifications et fenêtres posées au-dessus des paramètres (voir App). */}
+      <BlurTargetView ref={cibleFlouRef} style={{ flex: 1 }}>
       <View style={[styles.settingsPage, { backgroundColor: c.bg, paddingTop: insets.top }]}>
 
         {/* En-tête au gabarit des volets (PanelHeader) : icône + titre 24 px, action « Fermer » alignée. */}
@@ -920,6 +923,7 @@ function SettingsModal({ visible, onClose, showDebugOverlay, setShowDebugOverlay
         </View>
 
       </View>
+      </BlurTargetView>
       {trainVisible && (
         <Animated.Image
           source={trainImg}
@@ -2716,6 +2720,10 @@ function AppInner() {
     notifier({ type: 'succes', titre: 'Cache de la carte vidé', cle: 'cache-carte' });
   }, []);
   const blurTargetRef = useRef<View | null>(null);
+  // Les paramètres sont posés AU-DESSUS de la zone floutée habituelle : quand ils sont ouverts, c'est EUX que le verre des
+  // notifications et des fenêtres doit flouter (sinon il montrait l'accueil, caché derrière).
+  const reglagesFlouRef = useRef<View | null>(null);
+  const [reglagesFloutables, setReglagesFloutables] = useState(false);
 
   // ── Panel animé (Reanimated) ─────────────────────────────────────────────
   // Tout ce qui pilote le volet vit désormais en shared values Reanimated
@@ -3615,8 +3623,9 @@ function AppInner() {
       </BlurTargetView>
 
       {/* Modal paramètres */}
-      <SettingsModal onReportBug={() => setShowBugForm(true)} onClearMapCache={viderCacheCarte} visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} flouActif={flouActif} setFlouActif={(v) => { setFlouActif(v); AsyncStorage.setItem('@gp_debug_flou', v ? '1' : '0').catch(() => {}); }} scannerBeta={scannerBeta} setScannerBeta={(v) => { setScannerBeta(v); AsyncStorage.setItem('@gp_scanner_beta', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
+      <SettingsModal cibleFlouRef={reglagesFlouRef} onCibleFlou={setReglagesFloutables} onReportBug={() => setShowBugForm(true)} onClearMapCache={viderCacheCarte} visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} flouActif={flouActif} setFlouActif={(v) => { setFlouActif(v); AsyncStorage.setItem('@gp_debug_flou', v ? '1' : '0').catch(() => {}); }} scannerBeta={scannerBeta} setScannerBeta={(v) => { setScannerBeta(v); AsyncStorage.setItem('@gp_scanner_beta', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
       <BugReportModal visible={showBugForm} onClose={() => setShowBugForm(false)} />
+      <BlurTargetContext.Provider value={reglagesFloutables ? reglagesFlouRef : blurTargetRef}>
       <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
       <UpdateModal
         visible={showUpdateModal}
@@ -3658,6 +3667,7 @@ function AppInner() {
       />
       {/* Notifications internes de l'app (voir notifs.ts) : en haut, au-dessus de tout ; les pilules sous le titre. */}
       <NotifCentre basTitre={headerHeight} />
+      </BlurTargetContext.Provider>
 
       </BlurCarteContext.Provider>
       </BlurTargetContext.Provider>

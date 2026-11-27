@@ -7,7 +7,8 @@
 //   2. garde celles qui sont EN COURS, de cause « perturbation » (ni travaux ni information) et de gravité
 //      « bloquante » ou « perturbée » ;
 //   3. les compare à celles déjà signalées (document Firestore `systeme/alertesTrafic`) : seules les NOUVELLES, ou
-//      celles qui s'aggravent (perturbée → bloquante), déclenchent une notification ;
+//      celles qui s'aggravent (perturbée → bloquante), sont examinées ; une mise à jour d'un incident déjà signalé sur
+//      la ligne n'est renvoyée que si son état change (voir « Doublons ») ;
 //   4. envoie, à chaque appareil qui suit au moins une des lignes concernées (champ `alertesLignes` de son document
 //      `pushTokens`), UNE notification par nouvelle perturbation et par ligne suivie (regroupées au-delà de 5), via l'API Expo Push, canal « trafic ».
 //
@@ -80,10 +81,86 @@ function libelleLigne(l) {
   return `${LIBELLE_MODE[l.mode] || 'Ligne'} ${(l.code || '').replace(/^(\d+)B$/i, '$1 bis')}`.trim();
 }
 
+// ── Doublons ───────────────────────────────────────────────────────────────────────────────────────────────────
+// Décision de l'utilisateur (27/11/2026) : pas quinze notifications pour une perturbation qui évolue, sans en rater une
+// autre. IDFM publie une NOUVELLE annonce à chaque mise à jour, mais elles gardent le même numéro d'incident
+// (`disruption_id`). Pour un couple ligne + incident, on ne prévient à nouveau que si son ÉTAT change. Un autre numéro
+// d'incident (ou pas de numéro) donne toujours sa propre notification.
+const RANG_ETAT = { reprise: 0, perturbe: 1, tres: 2, interrompu: 3 };
+const ATTENTE_TEXTE_MS = 4 * 60_000;          // une annonce sans texte attend le sien (sauf ligne interrompue)
+const OUBLI_INCIDENT_MS = 3 * 3_600_000;      // incident sans annonce en cours depuis ce délai : oublié
+
+// « reprise », « interrompu », « tres » (perturbé) ou « perturbe » ; d'après le titre et l'étiquette, pas le détail
+// (il contient des « reprise estimée à 10h » qui ne sont pas des reprises).
+function etatAnnonce(niveau, fr) {
+  const t = `${(fr && fr.etiquette) || ''} ${(fr && fr.titre) || ''}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (/reprise|reprend/.test(t)) return 'reprise';
+  if (niveau === 'interrompu' || /interrompu/.test(t)) return 'interrompu';
+  if (/(tres|fortement) perturbe/.test(t)) return 'tres';
+  return 'perturbe';
+}
+
+// Parmi les annonces nouvelles ou aggravées, ce qui mérite vraiment une notification.
+// `memoire` : { « ligne|incident » : { etat, annonces: [ids], vu: ms } } ; `attente` : { idAnnonce : ms du premier passage }.
+// Rend les annonces à envoyer (limitées aux lignes concernées), les nouvelles mémoire et attente, les annonces retenues
+// (à ne PAS marquer comme signalées) et le nombre de mises à jour écartées.
+function trierNouvelles({ nouvelles, alertes, francais = new Map(), suivies, memoire = {}, attente = {}, maintenant = Date.now() }) {
+  const suite = {};
+  for (const [cle, m] of Object.entries(memoire)) {
+    const vu = m.annonces.some(id => alertes.has(id)) ? maintenant : m.vu;
+    if (maintenant - vu <= OUBLI_INCIDENT_MS) suite[cle] = { ...m, vu };
+  }
+  const retenues = new Set(); const attenteSuite = {};
+  const groupes = new Map();   // « ligne|incident » (ou « ligne|?annonce ») → candidats
+  for (const a of nouvelles) {
+    const fr = francais.get(a.id);
+    const concernees = [...a.lignes.values()].filter(l => suivies.has(l.id));
+    if (concernees.length === 0) continue;
+    if (!(fr && fr.titre) && !concernees.some(l => l.niveau === 'interrompu')) {
+      const depuis = attente[a.id] ?? maintenant;
+      if (maintenant - depuis < ATTENTE_TEXTE_MS) { retenues.add(a.id); attenteSuite[a.id] = depuis; continue; }
+    }
+    for (const l of concernees) {
+      const incident = (fr && fr.disruptionId) || '';
+      const cle = `${l.id}|${incident || '?' + a.id}`;
+      if (!groupes.has(cle)) groupes.set(cle, { incident, candidats: [] });
+      groupes.get(cle).candidats.push({ a, l, etat: etatAnnonce(l.niveau, fr), texte: !!(fr && fr.titre) });
+    }
+  }
+
+  const choisies = new Map();  // idAnnonce → annonce limitée aux lignes à notifier
+  let ecartees = 0;
+  for (const [cle, { incident, candidats }] of groupes) {
+    // Plusieurs annonces du même incident en même temps : la plus grave, avec du texte de préférence.
+    candidats.sort((x, y) => RANG_ETAT[y.etat] - RANG_ETAT[x.etat] || y.texte - x.texte);
+    const meilleur = candidats[0];
+    ecartees += candidats.length - 1;
+    const avant = incident ? suite[cle] : undefined;
+    let etat = meilleur.etat;
+    if (avant && etat !== 'reprise' && RANG_ETAT[etat] < RANG_ETAT[avant.etat]) {
+      // Une annonce plus légère ne vaut « amélioration » que si plus aucune annonce en cours ne porte l'état précédent.
+      const encore = [...alertes.values()].some(a => {
+        const fr = francais.get(a.id); const l = a.lignes.get(meilleur.l.id);
+        return l && fr && fr.disruptionId === incident && RANG_ETAT[etatAnnonce(l.niveau, fr)] >= RANG_ETAT[avant.etat];
+      });
+      if (encore) etat = avant.etat;
+    }
+    if (incident) {
+      const annonces = [...new Set([...(avant ? avant.annonces : []), ...candidats.map(c => c.a.id)])].slice(-20);
+      suite[cle] = { etat, annonces, vu: maintenant };
+    }
+    if (avant && avant.etat === etat) { ecartees++; continue; }
+    const { a, l } = meilleur;
+    if (!choisies.has(a.id)) choisies.set(a.id, { ...a, lignes: new Map() });
+    choisies.get(a.id).lignes.set(l.id, l);
+  }
+  return { aEnvoyer: [...choisies.values()], memoire: suite, attente: attenteSuite, retenues, ecartees };
+}
+
 // ── Messages ───────────────────────────────────────────────────────────────────────────────────────────────────
 // Pour un appareil qui suit `suivies` (ids de lignes) : une seule notification qui regroupe les nouvelles alertes.
 // `francais` : Map idPerturbation → { titre, etiquette } (texte français de Navitia), facultatif.
-// UNE notification par nouvelle perturbation et par ligne suivie (« RER B : trafic interrompu »). Au-delà de
+// UNE notification par nouvelle perturbation (après le tri des doublons) et par ligne suivie (« RER B : trafic interrompu »). Au-delà de
 // MAX_PAR_PASSAGE notifications pour un même appareil en un passage, les autres sont regroupées en une seule.
 const MAX_PAR_PASSAGE = 5;
 const LONGUEUR_MAX_CORPS = 400;
@@ -107,7 +184,8 @@ function composerMessages(nouvelles, suivies, francais = new Map()) {
     // L'annonce voyage avec la notification : l'app la garde en mémoire et peut l'afficher « terminée » si elle l'est au toucher.
     if (fr && fr.titre) data.perturbation = { id: alerte.id, titre: fr.titre, detail: (fr.detail || '').slice(0, 300), niveau: ligne.niveau };
     const corps = corpsNotification(fr);
-    return { title: `${libelleLigne(ligne)} : ${etat}`, ...(corps ? { body: corps } : {}), data };
+    const remplace = fr && fr.disruptionId ? { tag: `trafic-${ligne.id}-${fr.disruptionId}` } : {};
+    return { title: `${libelleLigne(ligne)} : ${etat}`, ...(corps ? { body: corps } : {}), ...remplace, data };
   };
   if (liste.length <= MAX_PAR_PASSAGE) return liste.map(un);
   const reste = liste.slice(MAX_PAR_PASSAGE - 1);
@@ -243,10 +321,17 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
 
   const refEtat = db.doc('systeme/alertesTrafic');
   const etat = await refEtat.get();
+  const avant = (etat.exists && etat.data()) || {};
+  const dejaSignalees = avant.signalees || {};
+  let tri = { memoire: avant.incidents || {}, attente: {}, retenues: new Set() };
   const enregistrerEtat = () => {
     const signalees = {};
-    for (const a of alertes.values()) signalees[a.id] = a.gravite;
-    return reel ? refEtat.set({ signalees, miseAJour: horodatage }) : Promise.resolve();
+    for (const a of alertes.values()) {
+      // Une annonce retenue (texte attendu) garde son ancienne valeur : elle sera réexaminée au passage suivant.
+      if (!tri.retenues.has(a.id)) signalees[a.id] = a.gravite;
+      else if (dejaSignalees[a.id] !== undefined) signalees[a.id] = dejaSignalees[a.id];
+    }
+    return reel ? refEtat.set({ signalees, incidents: tri.memoire, attente: tri.attente, miseAJour: horodatage }) : Promise.resolve();
   };
 
   if (!etat.exists) {
@@ -256,10 +341,11 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
     return;
   }
 
-  const nouvelles = nouvellesAlertes(alertes, etat.data().signalees || {});
+  const nouvelles = nouvellesAlertes(alertes, dejaSignalees);
   bilan.nouvelles = nouvelles.length;
   journal(`${nouvelles.length} nouvelle(s) ou aggravée(s).`);
-  if (nouvelles.length === 0) { await enregistrerEtat(); return; }
+  const trier = (francais, suivies) => trierNouvelles({ nouvelles, alertes, francais, suivies, memoire: avant.incidents || {}, attente: avant.attente || {} });
+  if (nouvelles.length === 0) { tri = trier(new Map(), new Set()); await enregistrerEtat(); return; }
 
   const abonnes = (await db.collection('pushTokens').get()).docs
     .map(d => ({ ref: d.ref, token: d.data().token, suivies: d.data().alertesLignes || [], dev: d.data().variante === 'dev' }))
@@ -270,17 +356,22 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
   journal(`${abonnes.length} appareil(s) suivent au moins une ligne.`);
 
   // Les textes français ne sont demandés que pour les lignes réellement suivies par quelqu'un.
+  const suivies = new Set(abonnes.flatMap(x => x.suivies));
   const lignesUtiles = new Set();
-  for (const a of nouvelles) for (const l of a.lignes.values()) if (abonnes.some(x => x.suivies.includes(l.id))) lignesUtiles.add(l.id);
+  for (const a of nouvelles) for (const l of a.lignes.values()) if (suivies.has(l.id)) lignesUtiles.add(l.id);
   const francais = new Map();
   for (const id of lignesUtiles) {
     for (const [k, v] of await textesFrancais(id, cle)) francais.set(k, v);
     await attendre(700);
   }
 
+  tri = trier(francais, suivies);
+  if (tri.ecartees > 0) journal(`${tri.ecartees} mise(s) à jour sans changement d'état, non renvoyée(s).`);
+  if (tri.retenues.size > 0) journal(`${tri.retenues.size} annonce(s) sans texte, en attente.`);
+
   const messages = [];
   for (const ab of abonnes) {
-    for (const m of composerMessages(nouvelles, ab.suivies, francais)) {
+    for (const m of composerMessages(tri.aEnvoyer, ab.suivies, francais)) {
       messages.push({ to: ab.token, sound: 'default', channelId: 'trafic', priority: 'high', ttl: 3600, ...m });
     }
   }
@@ -291,7 +382,7 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
     bilan.envoyees = messages.length - invalides.length;
     // UN seul document par passage (Cloudflare limite le nombre de requêtes par passage) ; son échec ne gêne rien.
     try {
-      await db.collection('journalAlertes').add({ at: new Date(), alertes: entreesJournal(nouvelles, abonnes, francais, etat.data().signalees || {}) });
+      await db.collection('journalAlertes').add({ at: new Date(), alertes: entreesJournal(tri.aEnvoyer, abonnes, francais, dejaSignalees) });
     } catch (e) { journal(`Journal des envois non enregistré : ${e.message}`); }
     for (const t of invalides) {
       const doc = abonnes.find(a => a.token === t);
@@ -301,4 +392,4 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
   await enregistrerEtat();
 }
 
-module.exports = { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia, executerSurveillance };
+module.exports = { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia, executerSurveillance, etatAnnonce, trierNouvelles };

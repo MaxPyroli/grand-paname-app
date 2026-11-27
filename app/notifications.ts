@@ -7,6 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { firebaseConfig } from './firebaseConfig';
 import { APP_VERSION } from './constants';
 import { logger } from './logger';
+import { concerneLigne } from './notifs';
+import type { ModeTrafic } from './traficApi';
 
 // Comportement d'affichage quand une notif arrive alors que l'app est ouverte.
 // Alerte trafic : UNIQUEMENT le pop-up de l'app (AlerteFlash), jamais la bannière du système en plus. La bibliothèque ne
@@ -263,11 +265,11 @@ function heureNotification(n: Notifications.Notification | undefined): number {
 }
 
 // La ligne vient d'être consultée : ses notifications d'alerte encore présentes dans le volet du téléphone sont retirées.
-export async function effacerNotificationsLigne(ligneId: string): Promise<void> {
+export async function effacerNotificationsLigne(ligne: { id: string; mode: ModeTrafic; code: string }): Promise<void> {
   try {
     const presentes = await Notifications.getPresentedNotificationsAsync();
     await Promise.all(presentes
-      .filter(n => { const d: any = n.request?.content?.data; return d?.type === 'trafic' && d.ligneId === ligneId; })
+      .filter(n => concerneLigne(n.request?.content, ligne))
       .map(n => Notifications.dismissNotificationAsync(n.request.identifier)));
   } catch (e: any) {
     logger.warn(`effacerNotificationsLigne: ${e?.message}`);

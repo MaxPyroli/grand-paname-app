@@ -32,7 +32,7 @@ const lancer = (m, reel) => executerSurveillance({ db: m.db, horodatage: 'T', cl
 test('premier passage : état enregistré (en réel), rien envoyé', async () => {
   const m = fauxMonde({ etat: null, abonnes: [{ token: 'ExponentPushToken[x]', alertesLignes: ['L1'] }] });
   await lancer(m, true);
-  assert.deepEqual(m.ecritures, [{ signalees: { d1: 'BLOQUANTE' }, miseAJour: 'T' }]);
+  assert.deepEqual(m.ecritures, [{ signalees: { d1: 'BLOQUANTE' }, incidents: {}, attente: {}, miseAJour: 'T' }]);
   assert.equal(m.envois.length, 0);
 });
 

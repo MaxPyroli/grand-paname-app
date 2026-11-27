@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inserer, preparer, lireTitreAlerte, notifDAlerte, notifier, fermerNotif, toutFermer, lireFile, majElements, FILE_MAX, type Notif, type DemandeNotif } from '../notifs.ts';
+import { inserer, preparer, lireTitreAlerte, concerneLigne, notifDAlerte, notifier, fermerNotif, toutFermer, lireFile, majElements, FILE_MAX, type Notif, type DemandeNotif } from '../notifs.ts';
 
 const n = (cle: string, d: Partial<DemandeNotif> = {}): Notif => preparer({ cle, titre: cle, forme: 'carte', ...d });
 const cles = (f: Notif[]) => f.map(x => x.cle);
@@ -64,4 +64,16 @@ test('notifs : une pilule persistante (téléchargement) laisse passer les messa
   let f = inserer([], preparer({ cle: 'maj', titre: 'Mise à jour...', duree: null, chargement: true }));
   f = inserer(f, preparer({ cle: 'ok', titre: 'Cache vidé' }));
   assert.deepEqual(cles(f), ['ok', 'maj']);
+});
+
+test('notifs : reconnaître les notifications d une ligne, avec ou sans leurs données', () => {
+  const m13 = { id: 'line:13', mode: 'METRO' as const, code: '13' };
+  assert.ok(concerneLigne({ data: { type: 'trafic', ligneId: 'line:13' } }, m13));
+  assert.ok(!concerneLigne({ title: 'Métro 13 : trafic perturbé', data: { type: 'trafic', ligneId: 'line:3' } }, m13));
+  // Affichée par Android : pas de données, la ligne se lit dans le titre.
+  assert.ok(concerneLigne({ title: 'Métro 13 : trafic perturbé', data: { 'android.title': 'x' } }, m13));
+  assert.ok(!concerneLigne({ title: 'Métro 3 : trafic perturbé', data: {} }, m13));
+  assert.ok(!concerneLigne({ title: 'Mise à jour disponible' }, m13));
+  assert.ok(concerneLigne({ title: 'Métro 3 bis : trafic perturbé' }, { id: 'x', mode: 'METRO', code: '3B' }));
+  assert.ok(concerneLigne({ title: 'Tram T2 : trafic interrompu' }, { id: 'y', mode: 'TRAM', code: 'T2' }));
 });

@@ -118,6 +118,14 @@ export function lireTitreAlerte(titre: string): { mode: ModeTrafic; code: string
   return { mode: MODES_TITRE[m[1]], code: m[2] + (m[3] ? 'B' : ''), etat: m[4].charAt(0).toUpperCase() + m[4].slice(1) };
 }
 
+// Une notification du téléphone concerne-t-elle cette ligne ? Celles qu'Android a affichées lui-même (app fermée ou en
+// arrière-plan) sont rendues à l'app SANS leurs données : seul leur titre permet alors de reconnaître la ligne.
+export function concerneLigne(contenu: { title?: string | null; data?: any } | undefined, ligne: { id: string; mode: ModeTrafic; code: string }): boolean {
+  if (contenu?.data?.type === 'trafic') return contenu.data.ligneId === ligne.id;
+  const lu = lireTitreAlerte(contenu?.title || '');
+  return !!lu && lu.mode === ligne.mode && lu.code.toUpperCase() === ligne.code.toUpperCase();
+}
+
 export function notifDAlerte(a: { ligneId: string; titre: string; ligneTitre?: string; niveau: 'interrompu' | 'perturbe' }, onPress: () => void): DemandeNotif {
   const titreComplet = a.ligneTitre || a.titre;
   const lu = lireTitreAlerte(titreComplet);
