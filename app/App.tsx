@@ -1200,6 +1200,19 @@ function CoucheVerre({ zone, rayon = 16, ombre, idVerre, fondu, masque, cibleNat
       } else definirRect({ id: idRect, x, y, w, h, r: rayon, o: ombre, op: fondu ? 1 : undefined });
     });
   }, [idRect, rayon, ombre, fondu]);
+  // Rotation ou zone de la caméra qui change : un élément peut être DÉPLACÉ par son parent sans changer de taille
+  // (barre de navigation en paysage : sa largeur ne dépend pas de la marge de gauche). `onLayout` ne se déclenche pas
+  // dans ce cas et le flou et son ombre restaient à l'ancienne place. On re-mesure donc, plusieurs fois car les
+  // marges de l'écran arrivent parfois après les nouvelles dimensions.
+  const { width: largeurFenetre, height: hauteurFenetre } = useWindowDimensions();
+  const marges = useSafeAreaInsets();
+  const masqueRef = useRef(masque);
+  masqueRef.current = masque;
+  useEffect(() => {
+    if (!webActif) return;
+    const minuteurs = [60, 350, 800].map(delai => setTimeout(() => { if (!masqueRef.current) mesurer(); }, delai));
+    return () => minuteurs.forEach(clearTimeout);
+  }, [webActif, mesurer, largeurFenetre, hauteurFenetre, marges.left, marges.right, marges.top, marges.bottom]);
   // `masque` : l'élément natif s'estompe (200 ms) → le flou s'estompe avec lui.
   useEffect(() => {
     if (masque && dernierRect.current && webActif) definirRect({ ...dernierRect.current, op: 0, anim: true, d: 200 });

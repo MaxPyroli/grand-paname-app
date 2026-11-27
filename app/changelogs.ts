@@ -24,6 +24,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
 * Correction d'un bug où la ligne ouverte depuis une alerte trafic restait cachée derrière le volet des horaires.
 * Correction d'un bug où les lignes de transport clignotaient sur la carte pendant un zoom.
 * Correction d'un bug où un volet d'horaires vide pouvait apparaître au milieu de l'écran, par exemple à l'ouverture de l'app.
+* Correction d'un bug où le flou et les ombres des barres du bas étaient décalés en mode paysage.
 * Correction d'un bug où une alerte trafic reçue avec l'app ouverte s'affichait deux fois, en pop-up et en bannière du téléphone.
 
 Bon voyage !`,
