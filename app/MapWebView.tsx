@@ -456,7 +456,12 @@ function getMapHTML(isDark: boolean, oled: boolean) {
     _flyToCluster(allPts,_lastMain);
   }
 
+  // Tracés des lignes dessinés sur un SEUL canvas (et non en SVG, le mode par défaut, qui clignotait au zoom dans la
+  // WebView Android). « padding » : on dessine aussi un demi-écran autour de la vue, pour qu'en dézoomant les lignes soient
+  // déjà là au lieu d'apparaître après coup.
+  var rendTraces=null;
   function setTransportData(data){
+    if(!rendTraces) rendTraces=L.canvas({padding:0.5});
     transportLines.forEach(function(l){map.removeLayer(l);});
     transportStops.forEach(function(m){map.removeLayer(m);});
     transportLines=[];transportStops=[];
@@ -469,7 +474,7 @@ function getMapHTML(isDark: boolean, oled: boolean) {
       var weight=(l.mode==='RER'||l.mode==='TRAIN')?4:(l.mode==='METRO')?2.5:1.5;
       l.coords.forEach(function(seg){
         if(seg&&seg.length>=2){
-          transportLines.push(L.polyline(seg,{color:color,weight:weight,opacity:1}).addTo(map));
+          transportLines.push(L.polyline(seg,{color:color,weight:weight,opacity:1,renderer:rendTraces,interactive:false}).addTo(map));
         }
       });
     });
