@@ -14,8 +14,8 @@ import {
 
 const ROUGE = '#E5493E', ORANGE = '#F39C12', BLEU = '#3C91DC';
 const NIVEAUX: Choix<NiveauAlertes>[] = [
-  { cle: 'toutes', titre: 'Toutes', texte: 'Interruptions, perturbations et informations.', points: [ROUGE, ORANGE, BLEU] },
-  { cle: 'standard', titre: 'Perturbations et interruptions', texte: 'Les incidents en cours, sans les informations.', points: [ROUGE, ORANGE] },
+  { cle: 'toutes', titre: 'Toutes', texte: 'Tout : y compris les informations, les petits ralentissements et les précisions sur un incident.', points: [ROUGE, ORANGE, BLEU] },
+  { cle: 'standard', titre: 'Perturbations et interruptions', texte: 'Les incidents en cours, sans les informations ni les petits ralentissements.', points: [ROUGE, ORANGE] },
   {
     cle: 'interruptions', titre: 'Interruptions', texte: 'Seulement quand le trafic est annoncé comme interrompu.', points: [ROUGE],
     avertissement: 'Certaines coupures peuvent ne pas être signalées si elles ne sont pas annoncées comme une interruption.',

@@ -107,10 +107,25 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       // ceux à donner en `channelId` à l'envoi (voir scripts/notifications-ui.js) ;
       // le nom affiché peut être changé ici à tout moment (Android met à jour le
       // nom d'une catégorie existante, mais pas son niveau d'importance).
-      await Notifications.setNotificationChannelAsync('trafic', {
-        name: 'Info Trafic',
-        description: 'Perturbations et informations sur le trafic.',
+      // Trois catégories d'alertes trafic, réglables séparément dans Android. L'ancienne catégorie unique « trafic »
+      // est retirée une fois le serveur prévenu (voir `enregistrerNiveauAlertes`).
+      await Notifications.setNotificationChannelAsync('trafic_interruption', {
+        name: 'Info Trafic : Interruption',
+        description: 'Le trafic est interrompu sur une ligne suivie.',
         importance: Notifications.AndroidImportance.HIGH,
+        enableVibrate: true,
+      });
+      await Notifications.setNotificationChannelAsync('trafic_perturbation', {
+        name: 'Info Trafic : Perturbation',
+        description: 'Perturbations, aggravations et reprises sur les lignes suivies.',
+        importance: Notifications.AndroidImportance.HIGH,
+        enableVibrate: true,
+      });
+      await Notifications.setNotificationChannelAsync('trafic_information', {
+        name: 'Info Trafic : Information',
+        description: 'Informations, petits ralentissements et précisions sur un incident. Sans son.',
+        importance: Notifications.AndroidImportance.LOW,
+        enableVibrate: false,
       });
       await Notifications.setNotificationChannelAsync('maj', {
         name: 'Mises à jour',
@@ -190,7 +205,9 @@ export async function enregistrerNiveauAlertes(niveau: NiveauAlertes, tokenConnu
     const token = tokenConnu ?? await registerForPushNotificationsAsync();
     if (!token) return;
     const db = getFirestore(firebaseApp());
-    await setDoc(doc(db, 'pushTokens', token), { alertesNiveau: niveau }, { merge: true });
+    // `canaux` : cette app a les trois catégories ; le serveur peut les viser.
+    await setDoc(doc(db, 'pushTokens', token), { alertesNiveau: niveau, canaux: 2 }, { merge: true });
+    if (Platform.OS === 'android') await Notifications.deleteNotificationChannelAsync('trafic');
   } catch (e: any) {
     logger.warn(`enregistrerNiveauAlertes: ${e?.message}`);
   }
@@ -237,7 +254,7 @@ export async function enregistrerBusSuivis(bus: BusSuivi[]): Promise<void> {
 // ── Alertes reçues, gardées en mémoire ────────────────────────────────────────
 // Chaque alerte trafic reçue (app ouverte) ou touchée (app fermée) est gardée sur le téléphone : si la perturbation est
 // terminée quand on ouvre la ligne, le détail de la ligne l'affiche quand même, marquée « terminée » (voir TraficDetail).
-export type AlerteRecue = { id: string; ligneId: string; titre: string; detail: string; niveau: 'interrompu' | 'perturbe' | 'info'; recueLe: number; ligneTitre?: string };
+export type AlerteRecue = { id: string; ligneId: string; titre: string; detail: string; niveau: 'interrompu' | 'perturbe' | 'info'; categorie?: 'information' | 'perturbation' | 'interruption'; recueLe: number; ligneTitre?: string };
 const CLE_ALERTES_RECUES = '@gp_alertes_recues';
 const MAX_ALERTES_RECUES = 40;
 const CONSERVATION_MS = 7 * 86_400_000;
@@ -279,7 +296,7 @@ function alerteDepuis(notification: Notifications.Notification | undefined, recu
   const titre = typeof p?.titre === 'string' && p.titre ? p.titre : (corps && corps !== 'Touche pour voir le détail.' ? corps : String(contenu?.title || ''));
   if (!titre) return null;
   const niveau = p?.niveau === 'info' ? 'info' : p?.niveau === 'interrompu' || (!p && /interrompu/i.test(String(contenu?.title || ''))) ? 'interrompu' : 'perturbe';
-  return { id: typeof p?.id === 'string' ? p.id : `${data.ligneId}|${titre}`, ligneId: data.ligneId, titre, detail: typeof p?.detail === 'string' ? p.detail : '', niveau, recueLe, ligneTitre: String(contenu?.title || '') };
+  return { id: typeof p?.id === 'string' ? p.id : `${data.ligneId}|${titre}`, ligneId: data.ligneId, titre, detail: typeof p?.detail === 'string' ? p.detail : '', niveau, recueLe, ligneTitre: String(contenu?.title || ''), ...(data.categorie ? { categorie: data.categorie } : {}) };
 }
 
 // Heure de réception d'une notification (selon le système, en secondes ou en millisecondes).

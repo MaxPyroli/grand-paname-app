@@ -155,7 +155,9 @@ async function charger() {
   $('actualiser').disabled = false;
 }
 $('actualiser').onclick = charger;
-charger(); setInterval(charger, 120000);
+charger();
+// Toutes les 10 minutes, et seulement quand la page est affichée : chaque actualisation lit la base.
+setInterval(() => { if (!document.hidden) charger(); }, 600000);
 </script>
 </body>
 </html>

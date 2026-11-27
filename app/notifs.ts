@@ -126,11 +126,12 @@ export function concerneLigne(contenu: { title?: string | null; data?: any } | u
   return !!lu && lu.mode === ligne.mode && lu.code.toUpperCase() === ligne.code.toUpperCase();
 }
 
-export function notifDAlerte(a: { ligneId: string; titre: string; ligneTitre?: string; niveau: 'interrompu' | 'perturbe' | 'info' }, onPress: () => void): DemandeNotif {
+export function notifDAlerte(a: { ligneId: string; titre: string; ligneTitre?: string; niveau: 'interrompu' | 'perturbe' | 'info'; categorie?: string }, onPress: () => void): DemandeNotif {
   const titreComplet = a.ligneTitre || a.titre;
   const lu = lireTitreAlerte(titreComplet);
   return {
-    forme: 'carte', type: a.niveau, cle: 'alerte-' + a.ligneId, vibration: true, onPress,
+    // Une alerte de la catégorie « Information » s'affiche sans faire vibrer.
+    forme: 'carte', type: a.niveau, cle: 'alerte-' + a.ligneId, vibration: a.categorie !== 'information', onPress,
     titre: lu?.etat ?? titreComplet,
     texte: a.ligneTitre && a.titre !== a.ligneTitre ? a.titre : undefined,
     ligne: lu ? { mode: lu.mode, code: lu.code } : undefined,

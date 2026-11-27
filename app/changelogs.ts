@@ -21,6 +21,7 @@ export const CHANGELOGS: ChangelogEntry[] = [
 * Le tutoriel de l'application a été revu
 * Les paramètres ont été entièrement repensés, plus compacts et aux couleurs de l'app.
 * Nouvelle page Notifications : choisis quelles alertes recevoir (toutes, perturbations et interruptions, ou interruptions seules), gère tes lignes suivies, règle les alertes dans l'app et leur vibration.
+* Les alertes trafic sont rangées en trois catégories Android (Information, sans son ; Perturbation ; Interruption), réglables séparément.
 * La barre de recherche des bus accompagne le clavier en douceur au lieu de sauter.
 * Correction d'un bug lors de l'ouverture d'une notification d'info trafic d'une ligne de bus qui n'affichait pas la perturbation.
 * Correction d'un bug où la mise à jour intégrée à l'app s'arrêtait sans rien afficher en cas d'échec : la fiche de l'app sur le Play Store s'ouvre maintenant directement.

@@ -60,7 +60,7 @@ test('message : filtré par lignes suivies, une ligne, plusieurs lignes', () => 
   const n = nouvellesAlertes(alertesActuelles(bulk({ severity: 'BLOQUANTE' }, 'line', lignes), NOW), {});
   assert.deepEqual(composerMessages(n, ['L9']), []);
   const un = composerMessages(n, ['L1']);
-  assert.deepEqual(un, [{ title: 'Métro 8 : trafic interrompu', data: { type: 'trafic', ligneId: 'L1' } }]);
+  assert.deepEqual(un, [{ title: 'Métro 8 : trafic interrompu', data: { type: 'trafic', ligneId: 'L1', categorie: 'interruption' } }]);
   const fr = new Map([['d1', { titre: 'Panne de courant', etiquette: 'Trafic Interrompu' }]]);
   const avecFr = composerMessages(n, ['L1'], fr);
   assert.equal(avecFr[0].title, 'Métro 8 : trafic interrompu');
@@ -92,5 +92,5 @@ test('message : la perturbation voyage dans les données de la notification (pou
   const lignes = [{ id: 'L1', shortName: '8', mode: 'Metro' }];
   const n = nouvellesAlertes(alertesActuelles(bulk({ severity: 'BLOQUANTE' }, 'line', lignes), NOW), {});
   const [m] = composerMessages(n, ['L1'], new Map([['d1', { titre: 'Panne', detail: 'Détail', etiquette: '' }]]));
-  assert.deepEqual(m.data, { type: 'trafic', ligneId: 'L1', perturbation: { id: 'd1', titre: 'Panne', detail: 'Détail', niveau: 'interrompu' } });
+  assert.deepEqual(m.data, { type: 'trafic', ligneId: 'L1', categorie: 'interruption', perturbation: { id: 'd1', titre: 'Panne', detail: 'Détail', niveau: 'interrompu' } });
 });

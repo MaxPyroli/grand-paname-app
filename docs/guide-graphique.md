@@ -180,6 +180,7 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 - Flou d’une carte qui remonte dans la pile (27/11) : il arrive en fondu PENDANT que la carte remonte (20 ms puis 260 ms), jamais d’un coup.
 - Balayage d’une notification interne (27/11) : au lâcher, la carte continue immédiatement à la vitesse du doigt (comme les volets) ; aucun arrêt, aucun redémarrage de l’animation.
 - Alerte trafic app ouverte (27/11, remplace la copie rangée dans le volet) : uniquement la notification interne, rien côté téléphone.
+- Catégories Android des alertes (27/11) : « Info Trafic : Information » (sans son), « Info Trafic : Perturbation », « Info Trafic : Interruption » (son et vibration). Une catégorie par niveau d’alerte des paramètres. Dans l’app, une alerte « Information » ne fait pas vibrer.
 - Vibration des notifications internes (27/11) : une seule, à l’arrivée de l’alerte (même mise en attente) ; jamais quand une carte déjà reçue remonte dans la pile.
 - Verre des notifications et fenêtres (27/11) : il floute toujours ce qui est réellement derrière. Toute nouvelle page plein écran posée au-dessus de l’app doit devenir la cible du flou tant qu’elle est affichée (comme les paramètres).
 

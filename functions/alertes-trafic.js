@@ -95,7 +95,7 @@ function libelleLigne(l) {
 // autre. IDFM publie une NOUVELLE annonce à chaque mise à jour, mais elles gardent le même numéro d'incident
 // (`disruption_id`). Pour un couple ligne + incident, on ne prévient à nouveau que si son ÉTAT change. Un autre numéro
 // d'incident (ou pas de numéro) donne toujours sa propre notification.
-const RANG_ETAT = { reprise: 0, info: 1, perturbe: 1, tres: 2, interrompu: 3 };
+const RANG_ETAT = { reprise: 0, mineur: 0.5, info: 1, perturbe: 1, tres: 2, interrompu: 3 };
 const ATTENTE_TEXTE_MS = 4 * 60_000;          // une annonce sans texte attend le sien (sauf ligne interrompue)
 const OUBLI_INCIDENT_MS = 3 * 3_600_000;      // incident sans annonce en cours depuis ce délai : oublié
 
@@ -107,14 +107,29 @@ function etatAnnonce(niveau, fr) {
   if (/reprise|reprend/.test(t)) return 'reprise';
   if (niveau === 'interrompu' || /interrompu/.test(t)) return 'interrompu';
   if (/(tres|fortement) perturbe/.test(t)) return 'tres';
+  // Petits ralentissements : rangés dans les informations. S'ils s'aggravent, l'état change et la perturbation part.
+  if (/trains? stationne(nt)?|stationnement prolonge|vitesse reduite/.test(t)) return 'mineur';
   return 'perturbe';
 }
 
-// Ce qu'un appareil veut recevoir selon son réglage.
-function voulue(niveau, ligne, fr) {
-  if (ligne.niveau === 'info') return niveau === 'toutes';
-  if (niveau === 'interruptions') return etatAnnonce(ligne.niveau, fr) === 'interrompu';
-  return true;
+// Les trois catégories de notifications Android de l'app (une par niveau d'alerte) :
+//   information   informations, petits ralentissements, précisions sur un incident sans changement d'état
+//   perturbation  perturbations, aggravations, reprises
+//   interruption  trafic interrompu
+function categorieAlerte(ligne, fr) {
+  if (ligne.maj || ligne.niveau === 'info') return 'information';
+  const etat = etatAnnonce(ligne.niveau, fr);
+  return etat === 'mineur' ? 'information' : etat === 'interrompu' ? 'interruption' : 'perturbation';
+}
+
+// Ce qu'un appareil veut recevoir. `categories` : son app connaît les trois catégories (3.4.1 et suivantes). Les apps
+// plus anciennes, qui n'ont pas de réglage, continuent de recevoir ce qu'elles recevaient (petits ralentissements
+// compris, sans informations ni précisions).
+function voulue(niveau, ligne, fr, categories = true) {
+  if (!categories && niveau === 'standard') return !ligne.maj && ligne.niveau !== 'info';
+  const categorie = categorieAlerte(ligne, fr);
+  if (categorie === 'information') return niveau === 'toutes';
+  return niveau !== 'interruptions' || categorie === 'interruption';
 }
 
 // Parmi les annonces nouvelles ou aggravées, ce qui mérite vraiment une notification.
@@ -142,7 +157,8 @@ function trierNouvelles({ nouvelles, alertes, francais = new Map(), suivies, mem
       // Les informations d'un incident se suivent à part de ses perturbations.
       const cle = `${l.id}|${l.niveau === 'info' ? 'info:' : ''}${incident || '?' + a.id}`;
       if (!groupes.has(cle)) groupes.set(cle, { incident, candidats: [] });
-      groupes.get(cle).candidats.push({ a, l, etat: etatAnnonce(l.niveau, fr), texte: !!(fr && fr.titre) });
+      const contenu = `${(fr && fr.titre) || ''} ${(fr && fr.detail) || ''}`.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '').slice(0, 300);
+      groupes.get(cle).candidats.push({ a, l, etat: etatAnnonce(l.niveau, fr), texte: !!(fr && fr.titre), contenu });
     }
   }
 
@@ -155,20 +171,26 @@ function trierNouvelles({ nouvelles, alertes, francais = new Map(), suivies, mem
     ecartees += candidats.length - 1;
     const avant = incident ? suite[cle] : undefined;
     let etat = meilleur.etat;
+    let garde = false;
     if (avant && etat !== 'reprise' && RANG_ETAT[etat] < RANG_ETAT[avant.etat]) {
       // Une annonce plus légère ne vaut « amélioration » que si plus aucune annonce en cours ne porte l'état précédent.
       const encore = [...alertes.values()].some(a => {
         const fr = francais.get(a.id); const l = a.lignes.get(meilleur.l.id);
         return l && fr && fr.disruptionId === incident && RANG_ETAT[etatAnnonce(l.niveau, fr)] >= RANG_ETAT[avant.etat];
       });
-      if (encore) etat = avant.etat;
+      if (encore) { etat = avant.etat; garde = true; }
     }
     if (incident) {
       const annonces = [...new Set([...(avant ? avant.annonces : []), ...candidats.map(c => c.a.id)])].slice(-20);
-      suite[cle] = { etat, annonces, vu: maintenant };
+      const texte = !garde && meilleur.texte ? meilleur.contenu : avant && avant.texte;
+      suite[cle] = { etat, annonces, vu: maintenant, ...(texte ? { texte } : {}) };
     }
-    if (avant && avant.etat === etat) { ecartees++; continue; }
-    const { a, l } = meilleur;
+    let { a, l } = meilleur;
+    if (avant && avant.etat === etat) {
+      // Même état : nouvelle précision seulement si le texte a changé (jamais une annonce plus légère qui cohabite).
+      if (garde || !meilleur.texte || meilleur.contenu === avant.texte) { ecartees++; continue; }
+      l = { ...l, maj: true };
+    }
     if (!choisies.has(a.id)) choisies.set(a.id, { ...a, lignes: new Map() });
     choisies.get(a.id).lignes.set(l.id, l);
   }
@@ -188,17 +210,19 @@ function corpsNotification(fr) {
   const texte = fr.detail ? `${fr.titre}\n${fr.detail}` : fr.titre;
   return texte.length <= LONGUEUR_MAX_CORPS ? texte : texte.slice(0, LONGUEUR_MAX_CORPS - 1).trimEnd() + '…';
 }
-function composerMessages(nouvelles, suivies, francais = new Map(), niveau = 'standard') {
+function composerMessages(nouvelles, suivies, francais = new Map(), niveau = 'standard', categories = true) {
   const liste = [];   // { ligne, alerte }
   for (const a of nouvelles) {
-    for (const l of a.lignes.values()) if (suivies.includes(l.id) && voulue(niveau, l, francais.get(a.id))) liste.push({ ligne: l, alerte: a });
+    for (const l of a.lignes.values()) if (suivies.includes(l.id) && voulue(niveau, l, francais.get(a.id), categories)) liste.push({ ligne: l, alerte: a });
   }
-  // Les plus graves d'abord (lignes interrompues), pour qu'elles ne soient jamais celles qu'on regroupe.
-  liste.sort((x, y) => (y.ligne.niveau === 'interrompu') - (x.ligne.niveau === 'interrompu'));
+  // Les plus graves d'abord (interruptions, puis perturbations), pour qu'elles ne soient jamais celles qu'on regroupe.
+  const POIDS = { interruption: 2, perturbation: 1, information: 0 };
+  const categorieDe = x => categorieAlerte(x.ligne, francais.get(x.alerte.id));
+  liste.sort((x, y) => POIDS[categorieDe(y)] - POIDS[categorieDe(x)]);
   const un = ({ ligne, alerte }) => {
     const fr = francais.get(alerte.id);
     const etat = (fr && fr.etiquette) ? fr.etiquette.toLowerCase() : ligne.niveau === 'interrompu' ? 'trafic interrompu' : ligne.niveau === 'info' ? 'information' : 'trafic perturbé';
-    const data = { type: 'trafic', ligneId: ligne.id };
+    const data = { type: 'trafic', ligneId: ligne.id, categorie: categorieAlerte(ligne, fr) };
     // L'annonce voyage avec la notification : l'app la garde en mémoire et peut l'afficher « terminée » si elle l'est au toucher.
     if (fr && fr.titre) data.perturbation = { id: alerte.id, titre: fr.titre, detail: (fr.detail || '').slice(0, 300), niveau: ligne.niveau };
     const corps = corpsNotification(fr);
@@ -212,7 +236,7 @@ function composerMessages(nouvelles, suivies, francais = new Map(), niveau = 'st
     {
       title: `${reste.length} autres perturbations sur tes lignes`,
       body: [...new Set(reste.map(x => libelleLigne(x.ligne)))].join(', '),
-      data: { type: 'trafic', ligneId: reste[0].ligne.id },
+      data: { type: 'trafic', ligneId: reste[0].ligne.id, categorie: categorieDe(reste[0]) },
     },
   ];
 }
@@ -273,12 +297,13 @@ function entreesJournal(nouvelles, abonnes, francais, dejaSignalees) {
   const entrees = [];
   for (const a of nouvelles) {
     for (const l of a.lignes.values()) {
-      const destinataires = abonnes.filter(x => x.suivies.includes(l.id) && voulue(x.niveau || 'standard', l, francais.get(a.id))).length;
+      const destinataires = abonnes.filter(x => x.suivies.includes(l.id) && voulue(x.niveau || 'standard', l, francais.get(a.id), !!x.categories)).length;
       if (destinataires === 0) continue;
       const fr = francais.get(a.id) || {};
       entrees.push({
         ligneId: l.id, ligne: libelleLigne(l), perturbationId: a.id, gravite: a.gravite, niveau: l.niveau,
-        motifEnvoi: dejaSignalees[a.id] === undefined ? 'nouvelle' : 'aggravation',
+        motifEnvoi: l.maj ? 'precision' : dejaSignalees[a.id] === undefined ? 'nouvelle' : 'aggravation',
+        categorie: categorieAlerte(l, francais.get(a.id)),
         disruptionId: fr.disruptionId || '', impactId: fr.impactId || '', majAnnonce: fr.majAnnonce || '', periodes: fr.periodes || [],
         etiquette: fr.etiquette || '', titre: fr.titre || '', detail: (fr.detail || '').slice(0, 1500), destinataires,
       });
@@ -399,7 +424,7 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
   if (nouvelles.length === 0) { tri = trier(new Map(), new Set()); await enregistrerEtat(); return; }
 
   const abonnes = (await db.collection('pushTokens').get()).docs
-    .map(d => ({ ref: d.ref, token: d.data().token, suivies: d.data().alertesLignes || [], dev: d.data().variante === 'dev', niveau: NIVEAUX.includes(d.data().alertesNiveau) ? d.data().alertesNiveau : 'standard' }))
+    .map(d => ({ ref: d.ref, token: d.data().token, suivies: d.data().alertesLignes || [], dev: d.data().variante === 'dev', niveau: NIVEAUX.includes(d.data().alertesNiveau) ? d.data().alertesNiveau : 'standard', categories: (d.data().canaux || 0) >= 2 }))
     // Les installations de DÉVELOPPEMENT (variante « dev », écrite par l'app) ne reçoivent pas les alertes réelles : elles
     // doublaient celles de la version stable sur le téléphone du développeur. `notifierDev` pour les inclure.
     .filter(a => a.token && a.suivies.length > 0 && (notifierDev || !a.dev));
@@ -424,8 +449,12 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
 
   const messages = [];
   for (const ab of abonnes) {
-    for (const m of composerMessages(tri.aEnvoyer, ab.suivies, francais, ab.niveau)) {
-      messages.push({ to: ab.token, sound: 'default', channelId: 'trafic', priority: 'high', ttl: 3600, ...m });
+    for (const m of composerMessages(tri.aEnvoyer, ab.suivies, francais, ab.niveau, ab.categories)) {
+      const discrete = ab.categories && m.data.categorie === 'information';
+      messages.push({
+        to: ab.token, ...(discrete ? {} : { sound: 'default' }), priority: discrete ? 'default' : 'high', ttl: 3600,
+        channelId: ab.categories ? `trafic_${m.data.categorie}` : 'trafic', ...m,
+      });
     }
   }
   for (const m of messages) journal(`→ ${m.title} | ${m.body || "(sans texte)"}`);
@@ -445,4 +474,4 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
   await enregistrerEtat();
 }
 
-module.exports = { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia, executerSurveillance, etatAnnonce, trierNouvelles, travauxActuels };
+module.exports = { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia, executerSurveillance, etatAnnonce, trierNouvelles, travauxActuels, categorieAlerte };

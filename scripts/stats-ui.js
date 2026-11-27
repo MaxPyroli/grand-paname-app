@@ -11,6 +11,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { creerCacheBilans } = require('./cache-bilans');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 const admin = require('firebase-admin');
@@ -51,12 +52,20 @@ async function chargerNomsLignes() {
 
 const enMs = t => (t && t.toMillis ? t.toMillis() : t instanceof Date ? +t : typeof t === 'number' ? t : null);
 
+const CACHE_PATH = path.join(__dirname, 'cache-bilans.json');
+const lireBilans = creerCacheBilans({
+  lire: async depuis => (await db.collection('statsAlertes').where('at', '>', depuis).orderBy('at').get()).docs.map(d => { const x = d.data(); return { ...x, at: enMs(x.at) }; }),
+  stockage: {
+    charger: () => { try { return JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8')); } catch { return null; } },
+    sauver: v => { try { fs.writeFileSync(CACHE_PATH, JSON.stringify(v)); } catch { /* sans gravité */ } },
+  },
+});
+
 async function calculerStats(filtre = 'stable') {
   if (!db) throw new Error(erreurFirebase);
-  const depuis = new Date(Date.now() - 30 * 86_400_000);
   const [jetons, bilans, noms] = await Promise.all([
     db.collection('pushTokens').get(),
-    db.collection('statsAlertes').where('at', '>=', depuis).orderBy('at').get(),
+    lireBilans(),
     chargerNomsLignes(),
   ]);
   let historique = [];
@@ -68,7 +77,7 @@ async function calculerStats(filtre = 'stable') {
     // Le jeton lui-même n'est jamais recopié.
     appareils: tous.filter(x => correspond(varianteDe(x), filtre))
       .map(x => ({ platform: x.platform, appVersion: x.appVersion, updatedAt: enMs(x.updatedAt), alertesLignes: x.alertesLignes || [] })),
-    passages: bilans.docs.map(d => { const x = d.data(); return { ...x, at: enMs(x.at) }; }),
+    passages: bilans,
     historique,
     nomsLignes: noms,
   });

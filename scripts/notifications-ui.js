@@ -111,6 +111,7 @@ async function listerAppareils({ nettoyer = false } = {}) {
     version: x.appVersion || '?',
     maj: x.updatedAt?.toDate?.()?.toISOString() || null,
     identifie: !!x.deviceKey,
+    categories: (x.canaux || 0) >= 2,
     variante: varianteDe(x),
   }));
   appareils.sort((a, b) => (b.maj || '').localeCompare(a.maj || ''));
@@ -148,6 +149,7 @@ async function lancerEnvoi(job, { categorie, titre, message, cible, token, simul
       : appareils;
     if (destinataires.length === 0) { log('Aucun appareil destinataire.', 'erreur'); job.termine = true; return; }
     const tokens = destinataires.map(a => a.token);
+    const avecCategories = new Set(destinataires.filter(a => a.categories).map(a => a.token));
 
     if (simulation) {
       log(`SIMULATION : rien n'est envoyé. Cette notification partirait vers ${tokens.length} appareil(s) dans la catégorie « ${CATEGORIES[categorie].nom} ».`, 'ok');
@@ -164,7 +166,8 @@ async function lancerEnvoi(job, { categorie, titre, message, cible, token, simul
     for (const lot of decouper(tokens, 100)) {
       const messages = lot.map(to => ({
         to, title: titre, body: message, sound: 'default',
-        channelId: CATEGORIES[categorie].id, priority: 'high',
+        // « Info Trafic » : les apps à trois catégories n'ont plus l'ancienne, on vise « Perturbation ».
+        channelId: categorie === 'trafic' && avecCategories.has(to) ? 'trafic_perturbation' : CATEGORIES[categorie].id, priority: 'high',
         data: { categorie },
       }));
       const res = await fetch('https://exp.host/--/api/v2/push/send', {

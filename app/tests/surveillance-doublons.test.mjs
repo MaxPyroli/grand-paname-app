@@ -14,17 +14,21 @@ function suivi() {
     for (const [k, v] of Object.entries(francais)) textes.set(k, v);
     const r = trierNouvelles({ nouvelles: neuves, alertes: new Map(actives.map(a => [a.id, a])), francais: textes, suivies: new Set(['L1']), memoire, attente, maintenant: t });
     memoire = r.memoire; attente = r.attente;
-    return { ...r, envoyees: r.aEnvoyer.map(a => a.id) };
+    const avecMaj = maj => r.aEnvoyer.filter(a => [...a.lignes.values()].some(l => !!l.maj === maj)).map(a => a.id);
+    // `envoyees` : vraies alertes ; `precisions` : même état, texte nouveau (catégorie « Information »).
+    return { ...r, envoyees: avecMaj(false), precisions: avecMaj(true) };
   };
 }
 
-test('état d une annonce : reprise, interrompu, très perturbé, perturbé', () => {
+test('état d une annonce : reprise, interrompu, très perturbé, perturbé, petit ralentissement', () => {
   assert.equal(etatAnnonce('perturbe', texte('Incident - Reprise progressive')), 'reprise');
   assert.equal(etatAnnonce('perturbe', texte('Ligne P : trafic interrompu')), 'interrompu');
   assert.equal(etatAnnonce('interrompu', texte('Panne')), 'interrompu');
   assert.equal(etatAnnonce('perturbe', texte('Panne - Trafic très perturbé')), 'tres');
   assert.equal(etatAnnonce('perturbe', texte('Panne', 'x', 'Trafic fortement perturbé')), 'tres');
-  assert.equal(etatAnnonce('perturbe', { titre: 'Train stationne', etiquette: '', detail: 'Reprise estimée à 10h' }), 'perturbe');
+  assert.equal(etatAnnonce('perturbe', { titre: 'Train stationne', etiquette: '', detail: 'Reprise estimée à 10h' }), 'mineur');
+  assert.equal(etatAnnonce('perturbe', { titre: 'Panne de signalisation', etiquette: '', detail: 'Reprise estimée à 10h' }), 'perturbe');
+  assert.equal(etatAnnonce('perturbe', texte('Trains stationnent', 'x', 'Trafic fortement perturbé')), 'tres');
 });
 
 test('même incident : seul un changement d état est renvoyé', () => {
@@ -88,4 +92,19 @@ test('notification remplaçable : une étiquette par ligne et par incident, aucu
   assert.equal(avec.tag, 'trafic-L1-inc');
   const [sans] = composerMessages([annonce('a')], ['L1']);
   assert.ok(!('tag' in sans));
+});
+
+test('même état, texte nouveau : une précision discrète ; texte identique : rien', () => {
+  const passage = suivi();
+  passage([annonce('a')], { francais: { a: texte('Trafic perturbé') } });
+  const r = passage([annonce('b')], { francais: { b: texte('Trafic perturbé, bus de remplacement') } });
+  assert.deepEqual([r.envoyees, r.precisions], [[], ['b']]);
+  const s = passage([annonce('c')], { francais: { c: texte('Trafic perturbé, bus de remplacement') } });
+  assert.deepEqual([s.envoyees, s.precisions], [[], []]);
+});
+
+test('train stationne puis vraie perturbation : la perturbation prévient', () => {
+  const passage = suivi();
+  passage([annonce('a')], { francais: { a: texte('Panne - Train stationne') } });
+  assert.deepEqual(passage([annonce('b')], { francais: { b: texte('Panne - Trafic perturbé') } }).envoyees, ['b']);
 });

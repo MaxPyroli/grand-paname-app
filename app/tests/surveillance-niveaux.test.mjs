@@ -72,3 +72,23 @@ test('travaux : observés (nouveaux seulement), jamais envoyés', async () => {
   assert.equal(ensuite.travaux[0].travaux[0].titre, 'Titre chantier');
   assert.equal(ensuite.envois.length, 0);
 });
+
+test('catégories : petit ralentissement et précision en « information », réservés au réglage « toutes »', () => {
+  const n = nouvellesAlertes(alertesActuelles(TOUT, Date.now(), true), {});
+  const fr = new Map([['gene', { titre: 'Incident - Train stationne', etiquette: '' }]]);
+  const [petit] = composerMessages(n, ['L1'], fr, 'toutes');
+  assert.equal(petit.data.categorie, 'information');
+  assert.equal(composerMessages(n, ['L1'], fr, 'standard').length, 0);
+  // Une app sans catégories (3.4.0) continue de le recevoir.
+  assert.equal(composerMessages(n, ['L1'], fr, 'standard', false).length, 1);
+});
+
+test('envoi : catégorie Android selon l app ; une information est envoyée sans son', async () => {
+  const abonnes = [{ token: 'NEUVE', alertesLignes: LIGNES, alertesNiveau: 'toutes', canaux: 2 }, { token: 'ANCIENNE', alertesLignes: LIGNES }];
+  const m = monde({ signalees: {}, suitInfos: true }, abonnes);
+  await m.lancer();
+  const de = (t, ligne) => m.envois.find(e => e.to === t && e.data.ligneId === ligne);
+  assert.deepEqual([de('NEUVE', 'L0').channelId, de('NEUVE', 'L1').channelId, de('NEUVE', 'L2').channelId], ['trafic_interruption', 'trafic_perturbation', 'trafic_information']);
+  assert.ok(!('sound' in de('NEUVE', 'L2')) && de('NEUVE', 'L0').sound === 'default');
+  assert.deepEqual([de('ANCIENNE', 'L0').channelId, de('ANCIENNE', 'L1').channelId, de('ANCIENNE', 'L2')], ['trafic', 'trafic', undefined]);
+});
