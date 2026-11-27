@@ -11,7 +11,7 @@ import { refCible } from './tutoCibles';
 import type { AlerteRecue } from './notifications';
 import RechercheBus, { BoutonRechercheBus } from './RechercheBus';
 import AlertesTrafic, { EtatAlertes } from './AlertesTrafic';
-import { lireLignesSuivies, enregistrerLignesSuivies, lireBusSuivis, enregistrerBusSuivis, BusSuivi } from './notifications';
+import { lireLignesSuivies, enregistrerLignesSuivies, lireBusSuivis, enregistrerBusSuivis, BusSuivi, ecouterLignesSuivies, memoriserCatalogue } from './notifications';
 import { ListeFondue } from './ListeFondue';
 import { PanelEmptyState } from './PanelEmptyState';
 import { MODE_ICONS } from './modeIcons';
@@ -145,7 +145,9 @@ function Squelette({ couleur }: { couleur: string }) {
 // `alerte` : l'alerte touchée dans la notification qui a ouvert la ligne (affichée « terminée » si elle l'est).
 type Vue = { genre: 'ligne'; ligne: LigneTrafic; alerte?: AlerteRecue | null } | { genre: 'alertes' };
 
-export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId }: {
+export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId, demandeAlertes }: {
+  // Change à chaque demande d'ouverture du réglage des alertes (bouton « + » des paramètres).
+  demandeAlertes?: number;
   actif: boolean; verre?: boolean; retour?: number; onDetail?: (ouvert: boolean) => void;
   // Ligne à ouvrir (toucher d'une notification d'alerte) ; `n` change à chaque demande.
   ouvrirId?: { id: string; n: number; alerte?: AlerteRecue | null } | null;
@@ -229,6 +231,13 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     });
     return () => { annule = true; if (minuteurAlertes.current) clearTimeout(minuteurAlertes.current); };
   }, []);
+  // Ligne retirée depuis les paramètres : la liste du volet suit.
+  useEffect(() => ecouterLignesSuivies(l => {
+    suiviesRef.current = l;
+    setSuivies(l);
+    lireBusSuivis().then(setBusSuivis);
+  }), []);
+  useEffect(() => { if (lignes) memoriserCatalogue(lignes); }, [lignes]);
   const basculerSuivie = useCallback((id: string) => {
     const avant = suiviesRef.current;
     const apres = avant.includes(id) ? avant.filter(x => x !== id) : [...avant, id];
@@ -248,6 +257,12 @@ export default function TraficScreen({ actif, verre, retour, onDetail, ouvrirId 
     });
     basculerSuivie(l.id);
   }, [basculerSuivie]);
+  // Après le retour à la liste (changement d'onglet) : on attend que le volet soit là pour ouvrir les alertes.
+  useEffect(() => {
+    if (!demandeAlertes) return;
+    const minuteur = setTimeout(() => ouvrirVue({ genre: 'alertes' }), 350);
+    return () => clearTimeout(minuteur);
+  }, [demandeAlertes, ouvrirVue]);
   // Le volet qu'on referme revient à la liste (une fois l'animation de fermeture du volet finie).
   useEffect(() => {
     if (actif) return;

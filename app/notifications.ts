@@ -8,20 +8,23 @@ import { firebaseConfig } from './firebaseConfig';
 import { APP_VERSION } from './constants';
 import { logger } from './logger';
 import { concerneLigne } from './notifs';
+import { chargerPrefs, type NiveauAlertes } from './prefsNotifs';
 import type { ModeTrafic } from './traficApi';
 
 // Comportement d'affichage quand une notif arrive alors que l'app est ouverte.
 // Alerte trafic : UNIQUEMENT la notification interne de l'app. RIEN du côté du téléphone : ni bannière, ni son, ni entrée
 // dans le volet, ni icône dans la barre d'état (décision de l'utilisateur : une copie rangée dans le volet faisait
 // doublon). L'alerte reste gardée en mémoire par l'app (voir `ecouterAlerteTraficRecue`).
+// Exception : « Alertes dans l'app » désactivées dans les paramètres → l'inverse, la notification Android seulement.
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const alerteTrafic = (notification?.request?.content?.data as any)?.type === 'trafic';
+    const parLApp = alerteTrafic && (await chargerPrefs()).dansApp;
     return {
-      shouldPlaySound: !alerteTrafic,
+      shouldPlaySound: !parLApp,
       shouldSetBadge: false,
-      shouldShowBanner: !alerteTrafic,
-      shouldShowList: !alerteTrafic,
+      shouldShowBanner: !parLApp,
+      shouldShowList: !parLApp,
     };
   },
 });
@@ -87,6 +90,7 @@ async function saveTokenToFirestore(token: string) {
       variante: varianteApp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
+    chargerPrefs().then(p => enregistrerNiveauAlertes(p.niveau, token));
   } catch (e: any) {
     logger.warn(`saveTokenToFirestore: ${e?.message}`);
   }
@@ -154,19 +158,49 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 // savoir qui prévenir. Rien de personnel n'est enregistré, seulement des identifiants de lignes.
 const CLE_LIGNES_SUIVIES = '@gp_alertes_lignes';
 
+let lignesEnMemoire: string[] = [];
+let busEnMemoire: BusSuivi[] = [];
+export const busSuivisConnus = (): BusSuivi[] => busEnMemoire;
+export const lignesSuiviesConnues = (): string[] => lignesEnMemoire;
 export async function lireLignesSuivies(): Promise<string[]> {
   try {
     const brut = await AsyncStorage.getItem(CLE_LIGNES_SUIVIES);
     const liste = brut ? JSON.parse(brut) : [];
-    return Array.isArray(liste) ? liste.filter((x: unknown) => typeof x === 'string') : [];
+    lignesEnMemoire = Array.isArray(liste) ? liste.filter((x: unknown) => typeof x === 'string') : [];
+    return lignesEnMemoire;
   } catch {
     return [];
+  }
+}
+
+// La liste est modifiée depuis le volet Trafic ET depuis les paramètres : chacun est prévenu des changements.
+const abonnesLignes = new Set<(lignes: string[]) => void>();
+export function ecouterLignesSuivies(f: (lignes: string[]) => void): () => void { abonnesLignes.add(f); return () => { abonnesLignes.delete(f); }; }
+
+// Lignes connues du volet Trafic (symbole, couleur), pour afficher les lignes suivies ailleurs. En mémoire seulement.
+export type LigneConnue = { id: string; code: string; color: string; textColor: string; mode: ModeTrafic };
+const catalogue = new Map<string, LigneConnue>();
+export function memoriserCatalogue(lignes: LigneConnue[]): void { for (const l of lignes) catalogue.set(l.id, l); }
+export const lireCatalogueLignes = (): ReadonlyMap<string, LigneConnue> => catalogue;
+
+// Niveau d'alertes voulu (voir prefsNotifs.ts), lu par le programme de surveillance. Écriture séparée de
+// l'enregistrement du jeton : si elle échoue, le reste n'est pas touché.
+export async function enregistrerNiveauAlertes(niveau: NiveauAlertes, tokenConnu?: string): Promise<void> {
+  try {
+    const token = tokenConnu ?? await registerForPushNotificationsAsync();
+    if (!token) return;
+    const db = getFirestore(firebaseApp());
+    await setDoc(doc(db, 'pushTokens', token), { alertesNiveau: niveau }, { merge: true });
+  } catch (e: any) {
+    logger.warn(`enregistrerNiveauAlertes: ${e?.message}`);
   }
 }
 
 // Enregistre la liste (téléphone puis serveur). Renvoie 'ok', 'refuse' (notifications refusées par le téléphone :
 // aucune alerte ne pourra arriver) ou 'erreur' (réseau : la liste est gardée sur le téléphone, à renvoyer plus tard).
 export async function enregistrerLignesSuivies(lignes: string[]): Promise<'ok' | 'refuse' | 'erreur'> {
+  lignesEnMemoire = lignes;
+  abonnesLignes.forEach(f => f(lignes));
   try { await AsyncStorage.setItem(CLE_LIGNES_SUIVIES, JSON.stringify(lignes)); } catch { /* sans gravité */ }
   const token = await registerForPushNotificationsAsync();
   if (!token) return lignes.length > 0 ? 'refuse' : 'ok';
@@ -189,19 +223,21 @@ export async function lireBusSuivis(): Promise<BusSuivi[]> {
   try {
     const brut = await AsyncStorage.getItem(CLE_BUS_SUIVIS);
     const liste = brut ? JSON.parse(brut) : [];
-    return Array.isArray(liste) ? liste.filter((b: any) => b && typeof b.id === 'string' && typeof b.code === 'string') : [];
+    busEnMemoire = Array.isArray(liste) ? liste.filter((b: any) => b && typeof b.id === 'string' && typeof b.code === 'string') : [];
+    return busEnMemoire;
   } catch {
     return [];
   }
 }
 export async function enregistrerBusSuivis(bus: BusSuivi[]): Promise<void> {
+  busEnMemoire = bus;
   try { await AsyncStorage.setItem(CLE_BUS_SUIVIS, JSON.stringify(bus)); } catch { /* sans gravité */ }
 }
 
 // ── Alertes reçues, gardées en mémoire ────────────────────────────────────────
 // Chaque alerte trafic reçue (app ouverte) ou touchée (app fermée) est gardée sur le téléphone : si la perturbation est
 // terminée quand on ouvre la ligne, le détail de la ligne l'affiche quand même, marquée « terminée » (voir TraficDetail).
-export type AlerteRecue = { id: string; ligneId: string; titre: string; detail: string; niveau: 'interrompu' | 'perturbe'; recueLe: number; ligneTitre?: string };
+export type AlerteRecue = { id: string; ligneId: string; titre: string; detail: string; niveau: 'interrompu' | 'perturbe' | 'info'; recueLe: number; ligneTitre?: string };
 const CLE_ALERTES_RECUES = '@gp_alertes_recues';
 const MAX_ALERTES_RECUES = 40;
 const CONSERVATION_MS = 7 * 86_400_000;
@@ -242,7 +278,7 @@ function alerteDepuis(notification: Notifications.Notification | undefined, recu
   const corps = String(contenu?.body || '').split('\n')[0];
   const titre = typeof p?.titre === 'string' && p.titre ? p.titre : (corps && corps !== 'Touche pour voir le détail.' ? corps : String(contenu?.title || ''));
   if (!titre) return null;
-  const niveau = p?.niveau === 'interrompu' || (!p && /interrompu/i.test(String(contenu?.title || ''))) ? 'interrompu' : 'perturbe';
+  const niveau = p?.niveau === 'info' ? 'info' : p?.niveau === 'interrompu' || (!p && /interrompu/i.test(String(contenu?.title || ''))) ? 'interrompu' : 'perturbe';
   return { id: typeof p?.id === 'string' ? p.id : `${data.ligneId}|${titre}`, ligneId: data.ligneId, titre, detail: typeof p?.detail === 'string' ? p.detail : '', niveau, recueLe, ligneTitre: String(contenu?.title || '') };
 }
 
@@ -288,7 +324,8 @@ export function ecouterAlerteTraficRecue(quand: (alerte: AlerteRecue) => void): 
     const alerte = alerteDepuis(n, Date.now());
     if (!alerte) return;
     memoriserAlerte(alerte);
-    quand(alerte);
+    // Désactivées dans les paramètres : c'est la notification Android qui prévient (voir en haut du fichier).
+    chargerPrefs().then(p => { if (p.dansApp) quand(alerte); });
   });
   return () => abonnement.remove();
 }

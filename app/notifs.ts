@@ -126,7 +126,7 @@ export function concerneLigne(contenu: { title?: string | null; data?: any } | u
   return !!lu && lu.mode === ligne.mode && lu.code.toUpperCase() === ligne.code.toUpperCase();
 }
 
-export function notifDAlerte(a: { ligneId: string; titre: string; ligneTitre?: string; niveau: 'interrompu' | 'perturbe' }, onPress: () => void): DemandeNotif {
+export function notifDAlerte(a: { ligneId: string; titre: string; ligneTitre?: string; niveau: 'interrompu' | 'perturbe' | 'info' }, onPress: () => void): DemandeNotif {
   const titreComplet = a.ligneTitre || a.titre;
   const lu = lireTitreAlerte(titreComplet);
   return {

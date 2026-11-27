@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, ThemeContext } from './theme';
 import { CoucheSurface, useSurfaceVerre, useTexteSurAccent } from './surface';
 import { hexToRgba } from './Fade';
+import { chargerPrefs, lirePrefs } from './prefsNotifs';
 import { Icon, IconName } from './Icon';
 import { PANEL_CARD_RADIUS } from './PanelLayout';
 import { symboleLigne } from './symbolesLignes';
@@ -43,11 +44,13 @@ export function NotifCentre({ basTitre }: { basTitre: number }) {
   // Vibration à l'ARRIVÉE d'une alerte, une seule fois, même si elle attend dans la pile. Pas au moment où elle passe
   // devant : on sentait alors une vibration longtemps après, sans rien de nouveau.
   const derniereVibree = useRef(0);
+  useEffect(() => { chargerPrefs(); }, []);
   useEffect(() => {
     const signaler = () => {
       const arrivees = lireFile('cartes').filter(n => n.vibration && n.version > derniereVibree.current);
       if (arrivees.length === 0) return;
       derniereVibree.current = Math.max(...arrivees.map(n => n.version));
+      if (!lirePrefs().vibration) return;
       Vibration.vibrate([0, 180, 110, 180]);
     };
     signaler();

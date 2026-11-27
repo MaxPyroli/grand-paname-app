@@ -11,6 +11,16 @@ import IconAvancer from './assets/icons/mono/icon-avancer.svg';
 import IconReculer from './assets/icons/mono/icon-reculer.svg';
 import IconValider from './assets/icons/mono/icon-valider.svg';
 import IconQuitter from './assets/icons/mono/icon-quitter.svg';
+import IconDiscussion from './assets/icons/mono/icon-discussion.svg';
+import IconLune from './assets/icons/mono/icon-lune.svg';
+import IconCarte from './assets/icons/mono/icon-carte.svg';
+import IconPanneau from './assets/icons/mono/icon-panneau.svg';
+import IconHistorique from './assets/icons/mono/icon-historique.svg';
+import IconBug from './assets/icons/mono/icon-bug.svg';
+import IconBandeau from './assets/icons/mono/icon-bandeau.svg';
+import IconVibration from './assets/icons/mono/icon-vibration.svg';
+import IconTelephoneReglages from './assets/icons/mono/icon-telephone-reglages.svg';
+import IconExterne from './assets/icons/mono/icon-externe.svg';
 
 const ICONS = {
   accueil: IconAccueil,
@@ -25,6 +35,16 @@ const ICONS = {
   reculer: IconReculer,
   valider: IconValider,
   quitter: IconQuitter,
+  'discussion': IconDiscussion,
+  'lune': IconLune,
+  'carte': IconCarte,
+  'panneau': IconPanneau,
+  'historique': IconHistorique,
+  'bug': IconBug,
+  'bandeau': IconBandeau,
+  'vibration': IconVibration,
+  'telephone-reglages': IconTelephoneReglages,
+  'externe': IconExterne,
 };
 
 export type IconName = keyof typeof ICONS;

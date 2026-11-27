@@ -88,12 +88,12 @@ Tout volet latéral se construit avec `PanelLayout` (`app/PanelLayout.tsx`) : en
 - Le volet des horaires (bottom sheet) descend sous la barre de nav : la barre y a un flou natif dont la cible est le volet seul.
 
 ## 5 quater. Pages plein écran (Paramètres)
-n- Paramètres (décisions du 27/11, voir docs/maquettes/parametres.html ; pas encore codé) : puces d’icône par famille — bleu : notifications et affichage ; or : découverte (tutoriel, historique) ; vert : aide (bug, contact) ; orange : avancé ; le rouge reste réservé au trafic. Icônes nouvelles dans le style existant (trait épais et point « station »). Textes sans tutoiement pour les avertissements. Pas de titres de section. Les réglages doivent être construits avec des composants communs (ajouter un réglage = ajouter une ligne).
+n- Paramètres (décisions du 27/11, voir docs/maquettes/parametres.html ; codé dans `app/reglages/`) : puces d’icône par famille — bleu : notifications et affichage ; or : découverte (tutoriel, historique) ; vert : aide (bug, contact) ; orange : avancé ; le rouge reste réservé au trafic. Icônes nouvelles dans le style existant (trait épais et point « station »). Textes sans tutoiement pour les avertissements. Pas de titres de section. Les réglages se construisent avec les composants de `app/reglages/composants.tsx` (PageReglages, Carte, LigneReglage, Interrupteur, Tuiles, Selecteur, ListeChoix, Avertissement) : ajouter un réglage = ajouter un élément, sans styles propres à l’écran. Sous-pages : glissement depuis la droite, bouton « Retour » et bouton retour du téléphone.
 
 - Fond opaque (`bg`) ; glisse depuis le bas avec le ressort commun (raideur 120, amortissement 15, masse 0,5), se ferme en 260 ms.
 - En-tête = `PanelHeader` : icône 26 px accent, titre 24 px, action `PanelPillAction` « Fermer » à droite ; pas de ligne de séparation dessous.
-- Contenu en cartes (`settingsCard`) : rayon 20, bordure `borderCard`, padding 16, ombre douce, précédées d'un titre de section en capitales.
-- Interrupteurs : 44 × 26, pastille blanche 20 ; actif = fond accent, inactif = `dragBar`.
+- Contenu en cartes (`Carte`, au gabarit des volets), sans titres de section. Les styles `settingsCard` ne servent plus qu’aux outils de débogage.
+- Interrupteurs : 44 × 26, pastille blanche 20 ; actif = fond accent, inactif = `dragBar` (composant `Interrupteur`).
 
 ## 5 bis. Verre dépoli — variables de référence
 

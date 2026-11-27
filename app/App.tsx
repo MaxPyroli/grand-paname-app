@@ -44,7 +44,7 @@ import { notifier, fermerNotif, notifDAlerte } from './notifs';
 import { NAV_BAR_BOTTOM, NAV_BAR_HEIGHT } from './layout';
 import { useGeometrieBarres } from './responsive';
 import { PanelLayout, panelCardStyle, panelChipStyle, PANEL_CARD_RADIUS } from './PanelLayout';
-import { PanelHeader, PanelPillAction } from './PanelHeader';
+import { PanelPillAction } from './PanelHeader';
 import { PanelEmptyState } from './PanelEmptyState';
 import ScannerScreen from './ScannerScreen';
 import { FullPageModal } from './FullPageModal';
@@ -52,6 +52,8 @@ import { Icon, IconScannerNavigoCouleur, IconAccueilCouleur, IconFavorisCouleur,
 import TraficScreen from './TraficScreen';
 import { MaskedView, GardeMasque } from './ListeFondue';
 import { FadeBottom, FadeTop, hexToRgba, FONDU_HAUT, FONDU_BAS } from './Fade';
+import { Carte, LigneReglage, Interrupteur, Tuile, Tuiles, Selecteur, PageReglages } from './reglages/composants';
+import PageNotifications, { useResumeNotifs } from './reglages/PageNotifications';
 import { definirRect, retirerRect, definirOrigine, definirEnvoyeur, renvoyerVerre } from './verreWeb';
 import type { RectVerre } from './verreWeb';
 // Import de type uniquement : pas de require() exécuté au chargement du bundle.
@@ -275,7 +277,10 @@ const TESTS_NOTIFS: { libelle: string; lancer: () => void }[] = (() => {
   ];
 })();
 
-function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugOverlay, setShowDebugOverlay, flouActif, setFlouActif, scannerBeta, setScannerBeta, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate, onClearMapCache, onReportBug }: { cibleFlouRef: React.RefObject<View | null>; onCibleFlou: (prete: boolean) => void; visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; flouActif: boolean; setFlouActif: (v: boolean) => void; scannerBeta: boolean; setScannerBeta: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void; onClearMapCache: () => void; onReportBug: () => void }) {
+const SOUS_PAGES = ['notifications', 'historique', 'avance'] as const;
+type SousPage = typeof SOUS_PAGES[number];
+type PageParametres = 'principal' | SousPage;
+function SettingsModal({ pageDemandee, retourRef, onAjouterLigne, cibleFlouRef, onCibleFlou, visible, onClose, showDebugOverlay, setShowDebugOverlay, flouActif, setFlouActif, scannerBeta, setScannerBeta, pushToken, onOpenGhostStop, onReplayWhatsNew, onTestUpdateModal, onReplayOnboarding, hasPendingUpdate, onOpenPendingUpdate, onClearMapCache, onReportBug }: { pageDemandee: PageParametres; retourRef: React.MutableRefObject<() => boolean>; onAjouterLigne: () => void; cibleFlouRef: React.RefObject<View | null>; onCibleFlou: (prete: boolean) => void; visible: boolean; onClose: () => void; showDebugOverlay: boolean; setShowDebugOverlay: (v: boolean) => void; flouActif: boolean; setFlouActif: (v: boolean) => void; scannerBeta: boolean; setScannerBeta: (v: boolean) => void; pushToken: string | null; onOpenGhostStop: () => void; onReplayWhatsNew: () => void; onTestUpdateModal: () => void; onReplayOnboarding: () => void; hasPendingUpdate: boolean; onOpenPendingUpdate: () => void; onClearMapCache: () => void; onReportBug: () => void }) {
   const c = useColors();
   const { pref, setPref, isDark, oled, setOled } = useContext(ThemeContext);
   const insets = useSafeAreaInsets();
@@ -288,12 +293,62 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
   const { height: winH } = useWindowDimensions();
   const { anim: slideAnim, mounted } = useModalCardAnim(visible, true);
   useEffect(() => { onCibleFlou(visible && mounted); }, [visible, mounted]);
-  // Thème sombre : l'ombre claire des cartes est invisible, on la renforce (noire, plus large).
-  const ombreCarte = isDark ? { shadowColor: '#000', shadowOpacity: 0.55, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 } : null;
+  // Pages des paramètres. La page principale reste en place et les sous-pages, opaques, glissent par-dessus. Elles sont
+  // CONSTRUITES À L'AVANCE, hors de l'écran, juste après l'ouverture des paramètres : au toucher il n'y a plus qu'à les
+  // faire glisser. Les construire à ce moment-là retardait le départ de 0,3 à 0,4 s (mesuré en vidéo). Chacune a sa
+  // propre valeur animée, lancée AVANT de changer l'état de l'écran. Aucun fondu : Android dessine mal les ombres en
+  // transparence.
+  const pageDirecte = pageDemandee === 'principal' ? null : pageDemandee;
+  const [sousPage, setSousPage] = useState<SousPage | null>(pageDirecte);
+  const [prets, setPrets] = useState<SousPage[]>(pageDirecte ? [pageDirecte] : []);
+  const glissements = useRef<Record<SousPage, Animated.Value>>({
+    notifications: new Animated.Value(pageDirecte === 'notifications' ? 1 : 0),
+    historique: new Animated.Value(pageDirecte === 'historique' ? 1 : 0),
+    avance: new Animated.Value(pageDirecte === 'avance' ? 1 : 0),
+  }).current;
+  const recul = useRef(Animated.add(Animated.add(glissements.notifications, glissements.historique), glissements.avance)).current;
+  const { width: largeurPage } = useWindowDimensions();
+  // Même ressort que les vues du volet Trafic.
+  const glisser = (p: SousPage, vers: 0 | 1) => Animated.spring(glissements[p], { toValue: vers, damping: 15, stiffness: 120, mass: 0.5, overshootClamping: true, useNativeDriver: true });
+  const attendue = useRef<SousPage | null>(null);   // demandée avant d'être construite
+  const allerA = (p: PageParametres) => {
+    if (p === 'principal') {
+      if (sousPage) glisser(sousPage, 0).start();
+      attendue.current = null;
+      setSousPage(null);
+      return;
+    }
+    if (prets.includes(p)) glisser(p, 1).start();
+    else { attendue.current = p; setPrets(avant => [...avant, p]); }
+    setSousPage(p);
+  };
+  // Pas encore prête (touchée très vite) : elle part dès qu'elle est dessinée.
+  useEffect(() => {
+    const p = attendue.current;
+    if (!p || !prets.includes(p)) return;
+    attendue.current = null;
+    const image = requestAnimationFrame(() => glisser(p, 1).start());
+    return () => cancelAnimationFrame(image);
+  }, [prets]);
+  // À chaque ouverture : directement sur la page demandée ; les autres sont préparées une à une après le glissement
+  // d'ouverture, pour ne pas le ralentir.
+  useEffect(() => {
+    if (!visible) return;
+    const directe = pageDemandee === 'principal' ? null : pageDemandee;
+    SOUS_PAGES.forEach(p => { glissements[p].stopAnimation(); glissements[p].setValue(p === directe ? 1 : 0); });
+    attendue.current = null;
+    setSousPage(directe);
+    setPrets(directe ? [directe] : []);
+    const minuteurs = SOUS_PAGES.map((p, i) => setTimeout(() => setPrets(avant => (avant.includes(p) ? avant : [...avant, p])), 450 + i * 180));
+    return () => minuteurs.forEach(clearTimeout);
+  }, [visible, pageDemandee]);
+  retourRef.current = () => { if (!sousPage) return false; allerA('principal'); return true; };
+  const resumeNotifs = useResumeNotifs();
   const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<LogEntry[]>(() => logger.get());
   useEffect(() => { const unsub = logger.subscribe(() => setLogs(logger.get())); return () => { unsub(); }; }, []);
   const [devMode, setDevMode] = useState(false);
+  const ombreCarte = isDark ? { shadowColor: '#000', shadowOpacity: 0.55, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 } : null;
   useEffect(() => {
     AsyncStorage.getItem('@gp_dev_mode').then(v => { if (v === '1') setDevMode(true); });
   }, []);
@@ -315,10 +370,6 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
     return () => devLogoSpinLoopRef.current?.stop();
   }, [devMode, visible]);
   const devLogoSpinDeg = devLogoSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-  const [showChangelog, setShowChangelog] = useState(false);
-  const changelogAnim = useRef(new Animated.Value(0)).current;
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const advancedAnim = useRef(new Animated.Value(0)).current;
   // Taille du cache de tuiles de la WebView (dossier interne de Chromium), lue
   // à l'ouverture des paramètres avancés et après chaque vidage.
   const [octetsCache, setOctetsCache] = useState<number | null>(null);
@@ -330,16 +381,7 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
       setOctetsCache(null);
     }
   }, []);
-  useEffect(() => { if (showAdvanced) rafraichirTailleCache(); }, [showAdvanced, rafraichirTailleCache]);
-  // Ouverture de « Paramètres Avancés » : le bloc est d'abord dessiné transparent (valeur restée à 0), puis fondu + glissement.
-  // Ne pas remettre la valeur à 0 pendant l'affichage : cela faisait clignoter le bloc une image.
-  useEffect(() => {
-    if (showAdvanced) Animated.timing(advancedAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
-  }, [showAdvanced, advancedAnim]);
-  const basculerAvances = () => {
-    if (!showAdvanced) setShowAdvanced(true);
-    else Animated.timing(advancedAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => setShowAdvanced(false));
-  };
+  useEffect(() => { if (sousPage === 'avance') rafraichirTailleCache(); }, [sousPage, rafraichirTailleCache]);
   const formaterOctets = (o: number) =>
     o >= 1024 * 1024 ? `${(o / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo` : `${Math.round(o / 1024)} Ko`;
   // Petite animation au vidage : un balai balaie le chiffre, qui décompte
@@ -363,8 +405,6 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
   };
   const [activeVersion, setActiveVersion] = useState<string | null>(null);
   const contentAnim = useRef(new Animated.Value(0)).current;
-
-  const [toggleWidth, setToggleWidth] = useState(0);
 
   const toggleVersion = (version: string) => {
     if (activeVersion === version) {
@@ -445,25 +485,23 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
     }).start(() => setTrainVisible(false));
   }
 
-  const THEME_OPTIONS: { key: ThemePref; icon: string; label: string }[] = [
-    { key: 'auto',  icon: '🌐', label: 'Système' },
-    { key: 'light', icon: '☀️', label: 'Clair'  },
-    { key: 'dark',  icon: '🌙', label: 'Sombre' },
-  ];
-  const cursorAnim = useRef(new Animated.Value(THEME_OPTIONS.findIndex(o => o.key === pref))).current;
-  useEffect(() => {
-    const idx = THEME_OPTIONS.findIndex(o => o.key === pref);
-    Animated.spring(cursorAnim, { toValue: idx, useNativeDriver: true, tension: 280, friction: 22 }).start();
-  }, [pref]);
-
-  const LIENS = [
-    // Pour le public ; en mode dev il ferait doublon avec « Rejouer le tutoriel » du Débogage.
-    ...(devMode ? [] : [{ icon: '👋', label: 'Revoir le tutoriel', url: 'tuto', action: () => { onClose(); setTimeout(onReplayOnboarding, 200); } }]),
-    { icon: '🐛', label: 'Signaler un bug',      url: BUG_FORM_URL, action: onReportBug },
-    { icon: '✉️',  label: 'Contact',              url: 'mailto:contact@grandpaname.fun' },
-  ];
-
   if (!mounted) return null;
+
+  const basculerModeDev = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const newVal = !devMode;
+    setDevMode(newVal);
+    AsyncStorage.setItem('@gp_dev_mode', newVal ? '1' : '0').catch(() => {});
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(newVal ? '🛠️ Mode dev activé' : '🛠️ Mode dev désactivé', ToastAndroid.SHORT);
+    }
+  };
+  const toucherVersion = () => {
+    const next = versionTaps + 1;
+    setVersionTaps(next);
+    if (next >= 7) { setVersionTaps(0); lancerTrain(); }
+  };
+
   return (
     <Animated.View style={[StyleSheet.absoluteFill, {
       zIndex: 20000, elevation: 20,
@@ -472,83 +510,23 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
       {/* Ce que floutent les notifications et fenêtres posées au-dessus des paramètres (voir App). */}
       <BlurTargetView ref={cibleFlouRef} style={{ flex: 1 }}>
       <View style={[styles.settingsPage, { backgroundColor: c.bg, paddingTop: insets.top }]}>
-
-        {/* En-tête au gabarit des volets (PanelHeader) : icône + titre 24 px, action « Fermer » alignée. */}
-        <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 4 }}>
-          <PanelHeader
-            icon={<Icon name="parametres" size={26} color={c.accent} />}
-            title="Paramètres"
-            right={<PanelPillAction label="Fermer" onPress={onClose} />}
-          />
-        </View>
-
-        <View style={{ flex: 1 }}>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 72 }}>
-
-            {/* ── Apparence ── */}
-            <Text style={[styles.settingsSection, { color: c.textSub }]}>APPARENCE</Text>
-            <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
-              <Text style={[styles.settingsRowLabel, { color: c.text }]}>Thème</Text>
-              <View
-                style={[styles.themeToggle, { backgroundColor: c.bgSubtle }]}
-                onLayout={(e) => setToggleWidth(e.nativeEvent.layout.width)}
-              >
-                {toggleWidth > 0 && (() => {
-                  const PAD = 3, GAP = 2, N = THEME_OPTIONS.length;
-                  const optW = (toggleWidth - 2 * PAD - (N - 1) * GAP) / N;
-                  const cursorX = cursorAnim.interpolate({
-                    inputRange: [0, 1, 2],
-                    outputRange: [0, optW + GAP, 2 * (optW + GAP)],
-                  });
-                  return (
-                    <Animated.View style={{
-                      position: 'absolute', left: PAD, top: PAD, bottom: PAD, width: optW,
-                      borderRadius: 13, backgroundColor: c.bgCard,
-                      shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 6,
-                      shadowOffset: { width: 0, height: 2 },
-                      transform: [{ translateX: cursorX }],
-                    }} />
-                  );
-                })()}
-                {THEME_OPTIONS.map(({ key, icon, label }) => (
-                  <TouchableOpacity key={key} style={styles.themeOption} onPress={() => setPref(key)}>
-                    <Text style={{ fontSize: 15, backgroundColor: 'transparent' }}>{icon}</Text>
-                    <Text style={[styles.themeOptionLabel, { color: pref === key ? c.text : c.textSub, backgroundColor: 'transparent' }]}>{label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* ── À propos ── */}
-            <Text style={[styles.settingsSection, { color: c.textSub }]}>À PROPOS</Text>
-            <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
-              <View style={styles.aProposHeader}>
-                <TouchableOpacity
-                  delayLongPress={5000}
-                  onLongPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    const newVal = !devMode;
-                    setDevMode(newVal);
-                    AsyncStorage.setItem('@gp_dev_mode', newVal ? '1' : '0').catch(() => {});
-                    if (Platform.OS === 'android') {
-                      ToastAndroid.show(newVal ? '🛠️ Mode dev activé' : '🛠️ Mode dev désactivé', ToastAndroid.SHORT);
-                    }
-                  }}
-                >
-                  <Animated.Image
-                    source={require('./assets/icon.png')}
-                    style={[styles.aProposLogo, { transform: [{ rotate: devLogoSpinDeg }] }]}
-                  />
+        <View style={{ flex: 1, overflow: 'hidden' }}>
+        <Animated.View
+          style={{ flex: 1, transform: [{ translateX: recul.interpolate({ inputRange: [0, 1], outputRange: [0, -largeurPage * 0.28] }) }] }}
+          pointerEvents={sousPage ? 'none' : 'auto'}
+        >
+          <PageReglages icone="parametres" titre="Paramètres" action="Fermer" onAction={onClose}>
+            <Carte>
+              <View style={styles.identite}>
+                {/* Appui de 5 s sur le logo : mode développeur. 7 touchers sur la version : le train. */}
+                <TouchableOpacity delayLongPress={5000} onLongPress={basculerModeDev} activeOpacity={0.8}>
+                  <Animated.Image source={require('./assets/icon.png')} style={[styles.identiteLogo, { transform: [{ rotate: devLogoSpinDeg }] }]} />
                 </TouchableOpacity>
                 <View>
-                  <Text style={[styles.aProposNom, { color: c.text }]}>Grand Paname</Text>
-                  <TouchableOpacity onPress={() => {
-                    const next = versionTaps + 1;
-                    setVersionTaps(next);
-                    if (next >= 7) { setVersionTaps(0); lancerTrain(); }
-                  }}>
+                  <Text style={[styles.identiteNom, { color: c.text }]}>Grand Paname</Text>
+                  <TouchableOpacity onPress={toucherVersion}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                      <Text style={[styles.aProposVersion, { color: c.textSub }]}>Version {APP_VERSION}</Text>
+                      <Text style={[styles.identiteVersion, { color: c.textSub }]}>Version {APP_VERSION}</Text>
                       <View style={styles.codenameBadge}>
                         <Text style={styles.codenameBadgeText}>{APP_CODENAME}</Text>
                       </View>
@@ -556,134 +534,82 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
                   </TouchableOpacity>
                 </View>
               </View>
-              <View style={[styles.settingsDivider, { backgroundColor: c.border }]} />
-              <Text style={[styles.aProposLigne, { color: c.textSub }]}>🚀 Propulsé par Grand Paname</Text>
-              <Text style={[styles.aProposLigne, { color: c.textSub }]}>❤️ Fait avec amour par un Francilien</Text>
-              <Text style={[styles.aProposLigne, { color: c.textSub }]}>✨ Réalisé à l'aide de Gemini et Claude</Text>
-            </View>
+            </Carte>
 
-            {/* ── Liens ── */}
-            <Text style={[styles.settingsSection, { color: c.textSub }]}>LIENS</Text>
-            <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0 }]}>
-              {LIENS.map((item, i) => (
-                <TouchableOpacity
-                  key={item.url}
-                  style={[
-                    styles.lienRow,
-                    i < LIENS.length - 1 && { borderBottomWidth: 1, borderBottomColor: c.border },
-                  ]}
-                  onPress={() => { if ('action' in item && item.action) item.action(); else Linking.openURL(item.url); }}
-                >
-                  <Text style={{ fontSize: 17 }}>{item.icon}</Text>
-                  <Text style={[styles.lienLabel, { color: c.text }]}>{item.label}</Text>
-                  <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {hasPendingUpdate && (
+              <Carte>
+                <LigneReglage icone="externe" titre="Mettre à jour Grand Paname" texte="Une mise à jour est disponible" onPress={() => { onClose(); setTimeout(onOpenPendingUpdate, 200); }} />
+              </Carte>
+            )}
 
-            {/* ── Historique des versions ── */}
-            <Text style={[styles.settingsSection, { color: c.textSub }]}>
-              HISTORIQUE DES VERSIONS
+            <Carte>
+              <LigneReglage icone="notifications" titre="Notifications" texte={resumeNotifs} onPress={() => allerA('notifications')} />
+            </Carte>
+
+            <Carte>
+              <View style={{ marginTop: 12 }}>
+                <Selecteur<ThemePref>
+                  options={[{ cle: 'auto', titre: 'Système' }, { cle: 'light', titre: 'Clair' }, { cle: 'dark', titre: 'Sombre' }]}
+                  valeur={pref} onChange={setPref}
+                />
+              </View>
+              <View style={{ height: 8 }} />
+              <LigneReglage
+                trait icone="lune" titre="Mode OLED" desactivee={!isDark}
+                texte={isDark ? 'Noir pur en mode sombre' : 'Noir pur (nécessite le thème sombre)'}
+                droite={<Interrupteur label="Mode OLED" actif={oled} desactive={!isDark} onChange={setOled} />}
+              />
+            </Carte>
+
+            <Tuiles>
+              <Tuile icone="panneau" famille="or" titre={'Revoir le\ntutoriel'} onPress={() => { onClose(); setTimeout(onReplayOnboarding, 200); }} />
+              <Tuile icone="historique" famille="or" titre={'Historique\ndes versions'} onPress={() => allerA('historique')} />
+              <Tuile icone="bug" famille="vert" titre={'Signaler\nun bug'} onPress={onReportBug} />
+              <Tuile icone="discussion" famille="vert" titre="Contact" onPress={() => Linking.openURL('mailto:contact@panamedev.fr')} />
+            </Tuiles>
+
+            <Carte avancee>
+              <LigneReglage icone="parametres" famille="orange" titre="Paramètres avancés" texte="Pour les plus téméraires" onPress={() => allerA('avance')} />
+            </Carte>
+
+            <Text style={[styles.settingsFooter, { color: c.textSub }]}>
+              Fait avec amour par un Francilien{'\n'}Données : API IDFM, OpenStreetMap{'\n\n'}© 2026 Paname Dev · Conçu et codé avec Claude{'\n'}contact@panamedev.fr
             </Text>
-            <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0 }]}>
-              {CHANGELOGS.slice(0, 3).map((entry, i) => renderChangelogEntry(entry, i > 0))}
-            </View>
-            {CHANGELOGS.length > 3 && (
-              <TouchableOpacity
-                style={{ alignSelf: 'center', marginTop: 10 }}
-                onPress={() => {
-                  if (!showChangelog) {
-                    setShowChangelog(true);
-                    changelogAnim.setValue(0);
-                    Animated.timing(changelogAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
-                  } else {
-                    Animated.timing(changelogAnim, { toValue: 0, duration: 200, useNativeDriver: true })
-                      .start(() => setShowChangelog(false));
-                  }
-                }}
-              >
-                <Text style={{ color: c.textSub, fontSize: 12, fontFamily: 'GrandParis-Medium' }}>
-                  {showChangelog ? 'Masquer les anciennes versions' : 'Afficher les plus anciennes versions'}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {showChangelog && (
-              <Animated.View needsOffscreenAlphaCompositing style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, padding: 0, marginTop: 10, opacity: changelogAnim, transform: [{ translateY: changelogAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }] }]}>
-                {CHANGELOGS.slice(3).map((entry, i) => renderChangelogEntry(entry, i > 0))}
-              </Animated.View>
-            )}
-
-            {/* ── Paramètres avancés ── */}
-            <TouchableOpacity
-              style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: '#f39c1250', borderWidth: 1, marginTop: 24, flexDirection: 'row', alignItems: 'center' }]}
-              onPress={basculerAvances}
-            >
-              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#f39c1225', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-                <Icon name="parametres" size={18} color="#f39c12" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.settingsRowLabel, { color: c.text }]}>Paramètres Avancés</Text>
-                <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
-                  Pour les plus téméraires
-                </Text>
-              </View>
-              <Text style={{ color: c.textSub, fontSize: 20 }}>
-                {showAdvanced ? '˅' : '›'}
-              </Text>
+            <TouchableOpacity style={{ alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 12 }} onPress={() => Linking.openURL(URL_CONFIDENTIALITE)} accessibilityRole="link">
+              <Text style={{ color: c.accent, fontSize: 12, fontFamily: 'GrandParis-Medium' }}>Politique de confidentialité</Text>
             </TouchableOpacity>
-            {showAdvanced && (
-              // Halo jaune autour des réglages avancés, même teinte que le bouton qui les ouvre (bordure #f39c12 à 31 %).
-              // Le fond est translucide : aucune ombre sur ce conteneur, les cartes opaques gardent la leur.
-              // `needsOffscreenAlphaCompositing` : le bloc entier (ombres des cartes comprises) est dessiné d'un coup puis fondu ;
-              // sans lui l'ombre (élévation) d'Android apparaît en entier alors que la carte est encore transparente.
-              <Animated.View
-                needsOffscreenAlphaCompositing
-                style={{
-                  marginTop: 10, marginHorizontal: 8, paddingBottom: 10, borderRadius: 26, borderWidth: 1,
-                  borderColor: '#f39c1240', backgroundColor: isDark ? '#f39c1214' : '#f39c1220',
-                  opacity: advancedAnim,
-                  transform: [{ translateY: advancedAnim.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }],
-                }}>
-                {/* Les cartes gardent leur marge de 16 : elles restent alignées avec les autres, le halo dépasse de 8. */}
-                <View style={{ marginHorizontal: -8 }}>
-                <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, marginTop: 10 }]}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', opacity: isDark ? 1 : 0.5 }}>
-                    <View style={{ flex: 1, marginRight: 12 }}>
-                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Mode sombre OLED</Text>
-                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
-                        Tranforme le mode sombre en noir profond pour économiser la batterie sur les écrans OLED{!isDark ? ' (nécessite le thème sombre)' : ''}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      disabled={!isDark}
-                      onPress={() => setOled(!oled)}
-                      style={{
-                        width: 44, height: 26, borderRadius: 13,
-                        backgroundColor: oled ? c.accent : c.dragBar,
-                        justifyContent: 'center', paddingHorizontal: 3,
-                      }}
-                    >
-                      <View style={{
-                        width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
-                        alignSelf: oled ? 'flex-end' : 'flex-start',
-                      }} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, marginTop: 10 }]}>
-                  <TouchableOpacity
-                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
-                    onPress={viderAvecAnimation}
-                    disabled={balaiActif}
-                  >
-                    <View style={{ flex: 1, marginRight: 12 }}>
-                      <Text style={[styles.settingsRowLabel, { color: c.text }]}>Vider le cache de la carte</Text>
-                      <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
-                        Supprime les images de carte mémorisées sur le téléphone. Elles se retéléchargeront au fur et à mesure.
-                      </Text>
-                    </View>
-                    {/* Emplacement toujours réservé : la taille arrive après l'ouverture et ne doit pas refaire passer le texte à la ligne. */}
-                    <View style={{ marginRight: 8, width: 72, alignItems: 'flex-end', justifyContent: 'center' }}>
+          </PageReglages>
+        </Animated.View>
+
+        {SOUS_PAGES.filter(p => prets.includes(p)).map(p => (
+        <Animated.View
+          key={p}
+          style={[StyleSheet.absoluteFill, { backgroundColor: c.bg, transform: [{ translateX: glissements[p].interpolate({ inputRange: [0, 1], outputRange: [largeurPage, 0] }) }] }]}
+          pointerEvents={sousPage === p ? 'auto' : 'none'}
+          // Une page rangée hors de l'écran ne doit pas être lue par TalkBack.
+          importantForAccessibility={sousPage === p ? 'auto' : 'no-hide-descendants'}
+        >
+        {p === 'notifications' && <PageNotifications onRetour={() => allerA('principal')} onAjouterLigne={onAjouterLigne} />}
+
+        {p === 'historique' && (
+          <PageReglages icone="historique" titre="Historique" sousTitre="Les versions de Grand Paname" action="Retour" onAction={() => allerA('principal')}>
+            <Carte style={{ paddingHorizontal: 0 }}>
+              {CHANGELOGS.map((entry, i) => renderChangelogEntry(entry, i > 0))}
+            </Carte>
+          </PageReglages>
+        )}
+
+        {p === 'avance' && (
+          <PageReglages icone="parametres" titre="Avancé" sousTitre="Pour les plus téméraires" action="Retour" onAction={() => allerA('principal')}>
+            <Carte avancee>
+              <LigneReglage
+                icone="carte" famille="orange" titre="Vider le cache de la carte"
+                texte="Supprime les images de carte mémorisées sur le téléphone. Elles se retéléchargeront au fur et à mesure."
+                onPress={balaiActif ? undefined : viderAvecAnimation}
+                droite={(
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {/* Emplacement toujours réservé : la taille arrive après l'ouverture. */}
+                    <View style={{ width: 62, alignItems: 'flex-end', justifyContent: 'center' }}>
                       {octetsCache != null && (<>
                         <Text style={{ color: c.textSub, fontSize: 13, fontFamily: 'GrandParis-Medium' }}>
                           {formaterOctets(balaiActif ? (octetsAffiches ?? octetsCache) : octetsCache)}
@@ -703,19 +629,18 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
                         )}
                       </>)}
                     </View>
-                    <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
-                  </TouchableOpacity>
-                </View>
-                </View>
-              </Animated.View>
-            )}
+                    <Icon name="avancer" size={12} color={c.textSub} />
+                  </View>
+                )}
+              />
+            </Carte>
 
             {/* ── Débogage (mode dev, caché) ── */}
             {devMode && (
               <>
-                <Text style={[styles.settingsSection, { color: c.textSub }]}>DÉBOGAGE</Text>
+                <Text style={[styles.settingsSection, { color: c.textSub, marginHorizontal: 8, marginTop: 12 }]}>DÉBOGAGE</Text>
                 <TouchableOpacity
-                  style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                  style={[styles.settingsCard, ombreCarte, { marginHorizontal: 0, backgroundColor: c.bgCard, borderColor: c.borderCard, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
                   onPress={onOpenGhostStop}
                 >
                   <View style={{ flex: 1 }}>
@@ -726,7 +651,7 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
                   </View>
                   <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
                 </TouchableOpacity>
-                <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
+                <View style={[styles.settingsCard, ombreCarte, { marginHorizontal: 0, backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1, marginRight: 12 }}>
                       <Text style={[styles.settingsRowLabel, { color: c.text }]}>Scanner Navigo (bêta)</Text>
@@ -750,7 +675,7 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
                   </View>
                 </View>
                 <TouchableOpacity
-                  style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: pushToken ? 1 : 0.5 }]}
+                  style={[styles.settingsCard, ombreCarte, { marginHorizontal: 0, backgroundColor: c.bgCard, borderColor: c.borderCard, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', opacity: pushToken ? 1 : 0.5 }]}
                   disabled={!pushToken}
                   onPress={async () => {
                     if (!pushToken) return;
@@ -768,7 +693,7 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
                   </View>
                   <Text style={{ color: c.textSub, fontSize: 18 }}>📋</Text>
                 </TouchableOpacity>
-                <View style={[styles.settingsCard, ombreCarte, { backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
+                <View style={[styles.settingsCard, ombreCarte, { marginHorizontal: 0, backgroundColor: c.bgCard, borderColor: c.borderCard }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.settingsRowLabel, { color: c.text }]}>Infos de debug</Text>
@@ -812,23 +737,6 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
                       }} />
                     </TouchableOpacity>
                   </View>
-                  {hasPendingUpdate && (
-                    <>
-                      <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
-                      <TouchableOpacity
-                        style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
-                        onPress={() => { onClose(); setTimeout(onOpenPendingUpdate, 200); }}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.settingsRowLabel, { color: c.text }]}>⬆️ Mettre à jour Grand Paname</Text>
-                          <Text style={{ fontSize: 11, color: c.textSub, fontFamily: 'GrandParis-Light', marginTop: 2 }}>
-                            Une mise à jour est disponible, tu l'avais reportée
-                          </Text>
-                        </View>
-                        <Text style={{ color: c.textSub, fontSize: 20 }}>›</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
                   <View style={[styles.settingsDivider, { backgroundColor: c.border, marginVertical: 12 }]} />
                   {/* Essais des notifications internes (une ligne par forme et par cas). Elles s'affichent par-dessus les paramètres. */}
                   <Text style={[styles.settingsRowLabel, { color: c.text, marginBottom: 8 }]}>Tester les notifications</Text>
@@ -911,17 +819,12 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
               </>
             )}
 
-            {/* Footer */}
-            <Text style={[styles.settingsFooter, { color: c.textSub }]}>
-              © 2026 Grand Paname. Données : API IDFM, OpenStreetMap.
-            </Text>
-          </ScrollView>
-          {/* Les fondus sont posés APRÈS la liste : posé avant, celui du haut était recouvert
-              par le ScrollView et ne se voyait pas. */}
-          <FadeTop color={c.bg} />
-          <FadeBottom color={c.bg} />
-        </View>
+          </PageReglages>
+        )}
+        </Animated.View>
+        ))}
 
+        </View>
       </View>
       </BlurTargetView>
       {trainVisible && (
@@ -941,6 +844,7 @@ function SettingsModal({ cibleFlouRef, onCibleFlou, visible, onClose, showDebugO
 // paramètres d'URL : Tally les récupère si le formulaire contient des champs
 // cachés nommés "version" et "plateforme" (sinon ils sont simplement ignorés).
 const BUG_FORM_URL = 'https://tally.so/r/A7qJxe';
+const URL_CONFIDENTIALITE = 'https://maxpyroli.github.io/grand-paname-app/confidentialite.html';
 
 function BugReportModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const c = useColors();
@@ -2723,6 +2627,9 @@ function AppInner() {
   // Les paramètres sont posés AU-DESSUS de la zone floutée habituelle : quand ils sont ouverts, c'est EUX que le verre des
   // notifications et des fenêtres doit flouter (sinon il montrait l'accueil, caché derrière).
   const reglagesFlouRef = useRef<View | null>(null);
+  const [pageReglages, setPageReglages] = useState<PageParametres>('principal');
+  const retourReglagesRef = useRef<() => boolean>(() => false);
+  const [demandeAlertes, setDemandeAlertes] = useState(0);
   const [reglagesFloutables, setReglagesFloutables] = useState(false);
 
   // ── Panel animé (Reanimated) ─────────────────────────────────────────────
@@ -3298,7 +3205,7 @@ function AppInner() {
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (showBugFormRef.current) { setShowBugForm(false); return true; }
-      if (showSettingsRef.current) { setShowSettings(false); return true; }
+      if (showSettingsRef.current) { if (!retourReglagesRef.current()) setShowSettings(false); return true; }
       // On consomme l'événement (empêche de quitter l'app) sans fermer le
       // tuto : impossible de le passer, y compris via le bouton retour.
       if (showOnboardingRef.current) { return true; }
@@ -3355,7 +3262,7 @@ function AppInner() {
         estFavori={estFavori}
         onHeaderLayout={setHeaderHeight}
         onGareChoisie={ouvrirGare}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={() => { setPageReglages('principal'); setShowSettings(true); }}
         onClosePanel={() => setActiveTab('accueil')}
         onMapTapped={fermerPanel}
         updateDownloadingBg={updateDownloadingBg}
@@ -3399,7 +3306,7 @@ function AppInner() {
           ]}>
             {!isWideLayout && flouTrafic && <CoucheVerre zone="tiroirs" />}
             <View style={[styles.cardContentWrapper, !isWideLayout && { paddingTop: 20, paddingBottom: 16 }]}>
-              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} retour={retourTrafic} onDetail={onDetailTrafic} ouvrirId={ligneAOuvrir} />
+              <TraficScreen actif={activeTab === 'trafic'} verre={!isWideLayout} retour={retourTrafic} onDetail={onDetailTrafic} ouvrirId={ligneAOuvrir} demandeAlertes={demandeAlertes} />
             </View>
           </Animated.View>
         </>
@@ -3623,10 +3530,10 @@ function AppInner() {
       </BlurTargetView>
 
       {/* Modal paramètres */}
-      <SettingsModal cibleFlouRef={reglagesFlouRef} onCibleFlou={setReglagesFloutables} onReportBug={() => setShowBugForm(true)} onClearMapCache={viderCacheCarte} visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} flouActif={flouActif} setFlouActif={(v) => { setFlouActif(v); AsyncStorage.setItem('@gp_debug_flou', v ? '1' : '0').catch(() => {}); }} scannerBeta={scannerBeta} setScannerBeta={(v) => { setScannerBeta(v); AsyncStorage.setItem('@gp_scanner_beta', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
+      <SettingsModal pageDemandee={pageReglages} retourRef={retourReglagesRef} onAjouterLigne={() => { setShowSettings(false); setActiveTab('trafic'); setDemandeAlertes(n => n + 1); }} cibleFlouRef={reglagesFlouRef} onCibleFlou={setReglagesFloutables} onReportBug={() => setShowBugForm(true)} onClearMapCache={viderCacheCarte} visible={showSettings} onClose={() => setShowSettings(false)} showDebugOverlay={showDebugOverlay} setShowDebugOverlay={(v) => { setShowDebugOverlay(v); AsyncStorage.setItem('@gp_debug_overlay', v ? '1' : '0').catch(() => {}); }} flouActif={flouActif} setFlouActif={(v) => { setFlouActif(v); AsyncStorage.setItem('@gp_debug_flou', v ? '1' : '0').catch(() => {}); }} scannerBeta={scannerBeta} setScannerBeta={(v) => { setScannerBeta(v); AsyncStorage.setItem('@gp_scanner_beta', v ? '1' : '0').catch(() => {}); }} pushToken={pushToken} onOpenGhostStop={() => { ouvrirGare(GHOST_STOP_ID, GHOST_STOP_LABEL); setShowSettings(false); }} onReplayWhatsNew={() => { AsyncStorage.removeItem('@gp_whatsnew_seen_version').catch(() => {}); setShowWhatsNew(true); }} onTestUpdateModal={() => { setUpdateReady(false); setFakeUpdateTest(true); setShowUpdateModal(true); }} onReplayOnboarding={() => { setActiveTab('accueil'); setShowOnboarding(true); }} hasPendingUpdate={hasPendingUpdate} onOpenPendingUpdate={handleOpenPendingUpdate} />
       <BugReportModal visible={showBugForm} onClose={() => setShowBugForm(false)} />
       <BlurTargetContext.Provider value={reglagesFloutables ? reglagesFlouRef : blurTargetRef}>
-      <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => setShowSettings(true)} />
+      <WhatsNewModal visible={showWhatsNew} onClose={() => setShowWhatsNew(false)} onOpenChangelog={() => { setPageReglages('historique'); setShowSettings(true); }} />
       <UpdateModal
         visible={showUpdateModal}
         mode={updateReady ? 'ready' : 'prompt'}
@@ -3828,7 +3735,7 @@ const styles = StyleSheet.create({
   },
   // Cartes au gabarit des volets : mêmes coins et même ombre douce (voir PanelLayout).
   settingsCard: {
-    marginHorizontal: 16, borderRadius: PANEL_CARD_RADIUS, borderWidth: 1,
+    marginHorizontal: 16, marginBottom: 10, borderRadius: PANEL_CARD_RADIUS, borderWidth: 1,
     overflow: 'hidden', padding: 16,
     shadowColor: '#1a2a4a', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 6, elevation: 2,
   },
@@ -3839,7 +3746,10 @@ const styles = StyleSheet.create({
     gap: 5, paddingVertical: 9, borderRadius: 13, backgroundColor: 'transparent',
   },
   themeOptionLabel: { fontSize: 13, fontFamily: 'GrandParis-Medium' },
-  aProposHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  identite: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 74 },
+  identiteLogo: { width: 50, height: 50, borderRadius: 13, resizeMode: 'contain' },
+  identiteNom: { fontSize: 19, fontFamily: 'GrandParis-Bold' },
+  identiteVersion: { fontSize: 13, fontFamily: 'GrandParis-Light' },
   aProposLogo: { width: 44, height: 44, borderRadius: 12, resizeMode: 'contain' },
   aProposNom: { fontSize: 16, fontFamily: 'GrandParis-Bold' },
   aProposVersion: { fontSize: 13, fontFamily: 'GrandParis-Light', marginTop: 2 },

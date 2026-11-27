@@ -23,6 +23,12 @@ const URL_EXPO = 'https://exp.host/--/api/v2/push/send';
 const CAUSES_ALERTEES = ['PERTURBATION'];                   // pas TRAVAUX, pas INFORMATION
 const GRAVITES_ALERTEES = { BLOQUANTE: 2, PERTURBEE: 1 };   // pas INFORMATION
 
+// Réglage « Me prévenir pour » de l'app (champ `alertesNiveau` du jeton ; absent = 'standard') :
+//   'toutes'         interruptions, perturbations et INFORMATIONS (les travaux ne sont envoyés à personne, voir plus bas)
+//   'standard'       interruptions et perturbations
+//   'interruptions'  seulement le trafic annoncé comme interrompu
+const NIVEAUX = ['toutes', 'standard', 'interruptions'];
+
 const LIBELLE_MODE = { Metro: 'Métro', RapidTransit: 'RER', LocalTrain: 'Transilien', Tramway: 'Tram', Bus: 'Bus' };
 
 // ── Dates (l'API donne l'heure de Paris, le serveur est en UTC) ─────────────────────────────────────────────────
@@ -43,7 +49,7 @@ function dateNavitia(s) {
 // Perturbations à signaler en ce moment : Map idPerturbation → { id, gravite, lignes: Map idLigne → ligne }.
 // Une perturbation posée sur un ARRÊT (arrêt non desservi, train arrêté en station) compte, mais pour la ligne elle
 // n'est « qu'une perturbation » même si sa gravité est bloquante ; posée sur la ligne entière, elle garde sa gravité.
-function alertesActuelles(bulk, maintenant = Date.now()) {
+function alertesActuelles(bulk, maintenant = Date.now(), avecInfos = false) {
   const parId = new Map((bulk.disruptions || []).map(p => [p.id, p]));
   const alertes = new Map();
   for (const l of bulk.lines || []) {
@@ -52,14 +58,17 @@ function alertesActuelles(bulk, maintenant = Date.now()) {
       if (!surLaLigne && o.type !== 'stop_point') continue;
       for (const id of o.disruptionIds || []) {
         const p = parId.get(id);
-        if (!p || !CAUSES_ALERTEES.includes(p.cause) || !GRAVITES_ALERTEES[p.severity]) continue;
+        if (!p) continue;
+        const perturbation = CAUSES_ALERTEES.includes(p.cause) && !!GRAVITES_ALERTEES[p.severity];
+        const information = !perturbation && p.cause !== 'TRAVAUX' && (p.cause === 'INFORMATION' || p.severity === 'INFORMATION');
+        if (!perturbation && !(avecInfos && information)) continue;
         const periodes = p.applicationPeriods || [];
         if (!periodes.some(x => dateNavitia(x.begin) <= maintenant && maintenant <= dateNavitia(x.end))) continue;
-        const a = alertes.get(id) || { id, gravite: p.severity, lignes: new Map() };
+        const a = alertes.get(id) || { id, gravite: perturbation ? p.severity : 'INFORMATION', ...(perturbation ? {} : { information: true }), lignes: new Map() };
         const connue = a.lignes.get(l.id);
         a.lignes.set(l.id, {
           id: l.id, code: l.shortName, mode: l.mode,
-          niveau: (connue && connue.niveau === 'interrompu') || (surLaLigne && p.severity === 'BLOQUANTE') ? 'interrompu' : 'perturbe',
+          niveau: !perturbation ? 'info' : (connue && connue.niveau === 'interrompu') || (surLaLigne && p.severity === 'BLOQUANTE') ? 'interrompu' : 'perturbe',
         });
         alertes.set(id, a);
       }
@@ -73,7 +82,7 @@ function alertesActuelles(bulk, maintenant = Date.now()) {
 function nouvellesAlertes(alertes, dejaSignalees) {
   return [...alertes.values()].filter(a => {
     const avant = dejaSignalees[a.id];
-    return avant === undefined || GRAVITES_ALERTEES[a.gravite] > GRAVITES_ALERTEES[avant];
+    return avant === undefined || (GRAVITES_ALERTEES[a.gravite] || 0) > (GRAVITES_ALERTEES[avant] || 0);
   });
 }
 
@@ -86,18 +95,26 @@ function libelleLigne(l) {
 // autre. IDFM publie une NOUVELLE annonce à chaque mise à jour, mais elles gardent le même numéro d'incident
 // (`disruption_id`). Pour un couple ligne + incident, on ne prévient à nouveau que si son ÉTAT change. Un autre numéro
 // d'incident (ou pas de numéro) donne toujours sa propre notification.
-const RANG_ETAT = { reprise: 0, perturbe: 1, tres: 2, interrompu: 3 };
+const RANG_ETAT = { reprise: 0, info: 1, perturbe: 1, tres: 2, interrompu: 3 };
 const ATTENTE_TEXTE_MS = 4 * 60_000;          // une annonce sans texte attend le sien (sauf ligne interrompue)
 const OUBLI_INCIDENT_MS = 3 * 3_600_000;      // incident sans annonce en cours depuis ce délai : oublié
 
 // « reprise », « interrompu », « tres » (perturbé) ou « perturbe » ; d'après le titre et l'étiquette, pas le détail
 // (il contient des « reprise estimée à 10h » qui ne sont pas des reprises).
 function etatAnnonce(niveau, fr) {
+  if (niveau === 'info') return 'info';
   const t = `${(fr && fr.etiquette) || ''} ${(fr && fr.titre) || ''}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (/reprise|reprend/.test(t)) return 'reprise';
   if (niveau === 'interrompu' || /interrompu/.test(t)) return 'interrompu';
   if (/(tres|fortement) perturbe/.test(t)) return 'tres';
   return 'perturbe';
+}
+
+// Ce qu'un appareil veut recevoir selon son réglage.
+function voulue(niveau, ligne, fr) {
+  if (ligne.niveau === 'info') return niveau === 'toutes';
+  if (niveau === 'interruptions') return etatAnnonce(ligne.niveau, fr) === 'interrompu';
+  return true;
 }
 
 // Parmi les annonces nouvelles ou aggravées, ce qui mérite vraiment une notification.
@@ -122,7 +139,8 @@ function trierNouvelles({ nouvelles, alertes, francais = new Map(), suivies, mem
     }
     for (const l of concernees) {
       const incident = (fr && fr.disruptionId) || '';
-      const cle = `${l.id}|${incident || '?' + a.id}`;
+      // Les informations d'un incident se suivent à part de ses perturbations.
+      const cle = `${l.id}|${l.niveau === 'info' ? 'info:' : ''}${incident || '?' + a.id}`;
       if (!groupes.has(cle)) groupes.set(cle, { incident, candidats: [] });
       groupes.get(cle).candidats.push({ a, l, etat: etatAnnonce(l.niveau, fr), texte: !!(fr && fr.titre) });
     }
@@ -170,16 +188,16 @@ function corpsNotification(fr) {
   const texte = fr.detail ? `${fr.titre}\n${fr.detail}` : fr.titre;
   return texte.length <= LONGUEUR_MAX_CORPS ? texte : texte.slice(0, LONGUEUR_MAX_CORPS - 1).trimEnd() + '…';
 }
-function composerMessages(nouvelles, suivies, francais = new Map()) {
+function composerMessages(nouvelles, suivies, francais = new Map(), niveau = 'standard') {
   const liste = [];   // { ligne, alerte }
   for (const a of nouvelles) {
-    for (const l of a.lignes.values()) if (suivies.includes(l.id)) liste.push({ ligne: l, alerte: a });
+    for (const l of a.lignes.values()) if (suivies.includes(l.id) && voulue(niveau, l, francais.get(a.id))) liste.push({ ligne: l, alerte: a });
   }
   // Les plus graves d'abord (lignes interrompues), pour qu'elles ne soient jamais celles qu'on regroupe.
   liste.sort((x, y) => (y.ligne.niveau === 'interrompu') - (x.ligne.niveau === 'interrompu'));
   const un = ({ ligne, alerte }) => {
     const fr = francais.get(alerte.id);
-    const etat = (fr && fr.etiquette) ? fr.etiquette.toLowerCase() : ligne.niveau === 'interrompu' ? 'trafic interrompu' : 'trafic perturbé';
+    const etat = (fr && fr.etiquette) ? fr.etiquette.toLowerCase() : ligne.niveau === 'interrompu' ? 'trafic interrompu' : ligne.niveau === 'info' ? 'information' : 'trafic perturbé';
     const data = { type: 'trafic', ligneId: ligne.id };
     // L'annonce voyage avec la notification : l'app la garde en mémoire et peut l'afficher « terminée » si elle l'est au toucher.
     if (fr && fr.titre) data.perturbation = { id: alerte.id, titre: fr.titre, detail: (fr.detail || '').slice(0, 300), niveau: ligne.niveau };
@@ -255,7 +273,7 @@ function entreesJournal(nouvelles, abonnes, francais, dejaSignalees) {
   const entrees = [];
   for (const a of nouvelles) {
     for (const l of a.lignes.values()) {
-      const destinataires = abonnes.filter(x => x.suivies.includes(l.id)).length;
+      const destinataires = abonnes.filter(x => x.suivies.includes(l.id) && voulue(x.niveau || 'standard', l, francais.get(a.id))).length;
       if (destinataires === 0) continue;
       const fr = francais.get(a.id) || {};
       entrees.push({
@@ -290,6 +308,28 @@ async function envoyerExpo(messages) {
   return invalides;
 }
 
+// ── Observation des travaux ───────────────────────────────────────────────────────────────────────────────────
+// Les travaux ne sont envoyés à PERSONNE. On note pendant quelques jours les nouvelles annonces (collection
+// `journalTravaux`, lue par scripts/journal-travaux.js) pour décider ensuite s'ils méritent des notifications.
+function travauxActuels(bulk, maintenant = Date.now()) {
+  const parId = new Map((bulk.disruptions || []).map(p => [p.id, p]));
+  const travaux = new Map();
+  for (const l of bulk.lines || []) {
+    for (const o of l.impactedObjects || []) {
+      if (o.type !== 'line' && o.type !== 'stop_point') continue;
+      for (const id of o.disruptionIds || []) {
+        const p = parId.get(id);
+        if (!p || p.cause !== 'TRAVAUX') continue;
+        if (!(p.applicationPeriods || []).some(x => dateNavitia(x.begin) <= maintenant && maintenant <= dateNavitia(x.end))) continue;
+        const t = travaux.get(id) || { id, gravite: p.severity, titre: nettoyerTexte(p.title).slice(0, 200), detail: nettoyerTexte(p.message).slice(0, 500), lignes: new Map() };
+        t.lignes.set(l.id, libelleLigne({ mode: l.mode, code: l.shortName }));
+        travaux.set(id, t);
+      }
+    }
+  }
+  return travaux;
+}
+
 // ── Passage complet ────────────────────────────────────────────────────────────────────────────────────────────
 // `db` : Firestore (firebase-admin) ; `horodatage` : admin.firestore.FieldValue.serverTimestamp() ; `cle` : clé PRIM ;
 // `reel` : envoyer et écrire pour de bon ; `journal` : où écrire les messages (jamais de jeton dedans).
@@ -315,14 +355,19 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
   journal(reel ? 'MODE RÉEL : les notifications seront envoyées.' : 'MODE SIMULATION : rien ne sera envoyé ni écrit.');
 
   const bulk = await lireJson(URL_PERTURBATIONS, cle);
-  const alertes = alertesActuelles(bulk);
+  const alertes = alertesActuelles(bulk, Date.now(), true);
   bilan.perturbations = alertes.size;
   journal(`${alertes.size} perturbation(s) à signaler en ce moment.`);
 
   const refEtat = db.doc('systeme/alertesTrafic');
   const etat = await refEtat.get();
   const avant = (etat.exists && etat.data()) || {};
-  const dejaSignalees = avant.signalees || {};
+  const dejaSignalees = { ...(avant.signalees || {}) };
+  // Premier passage depuis que les informations sont suivies : celles déjà en cours ne sont pas « nouvelles ».
+  if (etat.exists && !avant.suitInfos) for (const a of alertes.values()) if (a.information) dejaSignalees[a.id] ??= a.gravite;
+  // Travaux : on observe les nouveaux (le premier passage ne fait que les repérer).
+  const travaux = travauxActuels(bulk);
+  const travauxNouveaux = avant.travauxVus ? [...travaux.values()].filter(t => !avant.travauxVus.includes(t.id)) : [];
   let tri = { memoire: avant.incidents || {}, attente: {}, retenues: new Set() };
   const enregistrerEtat = () => {
     const signalees = {};
@@ -331,7 +376,7 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
       if (!tri.retenues.has(a.id)) signalees[a.id] = a.gravite;
       else if (dejaSignalees[a.id] !== undefined) signalees[a.id] = dejaSignalees[a.id];
     }
-    return reel ? refEtat.set({ signalees, incidents: tri.memoire, attente: tri.attente, miseAJour: horodatage }) : Promise.resolve();
+    return reel ? refEtat.set({ signalees, incidents: tri.memoire, attente: tri.attente, suitInfos: true, travauxVus: [...travaux.keys()], miseAJour: horodatage }) : Promise.resolve();
   };
 
   if (!etat.exists) {
@@ -341,6 +386,12 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
     return;
   }
 
+  if (reel && travauxNouveaux.length > 0) {
+    try {
+      await db.collection('journalTravaux').add({ at: new Date(), travaux: travauxNouveaux.slice(0, 40).map(t => ({ id: t.id, gravite: t.gravite, titre: t.titre, detail: t.detail, lignes: [...t.lignes.values()].slice(0, 20) })) });
+    } catch (e) { journal(`Observation des travaux non enregistrée : ${e.message}`); }
+  }
+
   const nouvelles = nouvellesAlertes(alertes, dejaSignalees);
   bilan.nouvelles = nouvelles.length;
   journal(`${nouvelles.length} nouvelle(s) ou aggravée(s).`);
@@ -348,7 +399,7 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
   if (nouvelles.length === 0) { tri = trier(new Map(), new Set()); await enregistrerEtat(); return; }
 
   const abonnes = (await db.collection('pushTokens').get()).docs
-    .map(d => ({ ref: d.ref, token: d.data().token, suivies: d.data().alertesLignes || [], dev: d.data().variante === 'dev' }))
+    .map(d => ({ ref: d.ref, token: d.data().token, suivies: d.data().alertesLignes || [], dev: d.data().variante === 'dev', niveau: NIVEAUX.includes(d.data().alertesNiveau) ? d.data().alertesNiveau : 'standard' }))
     // Les installations de DÉVELOPPEMENT (variante « dev », écrite par l'app) ne reçoivent pas les alertes réelles : elles
     // doublaient celles de la version stable sur le téléphone du développeur. `notifierDev` pour les inclure.
     .filter(a => a.token && a.suivies.length > 0 && (notifierDev || !a.dev));
@@ -357,21 +408,23 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
 
   // Les textes français ne sont demandés que pour les lignes réellement suivies par quelqu'un.
   const suivies = new Set(abonnes.flatMap(x => x.suivies));
+  // Une information n'intéresse que les abonnés réglés sur « Toutes ».
+  const suiviesInfos = new Set(abonnes.filter(x => x.niveau === 'toutes').flatMap(x => x.suivies));
   const lignesUtiles = new Set();
-  for (const a of nouvelles) for (const l of a.lignes.values()) if (suivies.has(l.id)) lignesUtiles.add(l.id);
+  for (const a of nouvelles) for (const l of a.lignes.values()) if ((a.information ? suiviesInfos : suivies).has(l.id)) lignesUtiles.add(l.id);
   const francais = new Map();
   for (const id of lignesUtiles) {
     for (const [k, v] of await textesFrancais(id, cle)) francais.set(k, v);
     await attendre(700);
   }
 
-  tri = trier(francais, suivies);
+  tri = trierNouvelles({ nouvelles: nouvelles.filter(a => !a.information || [...a.lignes.keys()].some(id => suiviesInfos.has(id))), alertes, francais, suivies, memoire: avant.incidents || {}, attente: avant.attente || {} });
   if (tri.ecartees > 0) journal(`${tri.ecartees} mise(s) à jour sans changement d'état, non renvoyée(s).`);
   if (tri.retenues.size > 0) journal(`${tri.retenues.size} annonce(s) sans texte, en attente.`);
 
   const messages = [];
   for (const ab of abonnes) {
-    for (const m of composerMessages(tri.aEnvoyer, ab.suivies, francais)) {
+    for (const m of composerMessages(tri.aEnvoyer, ab.suivies, francais, ab.niveau)) {
       messages.push({ to: ab.token, sound: 'default', channelId: 'trafic', priority: 'high', ttl: 3600, ...m });
     }
   }
@@ -392,4 +445,4 @@ async function passer({ db, horodatage, cle, reel, journal, bilan, notifierDev }
   await enregistrerEtat();
 }
 
-module.exports = { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia, executerSurveillance, etatAnnonce, trierNouvelles };
+module.exports = { alertesActuelles, nouvellesAlertes, composerMessages, libelleLigne, dateNavitia, executerSurveillance, etatAnnonce, trierNouvelles, travauxActuels };

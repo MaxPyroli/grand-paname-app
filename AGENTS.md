@@ -10,3 +10,9 @@
 - Lire `docs/guide-graphique.md` avant de toucher à l'interface, et le compléter à chaque décision de design.
 - Respecter également les consignes de `app/AGENTS.md` pour le code de l'application.
 
+
+## Charte Paname Dev
+- La charte commune est dans `MaxPyroli/showroom`, fichier `CHARTE.md` (lien brut : https://raw.githubusercontent.com/MaxPyroli/showroom/main/CHARTE.md ; copie locale : `C:/Users/maxim/Documents/CHARTE.md`). La lire au début d'une tâche qui touche à l'interface, aux textes, aux pages légales, au README ou au store.
+- Identité à utiliser telle quelle : éditeur « Paname Dev », contact `contact@panamedev.fr`, copyright `© 2026 Paname Dev`, mention « Conçu et codé avec Claude ».
+- Si l'app s'écarte de la charte, le signaler à l'utilisateur au lieu de corriger en silence ; noter toute nouvelle décision de design dans la section 8 de la charte.
+- Précision de l'utilisateur (27/11) : Grand Paname a sa propre direction artistique ; les choix propres à l'app (ex. couleurs des paramètres par famille) se notent dans `docs/guide-graphique.md`, pas dans la charte.
