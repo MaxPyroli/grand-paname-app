@@ -107,6 +107,8 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       // ceux à donner en `channelId` à l'envoi (voir scripts/notifications-ui.js) ;
       // le nom affiché peut être changé ici à tout moment (Android met à jour le
       // nom d'une catégorie existante, mais pas son niveau d'importance).
+      // Reste d'un essai (copie des alertes reçues app ouverte, abandonnée) : retiré des téléphones qui l'ont eue.
+      await Notifications.deleteNotificationChannelAsync('trafic_ouvert').catch(() => {});
       // Trois catégories d'alertes trafic, réglables séparément dans Android. L'ancienne catégorie unique « trafic »
       // est retirée une fois le serveur prévenu (voir `enregistrerNiveauAlertes`).
       await Notifications.setNotificationChannelAsync('trafic_interruption', {

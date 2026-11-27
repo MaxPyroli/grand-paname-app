@@ -1,11 +1,13 @@
 import { useContext, useEffect, useState } from 'react';
-import { Linking, Platform, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import { AppState, Linking, Platform, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { Image as ExpoImage } from 'expo-image';
 import Constants from 'expo-constants';
 import { ThemeContext, useColors } from '../theme';
 import { Icon } from '../Icon';
 import { symboleLigne } from '../symbolesLignes';
-import { Carte, Interrupteur, LigneReglage, ListeChoix, PageReglages, type Choix } from './composants';
+import { Avertissement, Carte, Interrupteur, LigneReglage, ListeChoix, PageReglages, type Choix } from './composants';
+import { canalDe, soucisNotifs, texteSouci, type Souci } from '../categoriesNotifs';
 import { changerPrefs, chargerPrefs, lirePrefs, suivrePrefs, type NiveauAlertes } from '../prefsNotifs';
 import {
   ecouterLignesSuivies, enregistrerBusSuivis, enregistrerLignesSuivies, enregistrerNiveauAlertes,
@@ -41,22 +43,50 @@ export function useResumeNotifs(): string {
     lireLignesSuivies().then(l => setNombre(l.length));
     return ecouterLignesSuivies(l => setNombre(l.length));
   }, []);
+  const soucis = useSoucisAndroid(prefs.niveau);
   const niveau = NIVEAUX.find(n => n.cle === prefs.niveau)!.titre;
+  // Un blocage est signalé dès la page principale (une catégorie seulement silencieuse ne l'est que dans la page).
+  if (soucis.some(x => x.genre === 'app')) return 'Désactivées dans Android';
+  if (soucis.some(x => x.genre === 'desactivee')) return 'Une catégorie est désactivée dans Android';
   return `${niveau} · ${nombre === 0 ? 'aucune ligne' : `${nombre} ligne${nombre > 1 ? 's' : ''}`}`;
 }
 
-// Ouvre les réglages de notifications Android de CETTE application (à défaut, sa fiche dans les réglages).
-function ouvrirNotificationsAndroid() {
+// Ouvre les réglages de notifications Android de CETTE application, ou d'une de ses catégories (à défaut, sa fiche
+// dans les réglages).
+function ouvrirNotificationsAndroid(canal?: string) {
   const paquet = Constants.expoConfig?.android?.package;
   if (Platform.OS !== 'android' || !paquet) { Linking.openSettings(); return; }
-  Linking.sendIntent('android.settings.APP_NOTIFICATION_SETTINGS', [{ key: 'android.provider.extra.APP_PACKAGE', value: paquet }])
-    .catch(() => Linking.openSettings());
+  const extras = [{ key: 'android.provider.extra.APP_PACKAGE', value: paquet }];
+  const ouverture = canal
+    ? Linking.sendIntent('android.settings.CHANNEL_NOTIFICATION_SETTINGS', [...extras, { key: 'android.provider.extra.CHANNEL_ID', value: canal }])
+    : Linking.sendIntent('android.settings.APP_NOTIFICATION_SETTINGS', extras);
+  ouverture.catch(() => Linking.openSettings());
+}
+
+// Ce qu'Android bloque parmi ce qui est demandé. Relu à chaque retour dans l'app (on revient des réglages Android).
+export function useSoucisAndroid(niveau: NiveauAlertes): Souci[] {
+  const [soucis, setSoucis] = useState<Souci[]>([]);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let annule = false;
+    const lire = async () => {
+      try {
+        const [permission, canaux] = await Promise.all([Notifications.getPermissionsAsync(), Notifications.getNotificationChannelsAsync()]);
+        if (!annule) setSoucis(soucisNotifs(niveau, permission.granted, canaux ?? []));
+      } catch { /* état inconnu : rien à signaler */ }
+    };
+    lire();
+    const ecoute = AppState.addEventListener('change', etat => { if (etat === 'active') lire(); });
+    return () => { annule = true; ecoute.remove(); };
+  }, [niveau]);
+  return soucis;
 }
 
 export default function PageNotifications({ onRetour, onAjouterLigne }: { onRetour: () => void; onAjouterLigne: () => void }) {
   const c = useColors();
   const { isDark } = useContext(ThemeContext);
   const prefs = usePrefsNotifs();
+  const soucis = useSoucisAndroid(prefs.niveau);
   const [suivies, setSuivies] = useState<string[]>(lignesSuiviesConnues);
   const [bus, setBus] = useState<BusSuivi[]>(busSuivisConnus);
   useEffect(() => {
@@ -90,6 +120,12 @@ export default function PageNotifications({ onRetour, onAjouterLigne }: { onReto
     <PageReglages icone="notifications" titre="Notifications" sousTitre={resume} action="Retour" onAction={onRetour}>
       <Carte titre="Me prévenir pour">
         <ListeChoix choix={NIVEAUX} valeur={prefs.niveau} onChange={choisirNiveau} />
+        {soucis.map(x => (
+          <Avertissement
+            key={x.genre === 'app' ? 'app' : x.categorie} texte={texteSouci(x)}
+            onPress={() => ouvrirNotificationsAndroid(x.genre === 'app' ? undefined : canalDe(x.categorie))}
+          />
+        ))}
         <View style={{ height: 4 }} />
       </Carte>
 
@@ -136,7 +172,7 @@ export default function PageNotifications({ onRetour, onAjouterLigne }: { onReto
       </Carte>
 
       <Carte>
-        <LigneReglage icone="telephone-reglages" titre="Notifications Android" texte="Son, bannière, catégories" droite="externe" onPress={ouvrirNotificationsAndroid} />
+        <LigneReglage icone="telephone-reglages" titre="Notifications Android" texte="Son, bannière, catégories" droite="externe" onPress={() => ouvrirNotificationsAndroid()} />
       </Carte>
     </PageReglages>
   );

@@ -183,15 +183,20 @@ export function ListeChoix<T extends string>({ choix, valeur, onChange }: { choi
   );
 }
 
-export function Avertissement({ texte }: { texte: string }) {
+export function Avertissement({ texte, onPress }: { texte: string; onPress?: () => void }) {
   const c = useColors();
   const orange = '#F39C12';
-  return (
-    <View style={[styles.avertissement, { borderColor: hexToRgba(orange, 0.55), backgroundColor: hexToRgba(orange, 0.13) }]} accessibilityRole="alert">
+  const style = [styles.avertissement, { borderColor: hexToRgba(orange, 0.55), backgroundColor: hexToRgba(orange, 0.13) }];
+  const contenu = (
+    <>
       <Icon name="info-trafic" size={18} color={orange} />
       <Text style={[styles.texteAvertissement, { color: c.text }]}>{texte}</Text>
-    </View>
+      {onPress ? <Icon name="externe" size={16} color={orange} /> : null}
+    </>
   );
+  return onPress
+    ? <TouchableOpacity activeOpacity={0.7} style={style} onPress={onPress} accessibilityRole="button">{contenu}</TouchableOpacity>
+    : <View style={style} accessibilityRole="alert">{contenu}</View>;
 }
 
 const styles = StyleSheet.create({
