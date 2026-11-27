@@ -12,26 +12,18 @@ export const CHANGELOGS: ChangelogEntry[] = [
     version: '3.4.1',
     date: 'En préparation',
     content: `**🛠️ Améliorations et Corrections**
-* Les bus que tu suis (cloche) dans l'info trafic s'affichent en permanence dans la rubrique Bus, avec leur état, au-dessus de la recherche.
-* La date de mise à jour des perturbations est affichée de façon plus discrète.
-* Consulter la perturbation d'une ligne retire ses notifications de ton téléphone.
-* Les messages de l'app (alertes trafic, confirmations) ont un nouveau style commun qui suit ton thème, avec des animations plus fluides.
-* Les fenêtres de l'app (Quoi de neuf, mise à jour) et les notifications ont le même style en verre dépoli.
-* Carte : en mode sombre, les zones claires sont moins éblouissantes ; en mode OLED, le fond est vraiment noir.
-* Le tutoriel de l'application a été revu
-* Les paramètres ont été entièrement repensés, plus compacts et aux couleurs de l'app.
-* Nouvelle page Notifications : choisis quelles alertes recevoir (toutes, perturbations et interruptions, ou interruptions seules), gère tes lignes suivies, règle les alertes dans l'app et leur vibration.
-* Les alertes trafic sont rangées en trois catégories Android (Information, sans son ; Perturbation ; Interruption), réglables séparément.
-* La barre de recherche des bus accompagne le clavier en douceur au lieu de sauter.
-* Les perturbations s'affichent plus vite à l'ouverture d'une ligne dans l'info trafic.
-* Correction d'un bug lors de l'ouverture d'une notification d'info trafic d'une ligne de bus qui n'affichait pas la perturbation.
-* Correction d'un bug où la mise à jour intégrée à l'app s'arrêtait sans rien afficher en cas d'échec : la fiche de l'app sur le Play Store s'ouvre maintenant directement.
-* Correction d'un bug où la ligne ouverte depuis une alerte trafic restait cachée derrière le volet des horaires.
+* Les paramètres ont été entièrement repensés, plus compacts et aux couleurs de l'app, et le tutoriel a été revu.
+* Nouvelle page Notifications : choisis tes alertes (toutes, perturbations et interruptions, ou interruptions seules), gère tes lignes suivies et règle les alertes dans l'app. Elles sont aussi rangées en trois catégories Android.
+* Les notifications, fenêtres et messages de l'app ont un nouveau style, avec le verre dépoli et des animations plus fluides.
+* Info trafic : les perturbations s'affichent plus vite, les bus que tu suis restent visibles avec leur état, et consulter la perturbation d'une ligne retire ses notifications.
+* La barre de recherche des bus accompagne le clavier en douceur.
+* Carte : le mode sombre est moins éblouissant et le mode OLED a un fond vraiment noir.
+* Correction d'un bug où la notification d'une ligne de bus n'affichait pas la perturbation à son ouverture.
+* Correction d'un bug où le volet des horaires pouvait cacher la ligne ouverte depuis une alerte, ou apparaître vide au milieu de l'écran.
+* Correction d'un bug d'affichage du flou et des ombres en mode paysage et après une rotation.
 * Correction d'un bug où les lignes de transport clignotaient sur la carte pendant un zoom.
-* Correction d'un bug où un volet d'horaires vide pouvait apparaître au milieu de l'écran, par exemple à l'ouverture de l'app.
-* Correction d'un bug où le flou et les ombres des barres du bas étaient décalés en mode paysage.
-* Correction d'un bug où le flou tardait à réapparaître après une rotation de l'écran.
-* Correction d'un bug où une alerte trafic reçue avec l'app ouverte s'affichait deux fois, en pop-up et en bannière du téléphone.
+* Correction d'un bug où une alerte reçue avec l'app ouverte s'affichait deux fois.
+* Correction d'un bug où la mise à jour intégrée pouvait échouer sans rien afficher : la fiche Play Store s'ouvre désormais.
 
 Bon voyage !`,
   },

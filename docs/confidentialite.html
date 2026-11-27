@@ -88,47 +88,72 @@
   <div class="card">
     <h2>En résumé</h2>
     <div class="highlight">
-      Grand Paname ne collecte aucune donnée personnelle. Votre position géographique est utilisée uniquement sur votre appareil et n'est jamais transmise à nos serveurs.
+      Pas de compte, pas de publicité, pas de pistage, et tes données ne sont pas vendues. Mais l'application a besoin d'Internet : certaines informations sont envoyées à des services extérieurs pour te donner les horaires, afficher la carte et, si tu les autorises, t'envoyer des notifications.
     </div>
+    <p>Grand Paname est éditée par Paname Dev.</p>
   </div>
 
   <div class="card">
-    <h2>Données de localisation</h2>
-    <p>Lorsque vous l'autorisez, l'application accède à votre position GPS afin d'afficher les gares et arrêts de transport en commun proches de vous.</p>
+    <h2>Ta position</h2>
+    <p>La localisation est facultative. Si tu l'autorises, l'application l'utilise quand tu t'en sers pour te situer sur la carte et trouver les arrêts proches.</p>
     <ul>
-      <li>La position est traitée localement sur votre appareil.</li>
-      <li>Elle n'est ni enregistrée, ni envoyée à un serveur tiers.</li>
-      <li>Elle n'est jamais partagée avec d'autres applications ou sociétés.</li>
+      <li>Pour chercher les arrêts autour de toi, <strong>ta position est envoyée à Île-de-France Mobilités</strong> (service PRIM), qui renvoie la liste des arrêts.</li>
+      <li>Le suivi de ton déplacement et de ton orientation sur la carte se fait sur ton téléphone.</li>
+      <li>Paname Dev ne reçoit pas ta position et ne l'enregistre pas.</li>
     </ul>
-    <p>Vous pouvez révoquer l'accès à la localisation à tout moment dans les réglages de votre téléphone.</p>
+    <p>Tu peux retirer cette autorisation à tout moment dans les réglages de ton téléphone. La recherche par nom continue de fonctionner.</p>
   </div>
 
   <div class="card">
-    <h2>Données de navigation et de carte</h2>
-    <p>La carte affichée utilise les tuiles CartoDB (service d'OpenStreetMap). Lorsque vous naviguez sur la carte, votre appareil télécharge des images de tuiles depuis leurs serveurs. Ce téléchargement peut impliquer votre adresse IP, conformément à la <a href="https://carto.com/privacy/" target="_blank">politique de confidentialité de CartoDB</a>.</p>
-    <p>Grand Paname n'a pas accès à ces données et ne les stocke pas.</p>
+    <h2>Horaires, recherche et carte</h2>
+    <ul>
+      <li><strong>Île-de-France Mobilités</strong> reçoit ce qui est nécessaire pour répondre : le texte de tes recherches, les arrêts et lignes que tu consultes, et la zone de la carte pour afficher les arrêts. Le <a href="https://prim.iledefrance-mobilites.fr/" target="_blank">portail PRIM</a> et le portail de données ouvertes d'Île-de-France Mobilités sont utilisés.</li>
+      <li><strong>CARTO</strong> fournit les images de la carte (données © les contributeurs d'OpenStreetMap). Les images demandées indiquent la zone affichée. Voir la <a href="https://carto.com/privacy/" target="_blank">politique de confidentialité de CARTO</a>.</li>
+    </ul>
+    <p>Comme pour toute connexion à Internet, ces services reçoivent aussi ton adresse IP et la traitent selon leurs propres règles.</p>
   </div>
 
   <div class="card">
-    <h2>Données audio</h2>
-    <p>L'application demande l'accès au microphone pour une fonctionnalité expérimentale de recherche vocale. Aucun enregistrement audio n'est transmis à un serveur : le traitement est entièrement local.</p>
+    <h2>Notifications et alertes trafic</h2>
+    <p>Si les notifications sont autorisées sur ton téléphone, l'application enregistre sur notre serveur, même si tu ne suis encore aucune ligne :</p>
+    <ul>
+      <li>un identifiant de notification, qui permet d'envoyer un message à ton téléphone ;</li>
+      <li>une empreinte calculée à partir d'un identifiant Android, pour reconnaître un même téléphone et éviter les envois en double (l'identifiant lui-même n'est pas enregistré) ;</li>
+      <li>le système et la version de l'application, et la date de dernière mise à jour de ces informations ;</li>
+      <li>les lignes que tu suis et le niveau d'alerte que tu as choisi.</li>
+    </ul>
+    <p>Ces informations ne contiennent ni ton nom, ni ton adresse e-mail, ni ton numéro de téléphone, ni ta position. Elles servent uniquement aux notifications : alertes sur tes lignes et messages à propos de l'application, comme les mises à jour. Les lignes que tu suis peuvent toutefois donner une idée de tes trajets.</p>
+    <p>L'envoi passe par des prestataires : <strong>Google Firebase</strong> (stockage), <strong>Cloudflare</strong> (surveillance du trafic et déclenchement des alertes), puis <strong>Expo</strong> et <strong>Google (Firebase Cloud Messaging)</strong> (remise des notifications). Certains peuvent traiter ces données hors de l'Union européenne.</p>
+    <p><strong>Durée de conservation :</strong> tant que l'identifiant de notification est utilisé. Il est supprimé quand le service d'envoi nous signale qu'il n'est plus valable, par exemple après une désinstallation, ce qui peut n'être détecté qu'à un envoi ultérieur. Retirer une ligne suivie la retire aussi du serveur. Désactiver les notifications arrête leur affichage, mais n'efface pas ce qui est déjà enregistré : tu peux nous demander de le supprimer.</p>
+    <p>Nous gardons par ailleurs un journal technique des alertes envoyées (annonces, lignes, nombre de destinataires), sans identifiant de téléphone.</p>
+  </div>
+
+  <div class="card">
+    <h2>Ce qui reste sur ton téléphone</h2>
+    <p>Tes favoris, tes préférences, les dernières alertes reçues et le cache de la carte sont enregistrés sur ton téléphone. La liste de tes lignes suivies est aussi envoyée au serveur pour les alertes. Selon les réglages de ton téléphone, des données de l'application peuvent être incluses dans la sauvegarde Android de ton compte Google.</p>
+    <p>La lecture de carte Navigo par NFC, fonction expérimentale, se fait sur ton téléphone : le contenu de la carte ne nous est pas envoyé.</p>
+    <p>L'application n'utilise pas le microphone.</p>
+  </div>
+
+  <div class="card">
+    <h2>Signaler un bug, nous écrire</h2>
+    <p>Le formulaire de signalement est fourni par <strong>Tally</strong> (<a href="https://tally.so/help/privacy-policy" target="_blank">politique de confidentialité</a>). Il reçoit la version de l'application, le système du téléphone et ce que tu choisis d'écrire ou de joindre. N'y mets que ce qui est utile au signalement. Si tu nous écris par e-mail, nous utilisons ton adresse et ton message pour te répondre.</p>
   </div>
 
   <div class="card">
     <h2>Ce que nous ne faisons pas</h2>
     <ul>
-      <li>Nous ne créons pas de compte utilisateur.</li>
-      <li>Nous ne collectons pas d'identifiants publicitaires.</li>
-      <li>Nous n'utilisons pas de cookies ou de traceurs.</li>
-      <li>Nous ne vendons ni ne partageons vos données avec des tiers.</li>
-      <li>Nous n'affichons pas de publicité.</li>
+      <li>Pas de compte utilisateur.</li>
+      <li>Pas de publicité ni d'identifiant publicitaire.</li>
+      <li>Pas d'outil de mesure d'audience ni de pistage dans l'application.</li>
+      <li>Pas de vente de tes données. Les services cités sur cette page reçoivent seulement ce que leur rôle demande.</li>
     </ul>
   </div>
 
   <div class="card">
-    <h2>Contact</h2>
-    <p>Pour toute question relative à la confidentialité de vos données, vous pouvez nous contacter à l'adresse suivante :</p>
-    <p><a href="mailto:contact@panamedev.fr">contact@panamedev.fr</a></p>
+    <h2>Tes droits et contact</h2>
+    <p>Tu peux demander à consulter, corriger ou supprimer les données qui te concernent, ou t'opposer à leur utilisation, en écrivant à <a href="mailto:contact@panamedev.fr">contact@panamedev.fr</a>. Pour retrouver les données des notifications, qui ne portent pas ton nom, nous pourrons avoir besoin de l'identifiant de notification de ton téléphone : nous t'expliquerons comment l'obtenir.</p>
+    <p>Si tu estimes que tes droits ne sont pas respectés, tu peux saisir la <a href="https://www.cnil.fr/fr/plaintes" target="_blank">CNIL</a>.</p>
   </div>
 
   <footer>
