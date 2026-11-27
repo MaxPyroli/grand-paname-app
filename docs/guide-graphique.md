@@ -175,6 +175,7 @@ Toute décision de design prise en conversation (taille, espacement, animation, 
 - **Tiroirs en paysage** : 340 dp max, collés à leur bord, montent jusqu'en haut de l'écran ; celui de droite (Trafic) descend aussi jusqu'en bas (rien dessous), celui de gauche (Favoris) s'arrête au-dessus de la barre de navigation. L'en-tête (à gauche) ou la bulle des réglages (à droite) s'efface quand le tiroir de son côté est ouvert.
 - Reste à harmoniser : Paramètres et fenêtres modales en paysage ; transition de la rotation.
 - Rotation et verre dépoli (27/11) : le flou doit être là dès la première image de la nouvelle orientation. La carte le replace elle-même d’après les positions mémorisées ; pas de masquage ni de fondu, sauf pour une surface jamais vue dans cette orientation, qui apparaît en fondu doux (260 ms, ralenti en fin).
+- Flou d’une carte qui remonte dans la pile (27/11) : il arrive en fondu PENDANT que la carte remonte (20 ms puis 260 ms), jamais d’un coup.
 - Balayage d’une notification interne (27/11) : au lâcher, la carte continue immédiatement à la vitesse du doigt (comme les volets) ; aucun arrêt, aucun redémarrage de l’animation.
 - Alerte trafic app ouverte (27/11, remplace la copie rangée dans le volet) : uniquement la notification interne, rien côté téléphone.
 - Vibration des notifications internes (27/11) : une seule, à l’arrivée de l’alerte (même mise en attente) ; jamais quand une carte déjà reçue remonte dans la pile.

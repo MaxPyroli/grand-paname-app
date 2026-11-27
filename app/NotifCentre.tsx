@@ -27,6 +27,9 @@ const RESSORT = { damping: 18, stiffness: 190, mass: 0.7 };
 const SORTIE_BALAYEE = { damping: 30, stiffness: 180, mass: 0.7, overshootClamping: true };
 // Pile des cartes : celles qui attendent dépassent sous la première, un peu plus petites à chaque rang.
 const CARTES_VISIBLES = 3;
+// Voile du fondu : ajouté à la teinte du verre (45 à 50 %), il redonne les ~96 % d'une carte en attente.
+const VOILE_OPACITE = 0.92;
+const FONDU_FLOU = { delai: 20, duree: 260 };
 const DECALAGE_PILE = 12;
 const REDUCTION_PILE = 0.05;
 
@@ -92,6 +95,26 @@ function Place({ emplacement, flouPermis }: { emplacement: Emplacement; flouPerm
         />
       ))}
     </View>
+  );
+}
+
+// Une carte qui REÇOIT le flou (celle du dessus vient de partir) passait d'un coup de « presque opaque » au verre. Le verre
+// est donc posé sous un voile de même aspect que la carte en attente, qui s'efface en fondu. Court délai : le flou natif
+// met un instant à s'allumer. Une carte qui a le flou dès son arrivée n'a pas de voile.
+function VerreEnFondu({ fond, flou }: { fond: string; flou: boolean }) {
+  const c = useColors();
+  const { isDark } = useContext(ThemeContext);
+  const flouAuDepart = useRef(flou).current;
+  const voile = useSharedValue(flouAuDepart ? 0 : 1);
+  useEffect(() => {
+    voile.value = flou ? withDelay(FONDU_FLOU.delai, withTiming(0, { duration: FONDU_FLOU.duree })) : 1;
+  }, [flou, voile]);
+  const styleVoile = useAnimatedStyle(() => ({ opacity: voile.value }));
+  return (
+    <>
+      <CoucheSurface fond={fond} flou={flou} />
+      {flou && <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? hexToRgba(c.bgCard, VOILE_OPACITE) : `rgba(255,255,255,${VOILE_OPACITE})` }, styleVoile]} />}
+    </>
   );
 }
 
@@ -210,7 +233,7 @@ function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }:
         style={[styles.pilule, { borderColor: bordure, boxShadow: halo }]}
         accessibilityRole="alert"
       >
-        <View pointerEvents="none" style={styles.verrePilule}><CoucheSurface fond={fond} flou={surface.flou} /></View>
+        <View pointerEvents="none" style={styles.verrePilule}><VerreEnFondu fond={fond} flou={surface.flou} /></View>
         {n.chargement ? <ActivityIndicator size="small" color={accent} /> : <Icon name={n.icone ?? ICONES[n.type]} size={16} color={accent} />}
         <Text style={[styles.piluleTexte, { color: c.text }]} numberOfLines={2}>{n.titre}</Text>
       </TouchableOpacity>
@@ -244,7 +267,7 @@ function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }:
     // La boîte (fond, bordure, halo) a une hauteur animée ; le contenu, lui, garde sa hauteur naturelle (mesurée).
     const boite = (
       <Animated.View style={[styles.boite, { borderColor: bordure, boxShadow: halo }, styleHauteur]}>
-        <CoucheSurface fond={fond} flou={surface.flou} />
+        <VerreEnFondu fond={fond} flou={surface.flou} />
         <View onLayout={surMesure} style={styles.interieur}>
           <Animated.View style={styleContenu}>
             <View style={styles.rangee}>
