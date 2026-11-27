@@ -52,7 +52,7 @@ import { Icon, IconScannerNavigoCouleur, IconAccueilCouleur, IconFavorisCouleur,
 import TraficScreen from './TraficScreen';
 import { MaskedView, GardeMasque } from './ListeFondue';
 import { FadeBottom, FadeTop, hexToRgba, FONDU_HAUT, FONDU_BAS } from './Fade';
-import { Carte, LigneReglage, Interrupteur, Tuile, Tuiles, Selecteur, PageReglages } from './reglages/composants';
+import { Carte, Chevron, ChevronDepliant, Depliant, LigneReglage, Interrupteur, Tuile, Tuiles, Selecteur, PageReglages } from './reglages/composants';
 import PageNotifications, { useResumeNotifs } from './reglages/PageNotifications';
 import { definirRect, retirerRect, definirOrigine, definirEnvoyeur, renvoyerVerre } from './verreWeb';
 import type { RectVerre } from './verreWeb';
@@ -403,6 +403,8 @@ function SettingsModal({ pageDemandee, retourRef, onAjouterLigne, cibleFlouRef, 
       rafraichirTailleCache();
     });
   };
+  // Notes de la dernière version, dépliables sur la page principale. Repliées à chaque ouverture des paramètres.
+  const [notesDepliees, setNotesDepliees] = useState(false);
   const [activeVersion, setActiveVersion] = useState<string | null>(null);
   const contentAnim = useRef(new Animated.Value(0)).current;
 
@@ -561,9 +563,27 @@ function SettingsModal({ pageDemandee, retourRef, onAjouterLigne, cibleFlouRef, 
               />
             </Carte>
 
+            <Carte>
+              <LigneReglage
+                icone="historique" famille="or" titre="Quoi de neuf"
+                texte={`Version ${CHANGELOGS[0].version} · ${CHANGELOGS[0].date}`}
+                onPress={() => setNotesDepliees(v => !v)}
+                deplie={notesDepliees}
+                droite={<ChevronDepliant ouvert={notesDepliees} />}
+              />
+              <Depliant ouvert={notesDepliees}>
+                <View style={[styles.dernieresNotes, { borderTopColor: c.border }]}>
+                  <ChangelogContent content={CHANGELOGS[0].content} c={c} />
+                </View>
+              </Depliant>
+              <TouchableOpacity style={[styles.toutesNotes, { borderTopColor: c.border }]} activeOpacity={0.6} onPress={() => allerA('historique')} accessibilityRole="button">
+                <Text style={{ color: c.accent, fontSize: 14, fontFamily: 'GrandParis-Medium' }}>Voir toutes les notes de version</Text>
+                <Chevron />
+              </TouchableOpacity>
+            </Carte>
+
             <Tuiles>
               <Tuile icone="panneau" famille="or" titre={'Revoir le\ntutoriel'} onPress={() => { onClose(); setTimeout(onReplayOnboarding, 200); }} />
-              <Tuile icone="historique" famille="or" titre={'Historique\ndes versions'} onPress={() => allerA('historique')} />
               <Tuile icone="bug" famille="vert" titre={'Signaler\nun bug'} onPress={onReportBug} />
               <Tuile icone="discussion" famille="vert" titre="Contact" onPress={() => Linking.openURL('mailto:contact@panamedev.fr')} />
             </Tuiles>
@@ -3777,6 +3797,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#5e4bb6', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2,
   },
   codenameBadgeText: { color: '#fff', fontSize: 11, fontFamily: 'GrandParis-Medium' },
+  dernieresNotes: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 4, paddingTop: 10, paddingBottom: 12 },
+  toutesNotes: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 46, paddingHorizontal: 4, borderTopWidth: StyleSheet.hairlineWidth },
   changelogRow: {
     flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16,
   },

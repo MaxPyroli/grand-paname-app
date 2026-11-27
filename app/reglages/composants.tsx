@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View, type StyleProp, type ViewStyle } from 'react-native';
+import Reanimee, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { ThemeContext, useColors, type ThemeColors } from '../theme';
 import { Icon, type IconName } from '../Icon';
 import { PanelHeader, PanelPillAction } from '../PanelHeader';
@@ -78,11 +79,43 @@ export function Chevron({ couleur }: { couleur?: string }) {
   return <View style={{ marginRight: 4 }}><Icon name="avancer" size={12} color={couleur ?? c.accent} /></View>;
 }
 
+// ── Contenu dépliable ──────────────────────────────────────────────────────────
+// La hauteur elle-même est animée : la carte s'agrandit et pousse ce qui suit au même rythme que le contenu se révèle.
+// Le contenu reste construit et mesuré même replié : au toucher, le mouvement part tout de suite.
+const RESSORT = { damping: 15, stiffness: 120, mass: 0.5, overshootClamping: true };   // le ressort commun
+function useOuverture(ouvert: boolean) {
+  const ouverture = useSharedValue(ouvert ? 1 : 0);
+  useEffect(() => { ouverture.value = withSpring(ouvert ? 1 : 0, RESSORT); }, [ouvert]);
+  return ouverture;
+}
+
+export function Depliant({ ouvert, children }: { ouvert: boolean; children: React.ReactNode }) {
+  const ouverture = useOuverture(ouvert);
+  const hauteur = useSharedValue(0);
+  const cadre = useAnimatedStyle(() => ({ height: ouverture.value * hauteur.value }));
+  const fondu = useAnimatedStyle(() => ({ opacity: Math.min(1, ouverture.value * 1.5) }));
+  return (
+    <Reanimee.View style={[styles.depliant, cadre]} pointerEvents={ouvert ? 'auto' : 'none'} importantForAccessibility={ouvert ? 'auto' : 'no-hide-descendants'}>
+      <View style={styles.depliantContenu} onLayout={e => { hauteur.value = e.nativeEvent.layout.height; }}>
+        <Reanimee.View style={fondu}>{children}</Reanimee.View>
+      </View>
+    </Reanimee.View>
+  );
+}
+
+// Flèche vers le bas, qui se retourne au même rythme que le contenu.
+export function ChevronDepliant({ ouvert }: { ouvert: boolean }) {
+  const c = useColors();
+  const ouverture = useOuverture(ouvert);
+  const tour = useAnimatedStyle(() => ({ transform: [{ rotate: `${90 - 180 * ouverture.value}deg` }] }));
+  return <Reanimee.View style={[{ marginRight: 4 }, tour]}><Icon name="avancer" size={12} color={c.accent} /></Reanimee.View>;
+}
+
 // ── Ligne ──────────────────────────────────────────────────────────────────────
 // `droite` : 'suivant' (flèche), 'externe' (ouvre un autre écran du téléphone), un élément libre, ou rien.
-export function LigneReglage({ icone, famille, titre, texte, droite = 'suivant', onPress, desactivee, trait }: {
+export function LigneReglage({ icone, famille, titre, texte, droite = 'suivant', onPress, desactivee, trait, deplie }: {
   icone: IconName; famille?: Famille; titre: string; texte?: string; droite?: 'suivant' | 'externe' | React.ReactNode | null;
-  onPress?: () => void; desactivee?: boolean; trait?: boolean;
+  onPress?: () => void; desactivee?: boolean; trait?: boolean; deplie?: boolean;   // `deplie` : ligne qui ouvre un contenu sous elle
 }) {
   const c = useColors();
   const contenu = (
@@ -99,7 +132,7 @@ export function LigneReglage({ icone, famille, titre, texte, droite = 'suivant',
   );
   const style = [styles.ligne, trait && { borderTopWidth: 1, borderTopColor: c.border }, desactivee && { opacity: 0.4 }];
   return onPress
-    ? <TouchableOpacity activeOpacity={0.6} style={style} onPress={onPress} disabled={desactivee} accessibilityRole="button">{contenu}</TouchableOpacity>
+    ? <TouchableOpacity activeOpacity={0.6} style={style} onPress={onPress} disabled={desactivee} accessibilityRole="button" accessibilityState={deplie === undefined ? undefined : { expanded: deplie }}>{contenu}</TouchableOpacity>
     : <View style={style} pointerEvents={desactivee ? 'none' : 'auto'}>{contenu}</View>;
 }
 
@@ -116,7 +149,7 @@ export function Interrupteur({ actif, onChange, label, desactive }: { actif: boo
   );
 }
 
-// ── Tuiles (deux par rangée) ───────────────────────────────────────────────────
+// ── Tuiles (une rangée, largeurs égales) ───────────────────────────────────────────────────
 export function Tuiles({ children }: { children: React.ReactNode }) {
   return <View style={styles.tuiles}>{children}</View>;
 }
@@ -126,7 +159,7 @@ export function Tuile({ icone, famille, titre, onPress }: { icone: IconName; fam
   return (
     <TouchableOpacity activeOpacity={0.6} onPress={onPress} accessibilityRole="button"
       style={[panelCardStyle, styles.tuile, { backgroundColor: c.bgCard, borderColor: c.borderCard }, isDark && styles.ombreSombre]}>
-      <View style={{ marginRight: -2 }}><Puce icone={icone} famille={famille} /></View>
+      <View style={styles.puceTuile}><Puce icone={icone} famille={famille} /></View>
       <Text style={[styles.titreTuile, { color: c.text }]} numberOfLines={2}>{titre}</Text>
     </TouchableOpacity>
   );
@@ -209,11 +242,16 @@ const styles = StyleSheet.create({
   ligne: { flexDirection: 'row', alignItems: 'center', minHeight: 62, paddingVertical: 8 },
   titre: { fontSize: 15, fontFamily: 'GrandParis-Medium' },
   texte: { fontSize: 12, lineHeight: 16, fontFamily: 'GrandParis-Light', marginTop: 2 },
+  depliant: { overflow: 'hidden' },
+  depliantContenu: { position: 'absolute', left: 0, right: 0, top: 0 },
   rail: { width: 44, height: 26, borderRadius: 13, paddingHorizontal: 3, justifyContent: 'center' },
   rond: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
-  tuiles: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  tuile: { width: '48.4%', height: 64, paddingHorizontal: 10, marginBottom: 10 },
-  titreTuile: { flex: 1, fontSize: 14, lineHeight: 17, fontFamily: 'GrandParis-Medium' },
+  tuiles: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  // Le gabarit des volets est en ligne : ici l'icône passe au-dessus du texte.
+  tuile: { flex: 1, flexDirection: 'column', justifyContent: 'flex-start', minHeight: 100, paddingHorizontal: 6, paddingTop: 12, paddingBottom: 10, marginBottom: 0 },
+  // La puce des volets réserve une marge à droite, inutile quand elle est centrée au-dessus du texte.
+  puceTuile: { marginRight: -12, marginBottom: 8 },
+  titreTuile: { fontSize: 13, lineHeight: 16, textAlign: 'center', fontFamily: 'GrandParis-Medium' },
   selecteur: { flexDirection: 'row', borderRadius: 16, padding: 3 },
   curseur: { position: 'absolute', left: 3, top: 3, bottom: 3, borderRadius: 13, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
   option: { flex: 1, height: 36, alignItems: 'center', justifyContent: 'center' },
