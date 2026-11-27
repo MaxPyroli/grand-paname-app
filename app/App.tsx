@@ -52,7 +52,7 @@ import { Icon, IconScannerNavigoCouleur, IconAccueilCouleur, IconFavorisCouleur,
 import TraficScreen from './TraficScreen';
 import { MaskedView, GardeMasque } from './ListeFondue';
 import { FadeBottom, FadeTop, hexToRgba, FONDU_HAUT, FONDU_BAS } from './Fade';
-import { definirRect, retirerRect, definirOrigine, definirEnvoyeur, renvoyerVerre, voilerVerre } from './verreWeb';
+import { definirRect, retirerRect, definirOrigine, definirEnvoyeur, renvoyerVerre } from './verreWeb';
 import type { RectVerre } from './verreWeb';
 // Import de type uniquement : pas de require() exécuté au chargement du bundle.
 // react-native-device-info (dépendance de cette lib) plante à l'évaluation de
@@ -2402,12 +2402,6 @@ function AppInner() {
 
   const PANEL_H = SCREEN_H - insets.top;
   const largeurVolet = Math.min(screenWidth, LARGEUR_MAX_VOLET);
-  // Rotation : le flou (dessiné dans la carte) est masqué d'un coup puis réapparaît en fondu, au lieu de se déplacer en retard.
-  const premiereTaille = useRef(true);
-  useEffect(() => {
-    if (premiereTaille.current) { premiereTaille.current = false; return; }
-    voilerVerre(300);
-  }, [screenWidth, SCREEN_H]);
   const geo = useGeometrieBarres(NAV_BAR_HEIGHT, SEARCH_BAR_HEIGHT, 10);
   const paysage = geo.paysage;
   const largeurMaxTiroir = paysage ? LARGEUR_MAX_TIROIR_PAYSAGE : LARGEUR_MAX_TIROIR;

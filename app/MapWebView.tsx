@@ -1,10 +1,13 @@
 import { useRef, useImperativeHandle, forwardRef, useState, useEffect } from 'react';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MODE_ICONS } from './modeIcons';
 import { GRANDPARIS_BOLD_BASE64 } from './assets/grandParisBoldBase64';
 import { CARTO_API_KEY } from './constants';
 import { LEAFLET_JS, LEAFLET_CSS } from './leafletInline';
+
+const CLE_VERRE = '@gp_verre_memoire';
 
 function getMapHTML(isDark: boolean, oled: boolean) {
   const iconsJson = JSON.stringify(MODE_ICONS);
@@ -490,7 +493,54 @@ function getMapHTML(isDark: boolean, oled: boolean) {
   // plutôt que par un flou natif qui recopie la WebView dans un calque et la
   // fait planter. Un rectangle flou par surface flottante de l'app, placé aux
   // coordonnées envoyées par le natif (px CSS = dp). Pas de backtick ici.
+  // Rotation : l'app ne connaît les nouvelles positions que 100 à 150 ms après que la carte a changé de taille. La carte
+  // garde donc les positions de chaque largeur d'écran et les repose ELLE-MÊME dès son redimensionnement ; pendant que
+  // l'app re-mesure, les positions intermédiaires (parfois encore celles de l'ancienne orientation) ne sont pas affichées.
+  // Surface jamais vue à cette largeur : masquée le temps de la stabilisation, puis réaffichée en fondu.
+  var gMemoire={}, gDernier=[], gLargeur=window.innerWidth, gAttente=null, gAvant={}, gAffiche=[], gSauve=null;
   function setGlassRects(list){
+    gDernier=list;
+    if(!gAttente) poserVerre(list);
+    else afficherVerre(provisoire(list));
+  }
+  // Mémoire gardée par l'app d'un lancement à l'autre : la première rotation en profite aussi.
+  function chargerVerreMemoire(m){ for(var k in m){ if(!gMemoire[k]) gMemoire[k]=m[k]; } }
+  function forme(r){ return [r.x,r.y,r.w,r.h,r.b].join(','); }
+  // Pendant la stabilisation : la position mémorisée si on l'a. Sinon (jamais vue à cette largeur), la position reçue
+  // dès qu'elle DIFFÈRE de celle d'avant la rotation (donc re-mesurée) ; tant qu'elle est identique, masquée.
+  function provisoire(list){
+    var connus=gMemoire[gLargeur]||{};
+    return list.map(function(r){
+      var m=connus[r.id];
+      if(m) return copieRect(m,{op:r.op,anim:false,fo:false});
+      if(gAvant[r.id]!==undefined && gAvant[r.id]!==forme(r)) return copieRect(r,{anim:false,fo:false});
+      return copieRect(r,{op:0,anim:false,fo:false});
+    });
+  }
+  function copieRect(r, plus){ var o={}, k; for(k in r) o[k]=r[k]; for(k in plus) o[k]=plus[k]; return o; }
+  window.addEventListener('resize',function(){
+    if(window.innerWidth===gLargeur) return;
+    gLargeur=window.innerWidth;
+    gAvant={}; gAffiche.forEach(function(r){ gAvant[r.id]=forme(r); });
+    if(gAttente) clearTimeout(gAttente);
+    gAttente=setTimeout(function(){
+      gAttente=null;
+      poserVerre(gDernier.map(function(r){ return copieRect(r,{fo:true,anim:false}); }));
+    },400);
+    afficherVerre(provisoire(gDernier));
+  });
+
+  // Positions reçues de l'app en situation stable : affichées et mémorisées pour cette largeur.
+  function poserVerre(list){
+    var m=gMemoire[window.innerWidth]||(gMemoire[window.innerWidth]={});
+    list.forEach(function(r){ m[r.id]=r; });
+    afficherVerre(list);
+    if(gSauve) clearTimeout(gSauve);
+    gSauve=setTimeout(function(){ window.ReactNativeWebView.postMessage(JSON.stringify({type:'verreMemoire',m:gMemoire})); },1500);
+  }
+
+  function afficherVerre(list){
+    gAffiche=list;
     var host=document.getElementById('glass'); var seen={};
     var CB='cubic-bezier(0.22,1,0.36,1)';
     list.forEach(function(r){
@@ -499,7 +549,7 @@ function getMapHTML(isDark: boolean, oled: boolean) {
       var neuf=false;
       if(!el){ el=document.createElement('div'); el.id='gl_'+r.id; el.className='gl'; host.appendChild(el); neuf=true; }
       var d=r.d||450;
-      el.style.transition=r.fo?'opacity 130ms linear':((r.anim&&!neuf)?('transform '+d+'ms '+CB+', bottom '+d+'ms '+CB+', opacity '+d+'ms linear'):'none');
+      el.style.transition=r.fo?'opacity 80ms linear':((r.anim&&!neuf)?('transform '+d+'ms '+CB+', bottom '+d+'ms '+CB+', opacity '+d+'ms linear'):'none');
       el.style.opacity=(r.op==null)?'1':String(r.op);
       el.style.left=r.x+'px';
       el.style.top=(r.y==null)?'auto':r.y+'px';
@@ -867,7 +917,13 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
         originWhitelist={['*']}
         javaScriptEnabled={true}
         startInLoadingState={true}
-        onLoadEnd={onReady}
+        onLoadEnd={() => {
+          // Positions du verre mémorisées (portrait et paysage) : rendues à la carte avant la première rotation.
+          AsyncStorage.getItem(CLE_VERRE)
+            .then(v => { if (v) wvRef.current?.injectJavaScript(`chargerVerreMemoire(${v});true;`); })
+            .catch(() => {});
+          onReady?.();
+        }}
         renderLoading={() => (
           <View style={[styles.loader, { backgroundColor: isDark ? (oled ? '#000000' : '#031a3a') : '#eef2f7' }]}>
             <ActivityIndicator size="large" color="#3498db" />
@@ -880,6 +936,7 @@ const MapWebView = forwardRef<MapWebViewRef, Props>(({ onStationSelected, onView
             if (d.type === 'viewportChanged') onViewportChanged?.(d.lat, d.lon, d.zoom, d.radius ?? 1000);
             if (d.type === 'mapTapped') onMapTapped?.();
             if (d.type === 'followModeExited') onFollowExited?.();
+            if (d.type === 'verreMemoire') AsyncStorage.setItem(CLE_VERRE, JSON.stringify(d.m)).catch(() => {});
           } catch {}
         }}
       />

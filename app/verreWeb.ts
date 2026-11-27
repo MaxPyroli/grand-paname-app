@@ -12,18 +12,10 @@ let origine = { x: 0, y: 0 };
 let envoyeur: ((liste: RectVerre[]) => void) | null = null;
 let minuteur: ReturnType<typeof setTimeout> | null = null;
 
-// Rotation : les rectangles de verre sont dessinés DANS la carte (une WebView qui se redimensionne et reçoit ses nouvelles
-// positions avec du retard), alors que les éléments natifs sont déjà à leur nouvelle place : le flou « traînait » derrière
-// eux. Pendant la rotation les rectangles sont donc masqués d'un coup (`voilerVerre`) puis réapparaissent en fondu une fois
-// la carte à jour : plus de flou qui se déplace en retard.
-let voile = false;
-let reapparition = false;
+// Rotation : c'est la carte qui replace elle-même le verre (voir setGlassRects dans MapWebView).
 
 function liste(): RectVerre[] {
-  return [...rects.values()].map(r => ({
-    ...r, x: r.x - origine.x, y: r.y == null ? undefined : r.y - origine.y,
-    ...(voile ? { op: 0, anim: false } : {}), ...(reapparition ? { fo: true } : {}),
-  }));
+  return [...rects.values()].map(r => ({ ...r, x: r.x - origine.x, y: r.y == null ? undefined : r.y - origine.y }));
 }
 
 export function renvoyerVerre() {
@@ -31,17 +23,8 @@ export function renvoyerVerre() {
   minuteur = setTimeout(() => {
     minuteur = null;
     envoyeur?.(liste());
-    reapparition = false;
   }, 16);
 }
-
-export function voilerVerre(dureeMs = 300) {
-  voile = true;
-  envoyeur?.(liste());
-  if (voileMinuteur) clearTimeout(voileMinuteur);
-  voileMinuteur = setTimeout(() => { voile = false; reapparition = true; voileMinuteur = null; renvoyerVerre(); }, dureeMs);
-}
-let voileMinuteur: ReturnType<typeof setTimeout> | null = null;
 
 export function definirOrigine(x: number, y: number) {
   origine = { x, y };
