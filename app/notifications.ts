@@ -11,21 +11,17 @@ import { concerneLigne } from './notifs';
 import type { ModeTrafic } from './traficApi';
 
 // Comportement d'affichage quand une notif arrive alors que l'app est ouverte.
-// Alerte trafic : UNIQUEMENT le pop-up de l'app (AlerteFlash), jamais la bannière du système en plus. La bibliothèque ne
-// sait pas « ranger sans bannière » (dès qu'on affiche, la catégorie « Info Trafic », en importance haute, fait surgir la
-// bannière). L'alerte reçue n'est donc pas affichée du tout, puis RELAYÉE : une copie locale est posée dans la catégorie
-// `CANAL_APP_OUVERTE` (importance normale : dans le volet, avec le son, sans bannière). Voir `ecouterAlerteTraficRecue`.
-const CANAL_APP_OUVERTE = 'trafic_ouvert';
+// Alerte trafic : UNIQUEMENT la notification interne de l'app. RIEN du côté du téléphone : ni bannière, ni son, ni entrée
+// dans le volet, ni icône dans la barre d'état (décision de l'utilisateur : une copie rangée dans le volet faisait
+// doublon). L'alerte reste gardée en mémoire par l'app (voir `ecouterAlerteTraficRecue`).
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    const data = notification?.request?.content?.data as any;
-    const alerteTrafic = data?.type === 'trafic';
-    const relais = alerteTrafic && data?.relais === true;
+    const alerteTrafic = (notification?.request?.content?.data as any)?.type === 'trafic';
     return {
-      shouldPlaySound: !alerteTrafic || relais,
+      shouldPlaySound: !alerteTrafic,
       shouldSetBadge: false,
       shouldShowBanner: !alerteTrafic,
-      shouldShowList: !alerteTrafic || relais,
+      shouldShowList: !alerteTrafic,
     };
   },
 });
@@ -111,14 +107,6 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
         name: 'Info Trafic',
         description: 'Perturbations et informations sur le trafic.',
         importance: Notifications.AndroidImportance.HIGH,
-      });
-      // Copies des alertes reçues app ouverte (voir le haut du fichier) : dans le volet, sans bannière ni vibration
-      // (le pop-up de l'app vibre déjà).
-      await Notifications.setNotificationChannelAsync(CANAL_APP_OUVERTE, {
-        name: 'Info Trafic (app ouverte)',
-        description: "Alertes reçues pendant que l'application est ouverte : gardées dans le volet, sans bannière.",
-        importance: Notifications.AndroidImportance.DEFAULT,
-        enableVibrate: false,
       });
       await Notifications.setNotificationChannelAsync('maj', {
         name: 'Mises à jour',
@@ -297,17 +285,8 @@ export function ecouterToucherAlerteTrafic(quand: (idLigne: string, alerte: Aler
 // gardée en mémoire tout de suite, sans attendre qu'on la touche.
 export function ecouterAlerteTraficRecue(quand: (alerte: AlerteRecue) => void): () => void {
   const abonnement = Notifications.addNotificationReceivedListener(n => {
-    const contenu = n.request?.content;
-    const data = contenu?.data as any;
-    if (data?.relais === true) return;   // la copie posée ci-dessous : ni pop-up ni nouvelle copie
     const alerte = alerteDepuis(n, Date.now());
     if (!alerte) return;
-    if (Platform.OS === 'android') {
-      Notifications.scheduleNotificationAsync({
-        content: { title: contenu.title ?? undefined, body: contenu.body ?? undefined, data: { ...data, relais: true }, sound: 'default' },
-        trigger: { channelId: CANAL_APP_OUVERTE },
-      }).catch((e: any) => logger.warn(`relais d'alerte: ${e?.message}`));
-    }
     memoriserAlerte(alerte);
     quand(alerte);
   });

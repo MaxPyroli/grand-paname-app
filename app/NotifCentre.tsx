@@ -24,6 +24,7 @@ const ICONES: Record<TypeNotif, IconName> = {
 const MARGE_HALO = 24;   // place autour de la carte pour que le halo tienne dans l'image dessinée
 const HORS_CHAMP = 220;
 const RESSORT = { damping: 18, stiffness: 190, mass: 0.7 };
+const SORTIE_BALAYEE = { damping: 30, stiffness: 180, mass: 0.7, overshootClamping: true };
 // Pile des cartes : celles qui attendent dépassent sous la première, un peu plus petites à chaque rang.
 const CARTES_VISIBLES = 3;
 const DECALAGE_PILE = 12;
@@ -109,6 +110,8 @@ function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }:
   const profondeur = useSharedValue(rang);
   const opacite = useSharedValue(0);
   const minuteur = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Vrai quand la carte a été balayée : sa sortie est DÉJÀ en route, il ne faut pas la relancer.
+  const balayee = useSharedValue(false);
 
   const arreterMinuteur = useCallback(() => { if (minuteur.current) { clearTimeout(minuteur.current); minuteur.current = null; } }, []);
   // Seule la carte de devant s'écoule : celles de la pile attendent leur tour sans perdre de temps.
@@ -120,6 +123,7 @@ function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }:
   // Entrée : à l'image suivante, une fois la carte dessinée (sinon les premières images de l'animation sont perdues).
   useEffect(() => {
     if (sortante) return;
+    balayee.value = false;
     const image = requestAnimationFrame(() => {
       opacite.value = withTiming(1, { duration: 140 });
       y.value = withSpring(0, RESSORT);
@@ -135,6 +139,10 @@ function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }:
   useEffect(() => {
     if (!sortante) return;
     arreterMinuteur();
+    if (balayee.value) {
+      opacite.value = withDelay(180, withTiming(0, { duration: 120 }, fini => { if (fini) runOnJS(onSortie)(n.cle); }));
+      return;
+    }
     opacite.value = withDelay(130, withTiming(0, { duration: 90 }));
     y.value = withTiming(sens * HORS_CHAMP, { duration: 220, easing: Easing.in(Easing.cubic) }, fini => { if (fini) runOnJS(onSortie)(n.cle); });
   }, [sortante, onSortie, n.cle, sens, y, opacite, arreterMinuteur]);
@@ -147,8 +155,13 @@ function Carte({ n, rang, sortante, hauteurTete, avecFlou, onMesure, onSortie }:
     .onBegin(() => { runOnJS(arreterMinuteur)(); })
     .onUpdate(e => { const d = e.translationY * sens; y.value = sens * (d > 0 ? d : d * 0.15); })
     .onEnd(e => {
-      if (e.translationY * sens > 28 || e.velocityY * sens > 500) runOnJS(fermer)();
-      else y.value = withSpring(0, RESSORT);
+      // Même principe que les volets : au lâcher, le mouvement continue AUSSITÔT à la vitesse du doigt, sans attendre
+      // le code de l'app (l'aller-retour figeait la carte un instant avant qu'elle reparte de zéro).
+      if (e.translationY * sens > 28 || e.velocityY * sens > 500) {
+        balayee.value = true;
+        y.value = withSpring(sens * HORS_CHAMP, { ...SORTIE_BALAYEE, velocity: e.velocityY });
+        runOnJS(fermer)();
+      } else y.value = withSpring(0, { ...RESSORT, velocity: e.velocityY });
     })
     .onFinalize(() => { runOnJS(lancerMinuteur)(); });
 
