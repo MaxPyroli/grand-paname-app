@@ -10,7 +10,7 @@ export type ChangelogEntry = {
 export const CHANGELOGS: ChangelogEntry[] = [
   {
     version: '3.4.1',
-    date: 'En préparation',
+    date: '27 novembre 2026',
     content: `**🛠️ Améliorations et Corrections**
 * Les paramètres ont été entièrement repensés, plus compacts et aux couleurs de l'app, et le tutoriel a été revu.
 * Nouvelle page Notifications : choisis tes alertes (toutes, perturbations et interruptions, ou interruptions seules), gère tes lignes suivies et règle les alertes dans l'app. Elles sont aussi rangées en trois catégories Android.
